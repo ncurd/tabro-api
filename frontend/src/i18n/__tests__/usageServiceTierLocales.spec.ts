@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
 import en from '../locales/en'
-import zh from '../locales/zh'
+import zhCN from '../locales/zh-CN'
 
 describe('usage service tier locale keys', () => {
-  it('contains zh labels for service tier tooltip', () => {
-    expect(zh.usage.serviceTier).toBe('服务档位')
-    expect(zh.usage.serviceTierPriority).toBe('Fast')
-    expect(zh.usage.serviceTierFlex).toBe('Flex')
-    expect(zh.usage.serviceTierStandard).toBe('Standard')
+  it('contains zh-CN labels for service tier tooltip', () => {
+    expect(zhCN.usage.serviceTier).toBe('服务档位')
+    expect(zhCN.usage.serviceTierPriority).toBe('Fast')
+    expect(zhCN.usage.serviceTierFlex).toBe('Flex')
+    expect(zhCN.usage.serviceTierStandard).toBe('Standard')
   })
 
   it('contains en labels for service tier tooltip', () => {

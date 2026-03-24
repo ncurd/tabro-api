@@ -150,6 +150,7 @@ type UpdateSettingsRequest struct {
 	SMTPFrom     string `json:"smtp_from_email"`
 	SMTPFromName string `json:"smtp_from_name"`
 	SMTPUseTLS   bool   `json:"smtp_use_tls"`
+	SMTPSecurity string `json:"smtp_security"`
 
 	// Cloudflare Turnstile 设置
 	TurnstileEnabled   bool   `json:"turnstile_enabled"`
@@ -458,6 +459,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		SMTPFrom:                         req.SMTPFrom,
 		SMTPFromName:                     req.SMTPFromName,
 		SMTPUseTLS:                       req.SMTPUseTLS,
+		SMTPSecurity:                     req.SMTPSecurity,
 		TurnstileEnabled:                 req.TurnstileEnabled,
 		TurnstileSiteKey:                 req.TurnstileSiteKey,
 		TurnstileSecretKey:               req.TurnstileSecretKey,
@@ -554,6 +556,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		SMTPFrom:                             updatedSettings.SMTPFrom,
 		SMTPFromName:                         updatedSettings.SMTPFromName,
 		SMTPUseTLS:                           updatedSettings.SMTPUseTLS,
+		SMTPSecurity:                         updatedSettings.SMTPSecurity,
 		TurnstileEnabled:                     updatedSettings.TurnstileEnabled,
 		TurnstileSiteKey:                     updatedSettings.TurnstileSiteKey,
 		TurnstileSecretKeyConfigured:         updatedSettings.TurnstileSecretKeyConfigured,
@@ -653,6 +656,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if before.SMTPUseTLS != after.SMTPUseTLS {
 		changed = append(changed, "smtp_use_tls")
+	}
+	if before.SMTPSecurity != after.SMTPSecurity {
+		changed = append(changed, "smtp_security")
 	}
 	if before.TurnstileEnabled != after.TurnstileEnabled {
 		changed = append(changed, "turnstile_enabled")
@@ -810,6 +816,7 @@ type TestSMTPRequest struct {
 	SMTPUsername string `json:"smtp_username"`
 	SMTPPassword string `json:"smtp_password"`
 	SMTPUseTLS   bool   `json:"smtp_use_tls"`
+	SMTPSecurity string `json:"smtp_security"`
 }
 
 // TestSMTPConnection 测试SMTP连接
@@ -840,6 +847,7 @@ func (h *SettingHandler) TestSMTPConnection(c *gin.Context) {
 		Username: req.SMTPUsername,
 		Password: password,
 		UseTLS:   req.SMTPUseTLS,
+		Security: req.SMTPSecurity,
 	}
 
 	err := h.emailService.TestSMTPConnectionWithConfig(config)
@@ -861,6 +869,7 @@ type SendTestEmailRequest struct {
 	SMTPFrom     string `json:"smtp_from_email"`
 	SMTPFromName string `json:"smtp_from_name"`
 	SMTPUseTLS   bool   `json:"smtp_use_tls"`
+	SMTPSecurity string `json:"smtp_security"`
 }
 
 // SendTestEmail 发送测试邮件
@@ -893,6 +902,7 @@ func (h *SettingHandler) SendTestEmail(c *gin.Context) {
 		From:     req.SMTPFrom,
 		FromName: req.SMTPFromName,
 		UseTLS:   req.SMTPUseTLS,
+		Security: req.SMTPSecurity,
 	}
 
 	siteName := h.settingService.GetSiteName(c.Request.Context())

@@ -460,6 +460,7 @@ func TestAPIContracts(t *testing.T) {
 					service.SettingKeySMTPFrom:     "no-reply@example.com",
 					service.SettingKeySMTPFromName: "Sub2API",
 					service.SettingKeySMTPUseTLS:   "true",
+					service.SettingKeySMTPSecurity: "tls",
 
 					service.SettingKeyTurnstileEnabled:   "true",
 					service.SettingKeyTurnstileSiteKey:   "site-key",
@@ -503,6 +504,7 @@ func TestAPIContracts(t *testing.T) {
 					"smtp_from_email": "no-reply@example.com",
 					"smtp_from_name": "Sub2API",
 					"smtp_use_tls": true,
+					"smtp_security": "tls",
 					"turnstile_enabled": true,
 					"turnstile_site_key": "site-key",
 					"turnstile_secret_key_configured": true,

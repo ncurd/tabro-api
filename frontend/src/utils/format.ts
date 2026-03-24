@@ -43,7 +43,7 @@ export function formatNumber(num: number | null | undefined): string {
   const absNum = Math.abs(num)
 
   // Use Intl.NumberFormat for compact notation if supported and needed
-  // Note: Compact notation in 'zh' uses '万/亿', which is appropriate for Chinese
+  // Note: Compact notation in Chinese locales uses '万/亿', which is appropriate for Chinese
   const formatter = new Intl.NumberFormat(locale, {
     notation: absNum >= 10000 ? 'compact' : 'standard',
     maximumFractionDigits: 1

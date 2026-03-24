@@ -51,6 +51,7 @@ export interface SystemSettings {
   smtp_from_email: string
   smtp_from_name: string
   smtp_use_tls: boolean
+  smtp_security: 'none' | 'starttls' | 'tls'
   // Cloudflare Turnstile settings
   turnstile_enabled: boolean
   turnstile_site_key: string
@@ -118,6 +119,7 @@ export interface UpdateSettingsRequest {
   smtp_from_email?: string
   smtp_from_name?: string
   smtp_use_tls?: boolean
+  smtp_security?: 'none' | 'starttls' | 'tls'
   turnstile_enabled?: boolean
   turnstile_site_key?: string
   turnstile_secret_key?: string
@@ -168,6 +170,7 @@ export interface TestSmtpRequest {
   smtp_username: string
   smtp_password: string
   smtp_use_tls: boolean
+  smtp_security: 'none' | 'starttls' | 'tls'
 }
 
 /**
@@ -192,6 +195,7 @@ export interface SendTestEmailRequest {
   smtp_from_email: string
   smtp_from_name: string
   smtp_use_tls: boolean
+  smtp_security: 'none' | 'starttls' | 'tls'
 }
 
 /**

@@ -1674,19 +1674,18 @@
               </div>
             </div>
 
-            <!-- Use TLS Toggle -->
-            <div
-              class="flex items-center justify-between border-t border-gray-100 pt-4 dark:border-dark-700"
-            >
-              <div>
-                <label class="font-medium text-gray-900 dark:text-white">{{
-                  t('admin.settings.smtp.useTls')
-                }}</label>
-                <p class="text-sm text-gray-500 dark:text-gray-400">
-                  {{ t('admin.settings.smtp.useTlsHint') }}
-                </p>
-              </div>
-              <Toggle v-model="form.smtp_use_tls" />
+            <div class="border-t border-gray-100 pt-4 dark:border-dark-700">
+              <label class="mb-2 block font-medium text-gray-900 dark:text-white">
+                {{ t('admin.settings.smtp.security') }}
+              </label>
+              <p class="mb-3 text-sm text-gray-500 dark:text-gray-400">
+                {{ t('admin.settings.smtp.securityHint') }}
+              </p>
+              <select v-model="form.smtp_security" class="input">
+                <option value="none">{{ t('admin.settings.smtp.securityNone') }}</option>
+                <option value="starttls">{{ t('admin.settings.smtp.securityStarttls') }}</option>
+                <option value="tls">{{ t('admin.settings.smtp.securityTls') }}</option>
+              </select>
             </div>
 
           </div>
@@ -1940,6 +1939,7 @@ const form = reactive<SettingsForm>({
   smtp_from_email: '',
   smtp_from_name: '',
   smtp_use_tls: true,
+  smtp_security: 'tls',
   // Cloudflare Turnstile
   turnstile_enabled: false,
   turnstile_site_key: '',
@@ -2116,6 +2116,8 @@ async function loadSettings() {
     registrationEmailSuffixWhitelistTags.value = normalizeRegistrationEmailSuffixDomains(
       settings.registration_email_suffix_whitelist
     )
+    form.smtp_security = settings.smtp_security || (settings.smtp_use_tls ? 'tls' : 'none')
+    form.smtp_use_tls = form.smtp_security === 'tls'
     registrationEmailSuffixWhitelistDraft.value = ''
     form.smtp_password = ''
     form.turnstile_secret_key = ''
@@ -2216,7 +2218,8 @@ async function saveSettings() {
       smtp_password: form.smtp_password || undefined,
       smtp_from_email: form.smtp_from_email,
       smtp_from_name: form.smtp_from_name,
-      smtp_use_tls: form.smtp_use_tls,
+      smtp_use_tls: form.smtp_security === 'tls',
+      smtp_security: form.smtp_security,
       turnstile_enabled: form.turnstile_enabled,
       turnstile_site_key: form.turnstile_site_key,
       turnstile_secret_key: form.turnstile_secret_key || undefined,
@@ -2236,6 +2239,8 @@ async function saveSettings() {
     }
     const updated = await adminAPI.settings.updateSettings(payload)
     Object.assign(form, updated)
+    form.smtp_security = updated.smtp_security || (updated.smtp_use_tls ? 'tls' : 'none')
+    form.smtp_use_tls = form.smtp_security === 'tls'
     registrationEmailSuffixWhitelistTags.value = normalizeRegistrationEmailSuffixDomains(
       updated.registration_email_suffix_whitelist
     )
@@ -2264,7 +2269,8 @@ async function testSmtpConnection() {
       smtp_port: form.smtp_port,
       smtp_username: form.smtp_username,
       smtp_password: form.smtp_password,
-      smtp_use_tls: form.smtp_use_tls
+      smtp_use_tls: form.smtp_security === 'tls',
+      smtp_security: form.smtp_security
     })
     // API returns { message: "..." } on success, errors are thrown as exceptions
     appStore.showSuccess(result.message || t('admin.settings.smtpConnectionSuccess'))
@@ -2293,7 +2299,8 @@ async function sendTestEmail() {
       smtp_password: form.smtp_password,
       smtp_from_email: form.smtp_from_email,
       smtp_from_name: form.smtp_from_name,
-      smtp_use_tls: form.smtp_use_tls
+      smtp_use_tls: form.smtp_security === 'tls',
+      smtp_security: form.smtp_security
     })
     // API returns { message: "..." } on success, errors are thrown as exceptions
     appStore.showSuccess(result.message || t('admin.settings.testEmailSent'))
