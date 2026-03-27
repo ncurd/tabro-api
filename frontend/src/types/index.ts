@@ -84,6 +84,12 @@ export interface CustomMenuItem {
   sort_order: number
 }
 
+export interface CustomEndpoint {
+  name: string
+  endpoint: string
+  description: string
+}
+
 export interface PublicSettings {
   registration_enabled: boolean
   email_verify_enabled: boolean
@@ -104,6 +110,7 @@ export interface PublicSettings {
   purchase_subscription_enabled: boolean
   purchase_subscription_url: string
   custom_menu_items: CustomMenuItem[]
+  custom_endpoints: CustomEndpoint[]
   linuxdo_oauth_enabled: boolean
   sora_client_enabled: boolean
   backend_mode_enabled: boolean
@@ -781,6 +788,7 @@ export interface AntigravityModelQuota {
 }
 
 export interface AccountUsageInfo {
+  source?: 'passive' | 'active'
   updated_at: string | null
   five_hour: UsageProgress | null
   seven_day: UsageProgress | null
@@ -977,7 +985,6 @@ export interface UsageLog {
   account_id: number | null
   request_id: string
   model: string
-  upstream_model?: string | null
   service_tier?: string | null
   reasoning_effort?: string | null
   inbound_endpoint?: string | null
@@ -1032,6 +1039,8 @@ export interface UsageLogAccountSummary {
 }
 
 export interface AdminUsageLog extends UsageLog {
+  upstream_model?: string | null
+
   // 账号计费倍率（仅管理员可见）
   account_rate_multiplier?: number | null
 
