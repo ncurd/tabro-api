@@ -564,15 +564,21 @@ download_and_extract() {
     trap "rm -rf $TEMP_DIR" EXIT
 
     # Download archive
-    if ! curl -sL "$download_url" -o "$TEMP_DIR/$archive_name"; then
+    if ! curl -fsSL "$download_url" -o "$TEMP_DIR/$archive_name"; then
         print_error "$(msg 'download_failed')"
+        print_error "Release asset not found: $archive_name"
         exit 1
     fi
 
     # Download and verify checksum
     print_info "$(msg 'verifying_checksum')"
-    if curl -sL "$checksum_url" -o "$TEMP_DIR/checksums.txt" 2>/dev/null; then
-        local expected_checksum=$(grep "$archive_name" "$TEMP_DIR/checksums.txt" | awk '{print $1}')
+    if curl -fsSL "$checksum_url" -o "$TEMP_DIR/checksums.txt" 2>/dev/null; then
+        local expected_checksum=$(grep " ${archive_name}$" "$TEMP_DIR/checksums.txt" | awk '{print $1}')
+        if [ -z "$expected_checksum" ]; then
+            print_error "Release checksum entry not found: $archive_name"
+            print_error "The published release is incomplete or missing this platform asset."
+            exit 1
+        fi
         local actual_checksum=$(sha256sum "$TEMP_DIR/$archive_name" | awk '{print $1}')
 
         if [ "$expected_checksum" != "$actual_checksum" ]; then
