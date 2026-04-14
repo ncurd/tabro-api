@@ -18,6 +18,12 @@ const (
 	NonceTemplate = "__CSP_NONCE__"
 	// CloudflareInsightsDomain is the domain for Cloudflare Web Analytics
 	CloudflareInsightsDomain = "https://static.cloudflareinsights.com"
+	// Stripe script/frame origins required by Stripe.js / Elements.
+	StripeJSDomain         = "https://js.stripe.com"
+	StripeJSWildcardDomain = "https://*.js.stripe.com"
+	StripeHooksDomain      = "https://hooks.stripe.com"
+	StripeAPIDomain        = "https://api.stripe.com"
+	GoogleMapsDomain       = "https://maps.googleapis.com"
 )
 
 // GenerateNonce generates a cryptographically secure random nonce.
@@ -101,13 +107,43 @@ func isAPIRoutePath(c *gin.Context) bool {
 // This allows the application to work correctly even if the config file has an older CSP policy.
 func enhanceCSPPolicy(policy string) string {
 	// Add nonce placeholder to script-src if not present
-	if !strings.Contains(policy, NonceTemplate) && !strings.Contains(policy, "'nonce-") {
+	if !directiveContainsValue(policy, "script-src", NonceTemplate) && !strings.Contains(policy, "'nonce-") {
 		policy = addToDirective(policy, "script-src", NonceTemplate)
 	}
 
 	// Add Cloudflare Insights domain to script-src if not present
-	if !strings.Contains(policy, CloudflareInsightsDomain) {
+	if !directiveContainsValue(policy, "script-src", CloudflareInsightsDomain) {
 		policy = addToDirective(policy, "script-src", CloudflareInsightsDomain)
+	}
+
+	// Stripe.js / Elements require these script origins.
+	if !directiveContainsValue(policy, "script-src", StripeJSDomain) {
+		policy = addToDirective(policy, "script-src", StripeJSDomain)
+	}
+	if !directiveContainsValue(policy, "script-src", StripeJSWildcardDomain) {
+		policy = addToDirective(policy, "script-src", StripeJSWildcardDomain)
+	}
+	if !directiveContainsValue(policy, "script-src", GoogleMapsDomain) {
+		policy = addToDirective(policy, "script-src", GoogleMapsDomain)
+	}
+
+	// Stripe Elements renders iframes from Stripe-owned origins.
+	if !directiveContainsValue(policy, "frame-src", StripeJSDomain) {
+		policy = addToDirective(policy, "frame-src", StripeJSDomain)
+	}
+	if !directiveContainsValue(policy, "frame-src", StripeJSWildcardDomain) {
+		policy = addToDirective(policy, "frame-src", StripeJSWildcardDomain)
+	}
+	if !directiveContainsValue(policy, "frame-src", StripeHooksDomain) {
+		policy = addToDirective(policy, "frame-src", StripeHooksDomain)
+	}
+
+	// Stripe.js communicates with Stripe APIs and, in some flows, Google Maps.
+	if !directiveContainsValue(policy, "connect-src", StripeAPIDomain) {
+		policy = addToDirective(policy, "connect-src", StripeAPIDomain)
+	}
+	if !directiveContainsValue(policy, "connect-src", GoogleMapsDomain) {
+		policy = addToDirective(policy, "connect-src", GoogleMapsDomain)
 	}
 
 	return policy
@@ -147,4 +183,19 @@ func addToDirective(policy, directive, value string) string {
 	// Insert value before the semicolon
 	insertPos := idx + endIdx
 	return policy[:insertPos] + " " + value + policy[insertPos:]
+}
+
+func directiveContainsValue(policy, directive, value string) bool {
+	directivePrefix := directive + " "
+	idx := strings.Index(policy, directivePrefix)
+	if idx == -1 {
+		return false
+	}
+
+	endIdx := strings.Index(policy[idx:], ";")
+	if endIdx == -1 {
+		return strings.Contains(policy[idx:], value)
+	}
+
+	return strings.Contains(policy[idx:idx+endIdx], value)
 }

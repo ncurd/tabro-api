@@ -92,6 +92,56 @@ func TestInstanceSupportsType(t *testing.T) {
 	}
 }
 
+func TestInstanceSupportsPaymentTypeSelection(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		inst     *dbent.PaymentProviderInstance
+		target   PaymentType
+		expected bool
+	}{
+		{
+			name: "stripe instance with sub-methods matches unified stripe selection",
+			inst: &dbent.PaymentProviderInstance{
+				ProviderKey:    "stripe",
+				SupportedTypes: "card,alipay,wxpay,link",
+			},
+			target:   "stripe",
+			expected: true,
+		},
+		{
+			name: "stripe instance with explicit stripe matches unified stripe selection",
+			inst: &dbent.PaymentProviderInstance{
+				ProviderKey:    "stripe",
+				SupportedTypes: "stripe",
+			},
+			target:   "stripe",
+			expected: true,
+		},
+		{
+			name: "non-stripe provider does not match unified stripe selection",
+			inst: &dbent.PaymentProviderInstance{
+				ProviderKey:    "easypay",
+				SupportedTypes: "alipay,wxpay",
+			},
+			target:   "stripe",
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := instanceSupportsPaymentTypeSelection(tt.inst, tt.target)
+			if got != tt.expected {
+				t.Fatalf("instanceSupportsPaymentTypeSelection(%q, %q, %q) = %v, want %v",
+					tt.inst.ProviderKey, tt.inst.SupportedTypes, tt.target, got, tt.expected)
+			}
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Helper to build test PaymentProviderInstance values
 // ---------------------------------------------------------------------------
@@ -242,7 +292,7 @@ func TestFilterByLimits(t *testing.T) {
 			wantIDs:     nil,
 		},
 		{
-			name: "empty candidates returns empty",
+			name:        "empty candidates returns empty",
 			candidates:  nil,
 			paymentType: "alipay",
 			orderAmount: 10,

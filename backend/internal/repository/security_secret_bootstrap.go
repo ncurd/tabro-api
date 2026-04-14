@@ -17,9 +17,10 @@ import (
 )
 
 const (
-	securitySecretKeyJWT        = "jwt_secret"
-	securitySecretReadRetryMax  = 5
-	securitySecretReadRetryWait = 10 * time.Millisecond
+	securitySecretKeyJWT            = "jwt_secret"
+	securitySecretKeyTotpEncryption = "totp_encryption_key"
+	securitySecretReadRetryMax      = 5
+	securitySecretReadRetryWait     = 10 * time.Millisecond
 )
 
 var readRandomBytes = rand.Read
@@ -32,6 +33,16 @@ func ensureBootstrapSecrets(ctx context.Context, client *ent.Client, cfg *config
 		return fmt.Errorf("nil config")
 	}
 
+	if err := ensureBootstrapJWTSecret(ctx, client, cfg); err != nil {
+		return err
+	}
+	if err := ensureBootstrapTotpEncryptionKey(ctx, client, cfg); err != nil {
+		return err
+	}
+	return nil
+}
+
+func ensureBootstrapJWTSecret(ctx context.Context, client *ent.Client, cfg *config.Config) error {
 	cfg.JWT.Secret = strings.TrimSpace(cfg.JWT.Secret)
 	if cfg.JWT.Secret != "" {
 		storedSecret, err := createSecuritySecretIfAbsent(ctx, client, securitySecretKeyJWT, cfg.JWT.Secret)
@@ -53,6 +64,32 @@ func ensureBootstrapSecrets(ctx context.Context, client *ent.Client, cfg *config
 
 	if created {
 		log.Println("Warning: JWT secret auto-generated and persisted to database. Consider rotating to a managed secret for production.")
+	}
+	return nil
+}
+
+func ensureBootstrapTotpEncryptionKey(ctx context.Context, client *ent.Client, cfg *config.Config) error {
+	cfg.Totp.EncryptionKey = strings.TrimSpace(cfg.Totp.EncryptionKey)
+	if cfg.Totp.EncryptionKey != "" {
+		storedSecret, err := createSecuritySecretIfAbsent(ctx, client, securitySecretKeyTotpEncryption, cfg.Totp.EncryptionKey)
+		if err != nil {
+			return fmt.Errorf("persist totp encryption key: %w", err)
+		}
+		if storedSecret != cfg.Totp.EncryptionKey {
+			log.Println("Warning: configured TOTP encryption key mismatches persisted value; using persisted value for cross-instance consistency.")
+		}
+		cfg.Totp.EncryptionKey = storedSecret
+		return nil
+	}
+
+	secret, created, err := getOrCreateGeneratedSecuritySecret(ctx, client, securitySecretKeyTotpEncryption, 32)
+	if err != nil {
+		return fmt.Errorf("ensure totp encryption key: %w", err)
+	}
+	cfg.Totp.EncryptionKey = secret
+
+	if created {
+		log.Println("Warning: TOTP encryption key auto-generated and persisted to database. Consider rotating to a managed secret for production.")
 	}
 	return nil
 }

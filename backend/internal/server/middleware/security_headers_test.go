@@ -296,6 +296,26 @@ func TestEnhanceCSPPolicy(t *testing.T) {
 		assert.Contains(t, enhanced, CloudflareInsightsDomain)
 	})
 
+	t.Run("adds_required_stripe_directives", func(t *testing.T) {
+		policy := "default-src 'self'; script-src 'self'; frame-src 'self'; connect-src 'self'"
+		enhanced := enhanceCSPPolicy(policy)
+
+		assert.Contains(t, enhanced, StripeJSDomain)
+		assert.Contains(t, enhanced, StripeJSWildcardDomain)
+		assert.Contains(t, enhanced, StripeHooksDomain)
+		assert.Contains(t, enhanced, StripeAPIDomain)
+		assert.Contains(t, enhanced, GoogleMapsDomain)
+	})
+
+	t.Run("adds_stripe_frame_origins_even_if_script_src_already_has_them", func(t *testing.T) {
+		policy := "default-src 'self'; script-src 'self' https://js.stripe.com https://*.js.stripe.com; frame-src 'self'"
+		enhanced := enhanceCSPPolicy(policy)
+
+		assert.Contains(t, enhanced, "frame-src 'self' "+StripeJSDomain)
+		assert.Contains(t, enhanced, StripeJSWildcardDomain)
+		assert.Contains(t, enhanced, StripeHooksDomain)
+	})
+
 	t.Run("does_not_duplicate_nonce_placeholder", func(t *testing.T) {
 		policy := "default-src 'self'; script-src 'self' __CSP_NONCE__"
 		enhanced := enhanceCSPPolicy(policy)
