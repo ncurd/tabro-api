@@ -135,20 +135,12 @@ func (s *EmailService) GetSMTPConfig(ctx context.Context) (*SMTPConfig, error) {
 	return &SMTPConfig{
 		Host:     host,
 		Port:     port,
-<<<<<<< HEAD
-		Username: settings[SettingKeySMTPUsername],
-		Password: settings[SettingKeySMTPPassword],
-		From:     settings[SettingKeySMTPFrom],
-		FromName: settings[SettingKeySMTPFromName],
-		UseTLS:   security == SMTPSecurityTLS,
-		Security: security,
-=======
 		Username: strings.TrimSpace(settings[SettingKeySMTPUsername]),
 		Password: strings.TrimSpace(settings[SettingKeySMTPPassword]),
 		From:     strings.TrimSpace(settings[SettingKeySMTPFrom]),
 		FromName: strings.TrimSpace(settings[SettingKeySMTPFromName]),
-		UseTLS:   useTLS,
->>>>>>> common/main
+		UseTLS:   security == SMTPSecurityTLS,
+		Security: security,
 	}, nil
 }
 
