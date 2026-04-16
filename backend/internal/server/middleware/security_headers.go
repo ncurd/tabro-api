@@ -18,12 +18,8 @@ const (
 	NonceTemplate = "__CSP_NONCE__"
 	// CloudflareInsightsDomain is the domain for Cloudflare Web Analytics
 	CloudflareInsightsDomain = "https://static.cloudflareinsights.com"
-	// Stripe script/frame origins required by Stripe.js / Elements.
-	StripeJSDomain         = "https://js.stripe.com"
-	StripeJSWildcardDomain = "https://*.js.stripe.com"
-	StripeHooksDomain      = "https://hooks.stripe.com"
-	StripeAPIDomain        = "https://api.stripe.com"
-	GoogleMapsDomain       = "https://maps.googleapis.com"
+	// StripeDomain is the domain for Stripe.js SDK
+	StripeDomain = "https://*.stripe.com"
 )
 
 // GenerateNonce generates a cryptographically secure random nonce.
@@ -103,8 +99,9 @@ func isAPIRoutePath(c *gin.Context) bool {
 		strings.HasPrefix(path, "/responses")
 }
 
-// enhanceCSPPolicy ensures the CSP policy includes nonce support and Cloudflare Insights domain.
-// This allows the application to work correctly even if the config file has an older CSP policy.
+// enhanceCSPPolicy ensures the CSP policy includes nonce support, Cloudflare Insights,
+// and Stripe.js domains. This allows the application to work correctly even if the
+// config file has an older CSP policy.
 func enhanceCSPPolicy(policy string) string {
 	// Add nonce placeholder to script-src if not present
 	if !directiveContainsValue(policy, "script-src", NonceTemplate) && !strings.Contains(policy, "'nonce-") {
@@ -116,34 +113,10 @@ func enhanceCSPPolicy(policy string) string {
 		policy = addToDirective(policy, "script-src", CloudflareInsightsDomain)
 	}
 
-	// Stripe.js / Elements require these script origins.
-	if !directiveContainsValue(policy, "script-src", StripeJSDomain) {
-		policy = addToDirective(policy, "script-src", StripeJSDomain)
-	}
-	if !directiveContainsValue(policy, "script-src", StripeJSWildcardDomain) {
-		policy = addToDirective(policy, "script-src", StripeJSWildcardDomain)
-	}
-	if !directiveContainsValue(policy, "script-src", GoogleMapsDomain) {
-		policy = addToDirective(policy, "script-src", GoogleMapsDomain)
-	}
-
-	// Stripe Elements renders iframes from Stripe-owned origins.
-	if !directiveContainsValue(policy, "frame-src", StripeJSDomain) {
-		policy = addToDirective(policy, "frame-src", StripeJSDomain)
-	}
-	if !directiveContainsValue(policy, "frame-src", StripeJSWildcardDomain) {
-		policy = addToDirective(policy, "frame-src", StripeJSWildcardDomain)
-	}
-	if !directiveContainsValue(policy, "frame-src", StripeHooksDomain) {
-		policy = addToDirective(policy, "frame-src", StripeHooksDomain)
-	}
-
-	// Stripe.js communicates with Stripe APIs and, in some flows, Google Maps.
-	if !directiveContainsValue(policy, "connect-src", StripeAPIDomain) {
-		policy = addToDirective(policy, "connect-src", StripeAPIDomain)
-	}
-	if !directiveContainsValue(policy, "connect-src", GoogleMapsDomain) {
-		policy = addToDirective(policy, "connect-src", GoogleMapsDomain)
+	// Add Stripe.js domain to script-src and frame-src if not present
+	if !strings.Contains(policy, "stripe.com") {
+		policy = addToDirective(policy, "script-src", StripeDomain)
+		policy = addToDirective(policy, "frame-src", StripeDomain)
 	}
 
 	return policy

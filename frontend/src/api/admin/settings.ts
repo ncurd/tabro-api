@@ -4,7 +4,7 @@
  */
 
 import { apiClient } from '../client'
-import type { CustomMenuItem, CustomEndpoint } from '@/types'
+import type { CustomMenuItem, CustomEndpoint, NotifyEmailEntry } from '@/types'
 
 export interface DefaultSubscriptionSetting {
   group_id: number
@@ -115,6 +115,7 @@ export interface SystemSettings {
   enable_fingerprint_unification: boolean
   enable_metadata_passthrough: boolean
   enable_cch_signing: boolean
+  web_search_emulation_enabled?: boolean
 
   // Payment configuration
   payment_enabled: boolean
@@ -125,6 +126,8 @@ export interface SystemSettings {
   payment_max_pending_orders: number
   payment_enabled_types: string[]
   payment_balance_disabled: boolean
+  payment_balance_recharge_multiplier: number
+  payment_recharge_fee_rate: number
   payment_load_balance_strategy: string
   payment_product_name_prefix: string
   payment_product_name_suffix: string
@@ -135,6 +138,13 @@ export interface SystemSettings {
   payment_cancel_rate_limit_window: number
   payment_cancel_rate_limit_unit: string
   payment_cancel_rate_limit_window_mode: string
+
+  // Balance & quota notification
+  balance_low_notify_enabled: boolean
+  balance_low_notify_threshold: number
+  balance_low_notify_recharge_url: string
+  account_quota_notify_enabled: boolean
+  account_quota_notify_emails: NotifyEmailEntry[]
 }
 
 export interface UpdateSettingsRequest {
@@ -225,6 +235,8 @@ export interface UpdateSettingsRequest {
   payment_max_pending_orders?: number
   payment_enabled_types?: string[]
   payment_balance_disabled?: boolean
+  payment_balance_recharge_multiplier?: number
+  payment_recharge_fee_rate?: number
   payment_load_balance_strategy?: string
   payment_product_name_prefix?: string
   payment_product_name_suffix?: string
@@ -235,6 +247,12 @@ export interface UpdateSettingsRequest {
   payment_cancel_rate_limit_window?: number
   payment_cancel_rate_limit_unit?: string
   payment_cancel_rate_limit_window_mode?: string
+  // Balance & quota notification
+  balance_low_notify_enabled?: boolean
+  balance_low_notify_threshold?: number
+  balance_low_notify_recharge_url?: string
+  account_quota_notify_enabled?: boolean
+  account_quota_notify_emails?: NotifyEmailEntry[]
 }
 
 /**
@@ -486,6 +504,63 @@ export async function updateBetaPolicySettings(
   return data
 }
 
+// --- Web Search Emulation Config ---
+
+export interface WebSearchProviderConfig {
+  type: 'brave' | 'tavily'
+  api_key: string
+  api_key_configured: boolean
+  quota_limit: number | null
+  subscribed_at: number | null
+  quota_used?: number
+  proxy_id: number | null
+  expires_at: number | null
+}
+
+export interface WebSearchEmulationConfig {
+  enabled: boolean
+  providers: WebSearchProviderConfig[]
+}
+
+export interface WebSearchTestResult {
+  provider: string
+  results: { url: string; title: string; snippet: string; page_age?: string }[]
+  query: string
+}
+
+export async function getWebSearchEmulationConfig(): Promise<WebSearchEmulationConfig> {
+  const { data } = await apiClient.get<WebSearchEmulationConfig>(
+    '/admin/settings/web-search-emulation'
+  )
+  return data
+}
+
+export async function updateWebSearchEmulationConfig(
+  config: WebSearchEmulationConfig
+): Promise<WebSearchEmulationConfig> {
+  const { data } = await apiClient.put<WebSearchEmulationConfig>(
+    '/admin/settings/web-search-emulation',
+    config
+  )
+  return data
+}
+
+export async function testWebSearchEmulation(
+  query: string
+): Promise<WebSearchTestResult> {
+  const { data } = await apiClient.post<WebSearchTestResult>(
+    '/admin/settings/web-search-emulation/test',
+    { query }
+  )
+  return data
+}
+
+export async function resetWebSearchUsage(
+  payload: { provider_type: string }
+): Promise<void> {
+  await apiClient.post('/admin/settings/web-search-emulation/reset-usage', payload)
+}
+
 export const settingsAPI = {
   getSettings,
   updateSettings,
@@ -501,7 +576,11 @@ export const settingsAPI = {
   getRectifierSettings,
   updateRectifierSettings,
   getBetaPolicySettings,
-  updateBetaPolicySettings
+  updateBetaPolicySettings,
+  getWebSearchEmulationConfig,
+  updateWebSearchEmulationConfig,
+  testWebSearchEmulation,
+  resetWebSearchUsage
 }
 
 export default settingsAPI
