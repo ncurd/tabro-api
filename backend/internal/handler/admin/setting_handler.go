@@ -44,6 +44,20 @@ func scopesContainOpenID(scopes string) bool {
 	return false
 }
 
+func normalizeSMTPAuthProtocolInput(values ...string) (string, error) {
+	for _, value := range values {
+		protocol := strings.ToLower(strings.TrimSpace(value))
+		if protocol == "" {
+			continue
+		}
+		if protocol != service.SMTPAuthProtocolPlain {
+			return "", fmt.Errorf("SMTP auth protocol must be %q", service.SMTPAuthProtocolPlain)
+		}
+		return protocol, nil
+	}
+	return service.SMTPAuthProtocolPlain, nil
+}
+
 // SettingHandler 系统设置处理器
 type SettingHandler struct {
 	settingService       *service.SettingService
@@ -111,6 +125,8 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		SMTPFrom:                             settings.SMTPFrom,
 		SMTPFromName:                         settings.SMTPFromName,
 		SMTPUseTLS:                           settings.SMTPUseTLS,
+		SMTPSecurity:                         settings.SMTPSecurity,
+		SMTPAuthProtocol:                     settings.SMTPAuthProtocol,
 		TurnstileEnabled:                     settings.TurnstileEnabled,
 		TurnstileSiteKey:                     settings.TurnstileSiteKey,
 		TurnstileSecretKeyConfigured:         settings.TurnstileSecretKeyConfigured,
@@ -209,14 +225,16 @@ type UpdateSettingsRequest struct {
 	TotpEnabled                      bool     `json:"totp_enabled"` // TOTP 双因素认证
 
 	// 邮件服务设置
-	SMTPHost     string `json:"smtp_host"`
-	SMTPPort     int    `json:"smtp_port"`
-	SMTPUsername string `json:"smtp_username"`
-	SMTPPassword string `json:"smtp_password"`
-	SMTPFrom     string `json:"smtp_from_email"`
-	SMTPFromName string `json:"smtp_from_name"`
-	SMTPUseTLS   bool   `json:"smtp_use_tls"`
-	SMTPSecurity string `json:"smtp_security"`
+	SMTPHost         string `json:"smtp_host"`
+	SMTPPort         int    `json:"smtp_port"`
+	SMTPUsername     string `json:"smtp_username"`
+	SMTPPassword     string `json:"smtp_password"`
+	SMTPFrom         string `json:"smtp_from_email"`
+	SMTPFromName     string `json:"smtp_from_name"`
+	SMTPUseTLS       bool   `json:"smtp_use_tls"`
+	SMTPSecurity     string `json:"smtp_security"`
+	SMTPAuthProtocol string `json:"smtp_auth_protocol"`
+	AuthProtocol     string `json:"auth_protocol"`
 
 	// Cloudflare Turnstile 设置
 	TurnstileEnabled   bool   `json:"turnstile_enabled"`
@@ -362,6 +380,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	req.SMTPPassword = strings.TrimSpace(req.SMTPPassword)
 	req.SMTPFrom = strings.TrimSpace(req.SMTPFrom)
 	req.SMTPFromName = strings.TrimSpace(req.SMTPFromName)
+	authProtocol, err := normalizeSMTPAuthProtocolInput(req.SMTPAuthProtocol, req.AuthProtocol)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	req.SMTPAuthProtocol = authProtocol
 	if req.SMTPPort <= 0 {
 		req.SMTPPort = 587
 	}
@@ -376,6 +400,8 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		req.SMTPFrom = previousSettings.SMTPFrom
 		req.SMTPFromName = previousSettings.SMTPFromName
 		req.SMTPUseTLS = previousSettings.SMTPUseTLS
+		req.SMTPSecurity = previousSettings.SMTPSecurity
+		req.SMTPAuthProtocol = previousSettings.SMTPAuthProtocol
 	}
 
 	// Turnstile 参数验证
@@ -784,6 +810,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		SMTPFromName:                     req.SMTPFromName,
 		SMTPUseTLS:                       req.SMTPUseTLS,
 		SMTPSecurity:                     req.SMTPSecurity,
+		SMTPAuthProtocol:                 req.SMTPAuthProtocol,
 		TurnstileEnabled:                 req.TurnstileEnabled,
 		TurnstileSiteKey:                 req.TurnstileSiteKey,
 		TurnstileSecretKey:               req.TurnstileSecretKey,
@@ -966,6 +993,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		SMTPFromName:                         updatedSettings.SMTPFromName,
 		SMTPUseTLS:                           updatedSettings.SMTPUseTLS,
 		SMTPSecurity:                         updatedSettings.SMTPSecurity,
+		SMTPAuthProtocol:                     updatedSettings.SMTPAuthProtocol,
 		TurnstileEnabled:                     updatedSettings.TurnstileEnabled,
 		TurnstileSiteKey:                     updatedSettings.TurnstileSiteKey,
 		TurnstileSecretKeyConfigured:         updatedSettings.TurnstileSecretKeyConfigured,
@@ -1127,6 +1155,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if before.SMTPSecurity != after.SMTPSecurity {
 		changed = append(changed, "smtp_security")
+	}
+	if before.SMTPAuthProtocol != after.SMTPAuthProtocol {
+		changed = append(changed, "smtp_auth_protocol")
 	}
 	if before.TurnstileEnabled != after.TurnstileEnabled {
 		changed = append(changed, "turnstile_enabled")
@@ -1375,12 +1406,14 @@ func equalIntSlice(a, b []int) bool {
 
 // TestSMTPRequest 测试SMTP连接请求
 type TestSMTPRequest struct {
-	SMTPHost     string `json:"smtp_host"`
-	SMTPPort     int    `json:"smtp_port"`
-	SMTPUsername string `json:"smtp_username"`
-	SMTPPassword string `json:"smtp_password"`
-	SMTPUseTLS   bool   `json:"smtp_use_tls"`
-	SMTPSecurity string `json:"smtp_security"`
+	SMTPHost         string `json:"smtp_host"`
+	SMTPPort         int    `json:"smtp_port"`
+	SMTPUsername     string `json:"smtp_username"`
+	SMTPPassword     string `json:"smtp_password"`
+	SMTPUseTLS       bool   `json:"smtp_use_tls"`
+	SMTPSecurity     string `json:"smtp_security"`
+	SMTPAuthProtocol string `json:"smtp_auth_protocol"`
+	AuthProtocol     string `json:"auth_protocol"`
 }
 
 // TestSMTPConnection 测试SMTP连接
@@ -1394,6 +1427,12 @@ func (h *SettingHandler) TestSMTPConnection(c *gin.Context) {
 
 	req.SMTPHost = strings.TrimSpace(req.SMTPHost)
 	req.SMTPUsername = strings.TrimSpace(req.SMTPUsername)
+	authProtocol, err := normalizeSMTPAuthProtocolInput(req.SMTPAuthProtocol, req.AuthProtocol)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	req.SMTPAuthProtocol = authProtocol
 
 	var savedConfig *service.SMTPConfig
 	if cfg, err := h.emailService.GetSMTPConfig(c.Request.Context()); err == nil && cfg != nil {
@@ -1413,6 +1452,9 @@ func (h *SettingHandler) TestSMTPConnection(c *gin.Context) {
 	if req.SMTPUsername == "" && savedConfig != nil {
 		req.SMTPUsername = savedConfig.Username
 	}
+	if req.SMTPSecurity == "" && savedConfig != nil {
+		req.SMTPSecurity = savedConfig.Security
+	}
 	password := strings.TrimSpace(req.SMTPPassword)
 	if password == "" && savedConfig != nil {
 		password = savedConfig.Password
@@ -1423,15 +1465,16 @@ func (h *SettingHandler) TestSMTPConnection(c *gin.Context) {
 	}
 
 	config := &service.SMTPConfig{
-		Host:     req.SMTPHost,
-		Port:     req.SMTPPort,
-		Username: req.SMTPUsername,
-		Password: password,
-		UseTLS:   req.SMTPUseTLS,
-		Security: req.SMTPSecurity,
+		Host:         req.SMTPHost,
+		Port:         req.SMTPPort,
+		Username:     req.SMTPUsername,
+		Password:     password,
+		UseTLS:       req.SMTPUseTLS,
+		Security:     req.SMTPSecurity,
+		AuthProtocol: req.SMTPAuthProtocol,
 	}
 
-	err := h.emailService.TestSMTPConnectionWithConfig(config)
+	err = h.emailService.TestSMTPConnectionWithConfig(config)
 	if err != nil {
 		response.BadRequest(c, "SMTP connection test failed: "+err.Error())
 		return
@@ -1442,15 +1485,17 @@ func (h *SettingHandler) TestSMTPConnection(c *gin.Context) {
 
 // SendTestEmailRequest 发送测试邮件请求
 type SendTestEmailRequest struct {
-	Email        string `json:"email" binding:"required,email"`
-	SMTPHost     string `json:"smtp_host"`
-	SMTPPort     int    `json:"smtp_port"`
-	SMTPUsername string `json:"smtp_username"`
-	SMTPPassword string `json:"smtp_password"`
-	SMTPFrom     string `json:"smtp_from_email"`
-	SMTPFromName string `json:"smtp_from_name"`
-	SMTPUseTLS   bool   `json:"smtp_use_tls"`
-	SMTPSecurity string `json:"smtp_security"`
+	Email            string `json:"email" binding:"required,email"`
+	SMTPHost         string `json:"smtp_host"`
+	SMTPPort         int    `json:"smtp_port"`
+	SMTPUsername     string `json:"smtp_username"`
+	SMTPPassword     string `json:"smtp_password"`
+	SMTPFrom         string `json:"smtp_from_email"`
+	SMTPFromName     string `json:"smtp_from_name"`
+	SMTPUseTLS       bool   `json:"smtp_use_tls"`
+	SMTPSecurity     string `json:"smtp_security"`
+	SMTPAuthProtocol string `json:"smtp_auth_protocol"`
+	AuthProtocol     string `json:"auth_protocol"`
 }
 
 // SendTestEmail 发送测试邮件
@@ -1466,6 +1511,12 @@ func (h *SettingHandler) SendTestEmail(c *gin.Context) {
 	req.SMTPUsername = strings.TrimSpace(req.SMTPUsername)
 	req.SMTPFrom = strings.TrimSpace(req.SMTPFrom)
 	req.SMTPFromName = strings.TrimSpace(req.SMTPFromName)
+	authProtocol, err := normalizeSMTPAuthProtocolInput(req.SMTPAuthProtocol, req.AuthProtocol)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	req.SMTPAuthProtocol = authProtocol
 
 	var savedConfig *service.SMTPConfig
 	if cfg, err := h.emailService.GetSMTPConfig(c.Request.Context()); err == nil && cfg != nil {
@@ -1484,6 +1535,9 @@ func (h *SettingHandler) SendTestEmail(c *gin.Context) {
 	}
 	if req.SMTPUsername == "" && savedConfig != nil {
 		req.SMTPUsername = savedConfig.Username
+	}
+	if req.SMTPSecurity == "" && savedConfig != nil {
+		req.SMTPSecurity = savedConfig.Security
 	}
 	password := strings.TrimSpace(req.SMTPPassword)
 	if password == "" && savedConfig != nil {
@@ -1501,14 +1555,15 @@ func (h *SettingHandler) SendTestEmail(c *gin.Context) {
 	}
 
 	config := &service.SMTPConfig{
-		Host:     req.SMTPHost,
-		Port:     req.SMTPPort,
-		Username: req.SMTPUsername,
-		Password: password,
-		From:     req.SMTPFrom,
-		FromName: req.SMTPFromName,
-		UseTLS:   req.SMTPUseTLS,
-		Security: req.SMTPSecurity,
+		Host:         req.SMTPHost,
+		Port:         req.SMTPPort,
+		Username:     req.SMTPUsername,
+		Password:     password,
+		From:         req.SMTPFrom,
+		FromName:     req.SMTPFromName,
+		UseTLS:       req.SMTPUseTLS,
+		Security:     req.SMTPSecurity,
+		AuthProtocol: req.SMTPAuthProtocol,
 	}
 
 	siteName := h.settingService.GetSiteName(c.Request.Context())

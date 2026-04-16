@@ -63,9 +63,10 @@ const (
 	verifyCodeCooldown    = 1 * time.Minute
 	maxVerifyCodeAttempts = 5
 
-	SMTPSecurityNone     = "none"
-	SMTPSecuritySTARTTLS = "starttls"
-	SMTPSecurityTLS      = "tls"
+	SMTPSecurityNone      = "none"
+	SMTPSecuritySTARTTLS  = "starttls"
+	SMTPSecurityTLS       = "tls"
+	SMTPAuthProtocolPlain = "plain"
 
 	// Password reset token settings
 	passwordResetTokenTTL = 30 * time.Minute
@@ -76,14 +77,15 @@ const (
 
 // SMTPConfig SMTP配置
 type SMTPConfig struct {
-	Host     string
-	Port     int
-	Username string
-	Password string
-	From     string
-	FromName string
-	UseTLS   bool
-	Security string
+	Host         string
+	Port         int
+	Username     string
+	Password     string
+	From         string
+	FromName     string
+	UseTLS       bool
+	Security     string
+	AuthProtocol string
 }
 
 // EmailService 邮件服务
@@ -111,6 +113,7 @@ func (s *EmailService) GetSMTPConfig(ctx context.Context) (*SMTPConfig, error) {
 		SettingKeySMTPFromName,
 		SettingKeySMTPUseTLS,
 		SettingKeySMTPSecurity,
+		SettingKeySMTPAuthProtocol,
 	}
 
 	settings, err := s.settingRepo.GetMultiple(ctx, keys)
@@ -131,16 +134,18 @@ func (s *EmailService) GetSMTPConfig(ctx context.Context) (*SMTPConfig, error) {
 	}
 
 	security := normalizeSMTPSecurity(settings[SettingKeySMTPSecurity], settings[SettingKeySMTPUseTLS] == "true")
+	authProtocol := normalizeSMTPAuthProtocol(settings[SettingKeySMTPAuthProtocol])
 
 	return &SMTPConfig{
-		Host:     host,
-		Port:     port,
-		Username: strings.TrimSpace(settings[SettingKeySMTPUsername]),
-		Password: strings.TrimSpace(settings[SettingKeySMTPPassword]),
-		From:     strings.TrimSpace(settings[SettingKeySMTPFrom]),
-		FromName: strings.TrimSpace(settings[SettingKeySMTPFromName]),
-		UseTLS:   security == SMTPSecurityTLS,
-		Security: security,
+		Host:         host,
+		Port:         port,
+		Username:     strings.TrimSpace(settings[SettingKeySMTPUsername]),
+		Password:     strings.TrimSpace(settings[SettingKeySMTPPassword]),
+		From:         strings.TrimSpace(settings[SettingKeySMTPFrom]),
+		FromName:     strings.TrimSpace(settings[SettingKeySMTPFromName]),
+		UseTLS:       security == SMTPSecurityTLS,
+		Security:     security,
+		AuthProtocol: authProtocol,
 	}, nil
 }
 
@@ -164,7 +169,10 @@ func (s *EmailService) SendEmailWithConfig(config *SMTPConfig, to, subject, body
 		from, to, subject, body)
 
 	addr := fmt.Sprintf("%s:%d", config.Host, config.Port)
-	auth := smtp.PlainAuth("", config.Username, config.Password, config.Host)
+	auth, err := buildSMTPAuth(config)
+	if err != nil {
+		return err
+	}
 	security := normalizeSMTPSecurity(config.Security, config.UseTLS)
 
 	if security == SMTPSecurityTLS {
@@ -190,6 +198,28 @@ func normalizeSMTPSecurity(security string, useTLS bool) string {
 			return SMTPSecurityTLS
 		}
 		return SMTPSecurityNone
+	}
+}
+
+func normalizeSMTPAuthProtocol(protocol string) string {
+	switch strings.ToLower(strings.TrimSpace(protocol)) {
+	case "", SMTPAuthProtocolPlain:
+		return SMTPAuthProtocolPlain
+	default:
+		return strings.ToLower(strings.TrimSpace(protocol))
+	}
+}
+
+func buildSMTPAuth(config *SMTPConfig) (smtp.Auth, error) {
+	if strings.TrimSpace(config.Username) == "" && strings.TrimSpace(config.Password) == "" {
+		return nil, nil
+	}
+
+	switch normalizeSMTPAuthProtocol(config.AuthProtocol) {
+	case SMTPAuthProtocolPlain:
+		return smtp.PlainAuth("", config.Username, config.Password, config.Host), nil
+	default:
+		return nil, fmt.Errorf("unsupported smtp auth protocol: %s", config.AuthProtocol)
 	}
 }
 
@@ -418,7 +448,10 @@ func (s *EmailService) TestSMTPConnectionWithConfig(config *SMTPConfig) error {
 		}
 		defer func() { _ = client.Close() }()
 
-		auth := smtp.PlainAuth("", config.Username, config.Password, config.Host)
+		auth, err := buildSMTPAuth(config)
+		if err != nil {
+			return err
+		}
 		if err = authenticateSMTPClient(client, auth); err != nil {
 			return err
 		}
@@ -445,7 +478,10 @@ func (s *EmailService) TestSMTPConnectionWithConfig(config *SMTPConfig) error {
 			return fmt.Errorf("starttls failed: %w", err)
 		}
 
-		auth := smtp.PlainAuth("", config.Username, config.Password, config.Host)
+		auth, err := buildSMTPAuth(config)
+		if err != nil {
+			return err
+		}
 		if err = authenticateSMTPClient(client, auth); err != nil {
 			return err
 		}
@@ -460,7 +496,10 @@ func (s *EmailService) TestSMTPConnectionWithConfig(config *SMTPConfig) error {
 	}
 	defer func() { _ = client.Close() }()
 
-	auth := smtp.PlainAuth("", config.Username, config.Password, config.Host)
+	auth, err := buildSMTPAuth(config)
+	if err != nil {
+		return err
+	}
 	if err = authenticateSMTPClient(client, auth); err != nil {
 		return err
 	}
