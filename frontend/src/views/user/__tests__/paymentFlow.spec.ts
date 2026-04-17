@@ -1,18 +1,18 @@
 import { describe, expect, it } from 'vitest'
 
-import { isPaymentResultSuccessful, shouldOpenPaymentPageDirectly } from '../paymentFlow'
+import { isPaymentResultSuccessful, resolvePaymentPageOpenStrategy } from '../paymentFlow'
 
 describe('paymentFlow helpers', () => {
-  it('redirects stripe payments immediately even on desktop', () => {
-    expect(shouldOpenPaymentPageDirectly('stripe', false)).toBe(true)
+  it('opens stripe payments in a new tab', () => {
+    expect(resolvePaymentPageOpenStrategy('stripe', false)).toBe('new-tab')
   })
 
   it('keeps non-stripe desktop payments in popup flow', () => {
-    expect(shouldOpenPaymentPageDirectly('alipay', false)).toBe(false)
+    expect(resolvePaymentPageOpenStrategy('alipay', false)).toBe('popup')
   })
 
   it('redirects any mobile payment directly', () => {
-    expect(shouldOpenPaymentPageDirectly('alipay', true)).toBe(true)
+    expect(resolvePaymentPageOpenStrategy('alipay', true)).toBe('same-tab')
   })
 
   it('prefers backend order status over success query flags', () => {
