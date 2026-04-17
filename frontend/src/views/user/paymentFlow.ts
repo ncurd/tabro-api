@@ -2,8 +2,12 @@ import type { OrderStatus } from '@/types/payment'
 
 const SUCCESS_STATUSES = new Set<OrderStatus>(['COMPLETED', 'PAID', 'RECHARGING'])
 
-export function shouldOpenPaymentPageDirectly(paymentType: string, isMobile: boolean): boolean {
-  return isMobile || paymentType === 'stripe'
+export type PaymentPageOpenStrategy = 'same-tab' | 'new-tab' | 'popup'
+
+export function resolvePaymentPageOpenStrategy(paymentType: string, isMobile: boolean): PaymentPageOpenStrategy {
+  if (paymentType === 'stripe') return 'new-tab'
+  if (isMobile) return 'same-tab'
+  return 'popup'
 }
 
 export function isPaymentResultSuccessful(

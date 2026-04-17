@@ -260,7 +260,7 @@ import { paymentAPI } from '@/api/payment'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { isMobileDevice } from '@/utils/device'
 import type { SubscriptionPlan, CheckoutInfoResponse, OrderType } from '@/types/payment'
-import { shouldOpenPaymentPageDirectly } from '@/views/user/paymentFlow'
+import { resolvePaymentPageOpenStrategy } from '@/views/user/paymentFlow'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import AmountInput from '@/components/payment/AmountInput.vue'
 import PaymentMethodSelector from '@/components/payment/PaymentMethodSelector.vue'
@@ -512,6 +512,8 @@ async function confirmSubscribe() {
 }
 
 async function createOrder(orderAmount: number, orderType: OrderType, planId?: number) {
+  const openStrategy = resolvePaymentPageOpenStrategy(selectedMethod.value, isMobileDevice())
+  const pendingStripeTab = openStrategy === 'new-tab' ? window.open('', '_blank', 'noopener') : null
   submitting.value = true
   errorMessage.value = ''
   try {
@@ -527,8 +529,25 @@ async function createOrder(orderAmount: number, orderType: OrderType, planId?: n
         window.location.href = url
       }
     }
+    const closePendingStripeTab = () => {
+      if (pendingStripeTab && !pendingStripeTab.closed) {
+        pendingStripeTab.close()
+      }
+    }
+    const openInNewTab = (url: string) => {
+      if (pendingStripeTab && !pendingStripeTab.closed) {
+        pendingStripeTab.location.href = url
+        pendingStripeTab.focus()
+        return
+      }
+      const win = window.open(url, '_blank', 'noopener')
+      if (!win || win.closed) {
+        window.location.href = url
+      }
+    }
 
     if (result.qr_code) {
+      closePendingStripeTab()
       // QR mode: show QR code inline
       paymentState.value = {
         orderId: result.order_id,
@@ -540,7 +559,6 @@ async function createOrder(orderAmount: number, orderType: OrderType, planId?: n
       }
       paymentPhase.value = 'paying'
     } else if (result.pay_url) {
-      const shouldRedirect = shouldOpenPaymentPageDirectly(selectedMethod.value, isMobileDevice())
       paymentState.value = {
         orderId: result.order_id,
         qrCode: '',
@@ -550,16 +568,24 @@ async function createOrder(orderAmount: number, orderType: OrderType, planId?: n
         orderType,
       }
       paymentPhase.value = 'paying'
-      if (shouldRedirect) {
+      if (openStrategy === 'same-tab') {
         window.location.href = result.pay_url
+        return
+      }
+      if (openStrategy === 'new-tab') {
+        openInNewTab(result.pay_url)
         return
       }
       openWindow(result.pay_url)
     } else {
+      closePendingStripeTab()
       errorMessage.value = t('payment.result.failed')
       appStore.showError(errorMessage.value)
     }
   } catch (err: unknown) {
+    if (pendingStripeTab && !pendingStripeTab.closed) {
+      pendingStripeTab.close()
+    }
     const apiErr = err as Record<string, unknown>
     if (apiErr.reason === 'TOO_MANY_PENDING') {
       const metadata = apiErr.metadata as Record<string, unknown> | undefined
