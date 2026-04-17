@@ -4471,6 +4471,8 @@ export default {
         siteSubtitle: 'Site Subtitle',
         siteSubtitlePlaceholder: 'Subscription to API Conversion Platform',
         siteSubtitleHint: 'Displayed on login and register pages',
+        interfaceLanguage: 'Interface Language',
+        interfaceLanguageHint: 'Affects only the admin interface language in this browser. The preference is stored locally in this browser.',
         apiBaseUrl: 'API Base URL',
         apiBaseUrlPlaceholder: 'https://api.example.com',
         apiBaseUrlHint:

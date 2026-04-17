@@ -1997,6 +1997,30 @@
               </div>
             </div>
 
+            <div>
+              <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                {{ t('admin.settings.site.interfaceLanguage') }}
+              </label>
+              <select
+                data-testid="interface-language-select"
+                class="input"
+                :value="currentInterfaceLanguage"
+                :disabled="interfaceLanguageChanging"
+                @change="handleInterfaceLanguageChange"
+              >
+                <option
+                  v-for="language in interfaceLanguageOptions"
+                  :key="language.code"
+                  :value="language.code"
+                >
+                  {{ language.name }} ({{ language.code }})
+                </option>
+              </select>
+              <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.settings.site.interfaceLanguageHint') }}
+              </p>
+            </div>
+
             <!-- API Base URL -->
             <div>
               <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -2348,7 +2372,13 @@
             <h2 class="text-lg font-semibold text-gray-900 dark:text-white">{{ t('admin.settings.payment.title') }}</h2>
             <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
               {{ t('admin.settings.payment.description') }}
-              <a :href="locale === 'zh' ? 'https://github.com/Wei-Shaw/sub2api/blob/main/docs/PAYMENT_CN.md' : 'https://github.com/Wei-Shaw/sub2api/blob/main/docs/PAYMENT.md'" target="_blank" rel="noopener noreferrer" class="ml-2 inline-flex items-center text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300">
+              <a
+                data-testid="payment-config-guide-link"
+                :href="paymentConfigGuideUrl"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="ml-2 inline-flex items-center text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
+              >
                 <svg class="mr-0.5 h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
                 {{ t('admin.settings.payment.configGuide') }}
               </a>
@@ -2444,7 +2474,13 @@
                 </div>
                 <p class="mt-2 text-xs text-gray-400 dark:text-gray-500">
                   {{ t('admin.settings.payment.enabledPaymentTypesHint') }}
-                  <a :href="locale === 'zh' ? 'https://github.com/Wei-Shaw/sub2api/blob/main/docs/PAYMENT_CN.md#%E6%94%AF%E6%8C%81%E7%9A%84%E6%94%AF%E4%BB%98%E6%96%B9%E5%BC%8F' : 'https://github.com/Wei-Shaw/sub2api/blob/main/docs/PAYMENT.md#supported-payment-methods'" target="_blank" rel="noopener noreferrer" class="ml-1 text-primary-500 hover:text-primary-600 dark:text-primary-400 dark:hover:text-primary-300">
+                  <a
+                    data-testid="payment-provider-guide-link"
+                    :href="paymentProviderGuideUrl"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="ml-1 text-primary-500 hover:text-primary-600 dark:text-primary-400 dark:hover:text-primary-300"
+                  >
                     {{ t('admin.settings.payment.findProvider') }}
                     <svg class="mb-0.5 ml-0.5 inline h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
                   </a>
@@ -2849,6 +2885,7 @@ import ProxySelector from '@/components/common/ProxySelector.vue'
 import ImageUpload from '@/components/common/ImageUpload.vue'
 import BackupSettings from '@/views/admin/BackupView.vue'
 import { useClipboard } from '@/composables/useClipboard'
+import { availableLocales, setLocale } from '@/i18n'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { useAppStore } from '@/stores'
 import { useAdminSettingsStore } from '@/stores/adminSettings'
@@ -2875,6 +2912,20 @@ const settingsTabs = [
   { key: 'backup'   as SettingsTab, icon: 'database' as const },
 ]
 const { copyToClipboard } = useClipboard()
+const interfaceLanguageOptions = availableLocales
+const interfaceLanguageChanging = ref(false)
+const currentInterfaceLanguage = computed(() => String(locale.value || 'en'))
+const isChineseLocale = computed(() => currentInterfaceLanguage.value.toLowerCase().startsWith('zh'))
+const paymentConfigGuideUrl = computed(() =>
+  isChineseLocale.value
+    ? 'https://github.com/Wei-Shaw/sub2api/blob/main/docs/PAYMENT_CN.md'
+    : 'https://github.com/Wei-Shaw/sub2api/blob/main/docs/PAYMENT.md'
+)
+const paymentProviderGuideUrl = computed(() =>
+  isChineseLocale.value
+    ? 'https://github.com/Wei-Shaw/sub2api/blob/main/docs/PAYMENT_CN.md#%E6%94%AF%E6%8C%81%E7%9A%84%E6%94%AF%E4%BB%98%E6%96%B9%E5%BC%8F'
+    : 'https://github.com/Wei-Shaw/sub2api/blob/main/docs/PAYMENT.md#supported-payment-methods'
+)
 
 const loading = ref(true)
 const loadFailed = ref(false)
@@ -3414,6 +3465,30 @@ function parseTablePageSizeOptionsInput(raw: string): number[] | null {
   }
 
   return deduped
+}
+
+async function handleInterfaceLanguageChange(event: Event) {
+  const target = event.target as HTMLSelectElement | null
+  const nextLocale = target?.value?.trim()
+
+  if (!nextLocale || nextLocale === currentInterfaceLanguage.value || interfaceLanguageChanging.value) {
+    if (target) {
+      target.value = currentInterfaceLanguage.value
+    }
+    return
+  }
+
+  interfaceLanguageChanging.value = true
+  try {
+    await setLocale(nextLocale)
+  } catch (_error: unknown) {
+    if (target) {
+      target.value = currentInterfaceLanguage.value
+    }
+    appStore.showError(t('common.error'))
+  } finally {
+    interfaceLanguageChanging.value = false
+  }
 }
 
 async function loadSettings() {
