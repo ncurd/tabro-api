@@ -19,6 +19,7 @@ import (
 const (
 	securitySecretKeyJWT            = "jwt_secret"
 	securitySecretKeyTotpEncryption = "totp_encryption_key"
+	securitySecretKeyPaymentEncrypt = "payment_encryption_key"
 	securitySecretReadRetryMax      = 5
 	securitySecretReadRetryWait     = 10 * time.Millisecond
 )
@@ -37,6 +38,9 @@ func ensureBootstrapSecrets(ctx context.Context, client *ent.Client, cfg *config
 		return err
 	}
 	if err := ensureBootstrapTotpEncryptionKey(ctx, client, cfg); err != nil {
+		return err
+	}
+	if err := ensureBootstrapPaymentEncryptionKey(ctx, client, cfg); err != nil {
 		return err
 	}
 	return nil
@@ -90,6 +94,66 @@ func ensureBootstrapTotpEncryptionKey(ctx context.Context, client *ent.Client, c
 
 	if created {
 		log.Println("Warning: TOTP encryption key auto-generated and persisted to database. Consider rotating to a managed secret for production.")
+	}
+	return nil
+}
+
+func ensureBootstrapPaymentEncryptionKey(ctx context.Context, client *ent.Client, cfg *config.Config) error {
+	cfg.Payment.EncryptionKey = strings.TrimSpace(cfg.Payment.EncryptionKey)
+	if cfg.Payment.EncryptionKey != "" {
+		storedSecret, err := createSecuritySecretIfAbsent(ctx, client, securitySecretKeyPaymentEncrypt, cfg.Payment.EncryptionKey)
+		if err != nil {
+			return fmt.Errorf("persist payment encryption key: %w", err)
+		}
+		if storedSecret != cfg.Payment.EncryptionKey {
+			log.Println("Warning: configured payment encryption key mismatches persisted value; using persisted value for cross-instance consistency.")
+		}
+		cfg.Payment.EncryptionKey = storedSecret
+		return nil
+	}
+
+	if storedSecret, err := querySecuritySecretWithRetry(ctx, client, securitySecretKeyPaymentEncrypt); err == nil {
+		value := strings.TrimSpace(storedSecret.Value)
+		if len([]byte(value)) < 32 {
+			return fmt.Errorf("stored secret %q must be at least 32 bytes", securitySecretKeyPaymentEncrypt)
+		}
+		cfg.Payment.EncryptionKey = value
+		return nil
+	} else if !isSecretNotFoundError(err) {
+		return fmt.Errorf("ensure payment encryption key: %w", err)
+	}
+
+	if storedTotp, err := querySecuritySecretWithRetry(ctx, client, securitySecretKeyTotpEncryption); err == nil {
+		value := strings.TrimSpace(storedTotp.Value)
+		if len([]byte(value)) < 32 {
+			return fmt.Errorf("stored secret %q must be at least 32 bytes", securitySecretKeyTotpEncryption)
+		}
+		storedSecret, err := createSecuritySecretIfAbsent(ctx, client, securitySecretKeyPaymentEncrypt, value)
+		if err != nil {
+			return fmt.Errorf("persist payment encryption key from totp key: %w", err)
+		}
+		cfg.Payment.EncryptionKey = storedSecret
+		return nil
+	} else if !isSecretNotFoundError(err) {
+		return fmt.Errorf("ensure payment encryption key from totp key: %w", err)
+	}
+
+	if cfg.Totp.EncryptionKey != "" {
+		storedSecret, err := createSecuritySecretIfAbsent(ctx, client, securitySecretKeyPaymentEncrypt, cfg.Totp.EncryptionKey)
+		if err != nil {
+			return fmt.Errorf("persist payment encryption key from configured totp key: %w", err)
+		}
+		cfg.Payment.EncryptionKey = storedSecret
+		return nil
+	}
+
+	secret, created, err := getOrCreateGeneratedSecuritySecret(ctx, client, securitySecretKeyPaymentEncrypt, 32)
+	if err != nil {
+		return fmt.Errorf("ensure payment encryption key: %w", err)
+	}
+	cfg.Payment.EncryptionKey = secret
+	if created {
+		log.Println("Warning: payment encryption key auto-generated and persisted to database. Consider rotating to a managed secret for production.")
 	}
 	return nil
 }

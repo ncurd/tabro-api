@@ -14,16 +14,16 @@ import (
 // Using a named type avoids Wire ambiguity with other []byte parameters.
 type EncryptionKey []byte
 
-// ProvideEncryptionKey derives the payment encryption key from the TOTP encryption key in config.
+// ProvideEncryptionKey derives the payment encryption key from the payment encryption key in config.
 // When the key is empty, nil is returned (payment features that need encryption will be disabled).
 // When the key is non-empty but invalid (bad hex or wrong length), an error is returned
 // to prevent startup with a misconfigured encryption key.
 func ProvideEncryptionKey(cfg *config.Config) (EncryptionKey, error) {
-	if cfg.Totp.EncryptionKey == "" {
+	if cfg.Payment.EncryptionKey == "" {
 		slog.Warn("payment encryption key not configured — encrypted payment config will be unavailable")
 		return nil, nil
 	}
-	key, err := hex.DecodeString(cfg.Totp.EncryptionKey)
+	key, err := hex.DecodeString(cfg.Payment.EncryptionKey)
 	if err != nil {
 		return nil, fmt.Errorf("invalid payment encryption key (hex decode): %w", err)
 	}

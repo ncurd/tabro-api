@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -212,7 +213,19 @@ func (s *PaymentService) invokeProvider(ctx context.Context, order *dbent.Paymen
 	}
 	subject := s.buildPaymentSubject(plan, limitAmount, cfg)
 	outTradeNo := order.OutTradeNo
-	pr, err := prov.CreatePayment(ctx, payment.CreatePaymentRequest{OrderID: outTradeNo, Amount: payAmountStr, PaymentType: req.PaymentType, Subject: subject, ClientIP: req.ClientIP, IsMobile: req.IsMobile, InstanceSubMethods: sel.SupportedTypes})
+	notifyURL, returnURL, cancelURL := buildPaymentCallbackURLs(req, sel.ProviderKey, outTradeNo, order.ID)
+	pr, err := prov.CreatePayment(ctx, payment.CreatePaymentRequest{
+		OrderID:            outTradeNo,
+		Amount:             payAmountStr,
+		PaymentType:        req.PaymentType,
+		Subject:            subject,
+		NotifyURL:          notifyURL,
+		ReturnURL:          returnURL,
+		CancelURL:          cancelURL,
+		ClientIP:           req.ClientIP,
+		IsMobile:           req.IsMobile,
+		InstanceSubMethods: sel.SupportedTypes,
+	})
 	if err != nil {
 		slog.Error("[PaymentService] CreatePayment failed", "provider", sel.ProviderKey, "instance", sel.InstanceID, "error", err)
 		return nil, infraerrors.ServiceUnavailable("PAYMENT_GATEWAY_ERROR", fmt.Sprintf("payment gateway error: %s", err.Error()))
@@ -245,6 +258,86 @@ func (s *PaymentService) buildPaymentSubject(plan *dbent.SubscriptionPlan, limit
 		return strings.TrimSpace(pf + " " + amountStr + " " + sf)
 	}
 	return "Sub2API " + amountStr + " CNY"
+}
+
+func buildPaymentCallbackURLs(req CreateOrderRequest, providerKey, outTradeNo string, orderID int64) (string, string, string) {
+	origin := extractOriginFromURL(req.SrcURL)
+	if origin == "" {
+		origin = guessRequestOrigin(req.SrcHost)
+	}
+	if origin == "" {
+		return "", "", ""
+	}
+
+	notifyURL := ""
+	if notifyPath := paymentWebhookPath(providerKey); notifyPath != "" {
+		notifyURL = origin + notifyPath
+	}
+
+	successURL, cancelURL := buildPaymentResultURLs(origin, outTradeNo, orderID)
+	return notifyURL, successURL, cancelURL
+}
+
+func guessRequestOrigin(host string) string {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return ""
+	}
+
+	scheme := "https"
+	lowerHost := strings.ToLower(host)
+	if strings.HasPrefix(lowerHost, "localhost") ||
+		strings.HasPrefix(lowerHost, "127.0.0.1") ||
+		strings.HasPrefix(lowerHost, "[::1]") {
+		scheme = "http"
+	}
+
+	return scheme + "://" + host
+}
+
+func paymentWebhookPath(providerKey string) string {
+	switch providerKey {
+	case payment.TypeEasyPay:
+		return "/api/v1/payment/webhook/easypay"
+	case payment.TypeAlipay:
+		return "/api/v1/payment/webhook/alipay"
+	case payment.TypeWxpay:
+		return "/api/v1/payment/webhook/wxpay"
+	case payment.TypeStripe:
+		return "/api/v1/payment/webhook/stripe"
+	default:
+		return ""
+	}
+}
+
+func buildPaymentResultURLs(origin, outTradeNo string, orderID int64) (string, string) {
+	successQuery := url.Values{}
+	if orderID > 0 {
+		successQuery.Set("order_id", strconv.FormatInt(orderID, 10))
+	}
+	if strings.TrimSpace(outTradeNo) != "" {
+		successQuery.Set("out_trade_no", outTradeNo)
+	}
+
+	successURL := origin + "/payment/result"
+	if encoded := successQuery.Encode(); encoded != "" {
+		successURL += "?" + encoded
+	}
+
+	cancelQuery := url.Values{}
+	for key, values := range successQuery {
+		for _, value := range values {
+			cancelQuery.Add(key, value)
+		}
+	}
+	cancelQuery.Set("status", "cancel")
+
+	cancelURL := origin + "/payment/result"
+	if encoded := cancelQuery.Encode(); encoded != "" {
+		cancelURL += "?" + encoded
+	}
+
+	return successURL, cancelURL
 }
 
 // --- Order Queries ---

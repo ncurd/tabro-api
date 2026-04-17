@@ -100,6 +100,59 @@ func TestEnsureBootstrapSecretsLoadExistingTotpEncryptionKey(t *testing.T) {
 	require.Equal(t, "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", cfg.Totp.EncryptionKey)
 }
 
+func TestEnsureBootstrapSecretsBootstrapPaymentEncryptionKeyFromExistingTotp(t *testing.T) {
+	client := newSecuritySecretTestClient(t)
+	const existingTotpKey = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+
+	_, err := client.SecuritySecret.Create().
+		SetKey(securitySecretKeyTotpEncryption).
+		SetValue(existingTotpKey).
+		Save(context.Background())
+	require.NoError(t, err)
+
+	cfg := &config.Config{}
+	err = ensureBootstrapSecrets(context.Background(), client, cfg)
+	require.NoError(t, err)
+	require.Equal(t, existingTotpKey, cfg.Payment.EncryptionKey)
+
+	stored, err := client.SecuritySecret.Query().Where(securitysecret.KeyEQ("payment_encryption_key")).Only(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, existingTotpKey, stored.Value)
+}
+
+func TestEnsureBootstrapSecretsLoadExistingPaymentEncryptionKey(t *testing.T) {
+	client := newSecuritySecretTestClient(t)
+	const existingPaymentKey = "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+
+	_, err := client.SecuritySecret.Create().
+		SetKey("payment_encryption_key").
+		SetValue(existingPaymentKey).
+		Save(context.Background())
+	require.NoError(t, err)
+
+	cfg := &config.Config{}
+	err = ensureBootstrapSecrets(context.Background(), client, cfg)
+	require.NoError(t, err)
+	require.Equal(t, existingPaymentKey, cfg.Payment.EncryptionKey)
+}
+
+func TestEnsureBootstrapSecretsPersistConfiguredPaymentEncryptionKey(t *testing.T) {
+	client := newSecuritySecretTestClient(t)
+	const configuredPaymentKey = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+
+	cfg := &config.Config{
+		Payment: config.PaymentSecurityConfig{EncryptionKey: configuredPaymentKey},
+	}
+
+	err := ensureBootstrapSecrets(context.Background(), client, cfg)
+	require.NoError(t, err)
+	require.Equal(t, configuredPaymentKey, cfg.Payment.EncryptionKey)
+
+	stored, err := client.SecuritySecret.Query().Where(securitysecret.KeyEQ("payment_encryption_key")).Only(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, configuredPaymentKey, stored.Value)
+}
+
 func TestEnsureBootstrapSecretsRejectInvalidStoredSecret(t *testing.T) {
 	client := newSecuritySecretTestClient(t)
 	_, err := client.SecuritySecret.Create().SetKey(securitySecretKeyJWT).SetValue("too-short").Save(context.Background())

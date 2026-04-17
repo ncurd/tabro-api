@@ -101,6 +101,7 @@ type CreatePaymentRequest struct {
 	Subject            string // Product description
 	NotifyURL          string // Webhook callback URL
 	ReturnURL          string // Browser redirect URL after payment
+	CancelURL          string // Browser redirect URL after a user-cancelled payment
 	ClientIP           string // Payer's IP address
 	IsMobile           bool   // Whether the request comes from a mobile device
 	InstanceSubMethods string // Comma-separated sub-methods from instance supported_types (for Stripe)
@@ -109,9 +110,9 @@ type CreatePaymentRequest struct {
 // CreatePaymentResponse is returned after successfully initiating a payment.
 type CreatePaymentResponse struct {
 	TradeNo      string // Third-party transaction ID
-	PayURL       string // H5 payment URL (alipay/wxpay)
+	PayURL       string // Hosted payment URL (redirect / checkout)
 	QRCode       string // QR code content for scanning
-	ClientSecret string // Stripe PaymentIntent client secret
+	ClientSecret string // Legacy client secret (kept for backwards compatibility)
 }
 
 // QueryOrderResponse describes the payment status from the upstream provider.

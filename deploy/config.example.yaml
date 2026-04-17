@@ -822,6 +822,26 @@ totp:
   encryption_key: ""
 
 # =============================================================================
+# Payment Encryption Configuration
+# 支付配置加密密钥
+# =============================================================================
+payment:
+  # IMPORTANT: Set a fixed encryption key for encrypted payment provider config.
+  # 重要：设置固定的支付配置加密密钥，用于解密 Stripe / 支付宝 / 微信 / EasyPay
+  # 等服务商的敏感配置。
+  # If left empty, bootstrap logic will try to reuse the existing persisted key.
+  # For new installs, a random key will be generated and written into config.yaml.
+  # 如果留空，启动引导逻辑会优先复用已持久化的密钥；新安装时会生成随机密钥并写入
+  # config.yaml。
+  # Back up this key together with your database and config.yaml. Rotating it
+  # without re-encrypting provider config will make existing payment secrets
+  # unreadable.
+  # 请将此密钥与数据库和 config.yaml 一起备份。若未重加密服务商配置就直接更换，
+  # 现有支付密文将无法解密。
+  # Generate with / 生成命令: openssl rand -hex 32
+  encryption_key: ""
+
+# =============================================================================
 # LinuxDo Connect OAuth Login (SSO)
 # LinuxDo Connect OAuth 登录（用于 Sub2API 用户登录）
 # =============================================================================

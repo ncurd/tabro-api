@@ -97,6 +97,7 @@ import OrderStatusBadge from '@/components/payment/OrderStatusBadge.vue'
 import { usePaymentStore } from '@/stores/payment'
 import { paymentAPI } from '@/api/payment'
 import type { PaymentOrder } from '@/types/payment'
+import { isPaymentResultSuccessful } from '@/views/user/paymentFlow'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -114,8 +115,6 @@ interface ReturnInfo {
 }
 const returnInfo = ref<ReturnInfo | null>(null)
 
-const SUCCESS_STATUSES = new Set(['COMPLETED', 'PAID', 'RECHARGING'])
-
 /** 充值金额 = pay_amount / (1 + fee_rate/100)，fee_rate=0 时等于 pay_amount */
 const baseAmount = computed(() => {
   if (!order.value || order.value.fee_rate <= 0) return order.value?.pay_amount ?? 0
@@ -129,14 +128,11 @@ const feeAmount = computed(() => {
 })
 
 const isSuccess = computed(() => {
-  // Always prioritize actual order status from backend
-  if (order.value) {
-    return SUCCESS_STATUSES.has(order.value.status)
-  }
-  // Fallback only when order not loaded
-  if (route.query.status === 'success') return true
-  if (route.query.trade_status === 'TRADE_SUCCESS') return true
-  return false
+  return isPaymentResultSuccessful(
+    order.value?.status,
+    typeof route.query.status === 'string' ? route.query.status : null,
+    typeof route.query.trade_status === 'string' ? route.query.trade_status : null,
+  )
 })
 
 /** Extract numeric order ID from out_trade_no like "sub2_46" → 46 */

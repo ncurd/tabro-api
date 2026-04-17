@@ -161,7 +161,6 @@ export interface CreateOrderResult {
   amount: number
   pay_url?: string
   qr_code?: string
-  client_secret?: string
   pay_amount: number
   fee_rate: number
   expires_at: string

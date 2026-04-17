@@ -25,20 +25,6 @@
             @success="onPaymentSuccess"
           />
         </template>
-        <template v-else-if="paymentPhase === 'stripe'">
-          <StripePaymentInline
-            :order-id="paymentState.orderId"
-            :amount="paymentState.amount"
-            :client-secret="paymentState.clientSecret"
-            :order-type="paymentState.orderType || undefined"
-            :publishable-key="checkout.stripe_publishable_key"
-            :pay-amount="paymentState.payAmount"
-            @success="onPaymentSuccess"
-            @done="onStripeDone"
-            @back="resetPayment"
-            @redirect="onStripeRedirect"
-          />
-        </template>
         <!-- Tab content (select phase) -->
         <template v-else>
           <!-- Top-up Tab -->
@@ -274,6 +260,7 @@ import { paymentAPI } from '@/api/payment'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { isMobileDevice } from '@/utils/device'
 import type { SubscriptionPlan, CheckoutInfoResponse, OrderType } from '@/types/payment'
+import { shouldOpenPaymentPageDirectly } from '@/views/user/paymentFlow'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import AmountInput from '@/components/payment/AmountInput.vue'
 import PaymentMethodSelector from '@/components/payment/PaymentMethodSelector.vue'
@@ -281,7 +268,6 @@ import { METHOD_ORDER, POPUP_WINDOW_FEATURES } from '@/components/payment/provid
 import { platformAccentBarClass, platformBadgeLightClass, platformBadgeClass, platformTextClass, platformLabel } from '@/utils/platformColors'
 import SubscriptionPlanCard from '@/components/payment/SubscriptionPlanCard.vue'
 import PaymentStatusPanel from '@/components/payment/PaymentStatusPanel.vue'
-import StripePaymentInline from '@/components/payment/StripePaymentInline.vue'
 import Icon from '@/components/icons/Icon.vue'
 import type { PaymentMethodOption } from '@/components/payment/PaymentMethodSelector.vue'
 
@@ -309,23 +295,20 @@ const selectedMethod = ref('')
 const selectedPlan = ref<SubscriptionPlan | null>(null)
 const previewImage = ref('')
 
-// Payment phase: 'select' → 'paying' (QR/redirect) or 'stripe' (inline Stripe)
-const paymentPhase = ref<'select' | 'paying' | 'stripe'>('select')
+// Payment phase: 'select' → 'paying' (QR/redirect)
+const paymentPhase = ref<'select' | 'paying'>('select')
 const paymentState = ref<{
   orderId: number
-  amount: number
   qrCode: string
   expiresAt: string
   paymentType: string
   payUrl: string
-  clientSecret: string
-  payAmount: number
   orderType: OrderType | ''
-}>({ orderId: 0, amount: 0, qrCode: '', expiresAt: '', paymentType: '', payUrl: '', clientSecret: '', payAmount: 0, orderType: '' })
+}>({ orderId: 0, qrCode: '', expiresAt: '', paymentType: '', payUrl: '', orderType: '' })
 
 function resetPayment() {
   paymentPhase.value = 'select'
-  paymentState.value = { orderId: 0, amount: 0, qrCode: '', expiresAt: '', paymentType: '', payUrl: '', clientSecret: '', payAmount: 0, orderType: '' }
+  paymentState.value = { orderId: 0, qrCode: '', expiresAt: '', paymentType: '', payUrl: '', orderType: '' }
 }
 
 function onPaymentDone() {
@@ -342,20 +325,6 @@ function onPaymentSuccess() {
   if (paymentState.value.orderType === 'subscription') {
     subscriptionStore.fetchActiveSubscriptions(true).catch(() => {})
   }
-}
-
-function onStripeDone() {
-  const wasSubscription = paymentState.value.orderType === 'subscription'
-  resetPayment()
-  selectedPlan.value = null
-  if (wasSubscription) {
-    subscriptionStore.fetchActiveSubscriptions(true).catch(() => {})
-  }
-}
-
-function onStripeRedirect(orderId: number, payUrl: string) {
-  paymentState.value = { ...paymentState.value, orderId, payUrl, qrCode: '' }
-  paymentPhase.value = 'paying'
 }
 
 // All checkout data from single API call
@@ -558,45 +527,34 @@ async function createOrder(orderAmount: number, orderType: OrderType, planId?: n
         window.location.href = url
       }
     }
-    if (result.client_secret) {
-      // Stripe: show Payment Element inline (user picks method → confirms → redirect if needed)
-      paymentState.value = {
-        orderId: result.order_id, amount: result.amount, qrCode: '', expiresAt: result.expires_at || '',
-        paymentType: selectedMethod.value, payUrl: '',
-        clientSecret: result.client_secret, payAmount: result.pay_amount,
-        orderType,
-      }
-      paymentPhase.value = 'stripe'
-    } else if (isMobileDevice() && result.pay_url) {
-      // Mobile + pay_url: redirect directly instead of QR/popup (mobile browsers block popups)
-      paymentState.value = {
-        orderId: result.order_id, amount: result.amount, qrCode: '', expiresAt: result.expires_at || '',
-        paymentType: selectedMethod.value, payUrl: result.pay_url,
-        clientSecret: '', payAmount: 0,
-        orderType,
-      }
-      paymentPhase.value = 'paying'
-      window.location.href = result.pay_url
-      return
-    } else if (result.qr_code) {
+
+    if (result.qr_code) {
       // QR mode: show QR code inline
       paymentState.value = {
-        orderId: result.order_id, amount: result.amount, qrCode: result.qr_code,
-        expiresAt: result.expires_at || '', paymentType: selectedMethod.value, payUrl: '',
-        clientSecret: '', payAmount: 0,
+        orderId: result.order_id,
+        qrCode: result.qr_code,
+        expiresAt: result.expires_at || '',
+        paymentType: selectedMethod.value,
+        payUrl: '',
         orderType,
       }
       paymentPhase.value = 'paying'
     } else if (result.pay_url) {
-      // Redirect/popup mode: open payment URL, show waiting state inline
-      openWindow(result.pay_url)
+      const shouldRedirect = shouldOpenPaymentPageDirectly(selectedMethod.value, isMobileDevice())
       paymentState.value = {
-        orderId: result.order_id, amount: result.amount, qrCode: '', expiresAt: result.expires_at || '',
-        paymentType: selectedMethod.value, payUrl: result.pay_url,
-        clientSecret: '', payAmount: 0,
+        orderId: result.order_id,
+        qrCode: '',
+        expiresAt: result.expires_at || '',
+        paymentType: selectedMethod.value,
+        payUrl: result.pay_url,
         orderType,
       }
       paymentPhase.value = 'paying'
+      if (shouldRedirect) {
+        window.location.href = result.pay_url
+        return
+      }
+      openWindow(result.pay_url)
     } else {
       errorMessage.value = t('payment.result.failed')
       appStore.showError(errorMessage.value)
