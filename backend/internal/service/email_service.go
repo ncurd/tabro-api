@@ -77,7 +77,9 @@ const (
 	SMTPSecurityNone      = "none"
 	SMTPSecuritySTARTTLS  = "starttls"
 	SMTPSecurityTLS       = "tls"
+	SMTPAuthProtocolAuto  = "auto"
 	SMTPAuthProtocolPlain = "plain"
+	SMTPAuthProtocolLogin = "login"
 
 	// Password reset token settings
 	passwordResetTokenTTL = 30 * time.Minute
@@ -187,24 +189,20 @@ func (s *EmailService) SendEmailWithConfig(config *SMTPConfig, to, subject, body
 		from, to, subject, body)
 
 	addr := fmt.Sprintf("%s:%d", config.Host, config.Port)
-	auth, err := buildSMTPAuth(config)
-	if err != nil {
-		return err
-	}
 	security := normalizeSMTPSecurity(config.Security, config.UseTLS)
 
 	if security == SMTPSecurityTLS {
-		return s.sendMailTLS(addr, auth, config.From, to, []byte(msg), config.Host)
+		return s.sendMailTLS(addr, config, config.From, to, []byte(msg), config.Host)
 	}
 	if security == SMTPSecuritySTARTTLS {
-		return s.sendMailSTARTTLS(addr, auth, config.From, to, []byte(msg), config.Host)
+		return s.sendMailSTARTTLS(addr, config, config.From, to, []byte(msg), config.Host)
 	}
 
-	return s.sendMailPlain(addr, auth, config.From, to, []byte(msg), config.Host)
+	return s.sendMailPlain(addr, config, config.From, to, []byte(msg), config.Host)
 }
 
 // sendMailPlain sends mail without TLS using a dialer with timeout.
-func (s *EmailService) sendMailPlain(addr string, auth smtp.Auth, from, to string, msg []byte, host string) error {
+func (s *EmailService) sendMailPlain(addr string, config *SMTPConfig, from, to string, msg []byte, host string) error {
 	dialer := &net.Dialer{Timeout: smtpDialTimeout}
 	conn, err := dialer.Dial("tcp", addr)
 	if err != nil {
@@ -227,26 +225,9 @@ func (s *EmailService) sendMailPlain(addr string, auth smtp.Auth, from, to strin
 		}
 	}
 
-	if err = client.Auth(auth); err != nil {
-		return fmt.Errorf("smtp auth: %w", err)
+	if err = sendMailWithClient(client, config, from, to, msg); err != nil {
+		return err
 	}
-	if err = client.Mail(from); err != nil {
-		return fmt.Errorf("smtp mail: %w", err)
-	}
-	if err = client.Rcpt(to); err != nil {
-		return fmt.Errorf("smtp rcpt: %w", err)
-	}
-	w, err := client.Data()
-	if err != nil {
-		return fmt.Errorf("smtp data: %w", err)
-	}
-	if _, err = w.Write(msg); err != nil {
-		return fmt.Errorf("write msg: %w", err)
-	}
-	if err = w.Close(); err != nil {
-		return fmt.Errorf("close writer: %w", err)
-	}
-	_ = client.Quit()
 	return nil
 }
 
@@ -268,27 +249,111 @@ func normalizeSMTPSecurity(security string, useTLS bool) string {
 
 func normalizeSMTPAuthProtocol(protocol string) string {
 	switch strings.ToLower(strings.TrimSpace(protocol)) {
-	case "", SMTPAuthProtocolPlain:
+	case "", SMTPAuthProtocolAuto:
+		return SMTPAuthProtocolAuto
+	case SMTPAuthProtocolPlain:
 		return SMTPAuthProtocolPlain
+	case SMTPAuthProtocolLogin:
+		return SMTPAuthProtocolLogin
 	default:
 		return strings.ToLower(strings.TrimSpace(protocol))
 	}
 }
 
-func buildSMTPAuth(config *SMTPConfig) (smtp.Auth, error) {
+func buildSMTPAuth(config *SMTPConfig, advertisedAuth string) (smtp.Auth, error) {
 	if strings.TrimSpace(config.Username) == "" && strings.TrimSpace(config.Password) == "" {
 		return nil, nil
 	}
 
-	switch normalizeSMTPAuthProtocol(config.AuthProtocol) {
+	protocol, err := selectSMTPAuthProtocol(config.AuthProtocol, advertisedAuth)
+	if err != nil {
+		return nil, err
+	}
+
+	switch protocol {
 	case SMTPAuthProtocolPlain:
 		return smtp.PlainAuth("", config.Username, config.Password, config.Host), nil
+	case SMTPAuthProtocolLogin:
+		return &loginAuth{
+			username: config.Username,
+			password: config.Password,
+			host:     config.Host,
+		}, nil
 	default:
 		return nil, fmt.Errorf("unsupported smtp auth protocol: %s", config.AuthProtocol)
 	}
 }
 
-func (s *EmailService) sendMailSTARTTLS(addr string, auth smtp.Auth, from, to string, msg []byte, host string) error {
+func selectSMTPAuthProtocol(protocol, advertisedAuth string) (string, error) {
+	normalized := normalizeSMTPAuthProtocol(protocol)
+	mechanisms := parseSMTPAuthMechanisms(advertisedAuth)
+
+	if normalized == SMTPAuthProtocolAuto {
+		if len(mechanisms) == 0 {
+			return SMTPAuthProtocolPlain, nil
+		}
+		if mechanisms[SMTPAuthProtocolPlain] {
+			return SMTPAuthProtocolPlain, nil
+		}
+		if mechanisms[SMTPAuthProtocolLogin] {
+			return SMTPAuthProtocolLogin, nil
+		}
+		return "", fmt.Errorf("smtp server does not advertise a supported auth mechanism (advertised: %s)", strings.TrimSpace(advertisedAuth))
+	}
+
+	if len(mechanisms) > 0 && !mechanisms[normalized] {
+		return "", fmt.Errorf("smtp server does not support auth protocol %q (advertised: %s)", normalized, strings.TrimSpace(advertisedAuth))
+	}
+	return normalized, nil
+}
+
+func parseSMTPAuthMechanisms(advertisedAuth string) map[string]bool {
+	mechanisms := make(map[string]bool)
+	for _, mechanism := range strings.Fields(strings.ToLower(strings.TrimSpace(advertisedAuth))) {
+		mechanisms[mechanism] = true
+	}
+	return mechanisms
+}
+
+type loginAuth struct {
+	username string
+	password string
+	host     string
+	step     int
+}
+
+func (a *loginAuth) Start(server *smtp.ServerInfo) (string, []byte, error) {
+	if !server.TLS && !isLocalhostSMTPHost(server.Name) {
+		return "", nil, fmt.Errorf("unencrypted connection")
+	}
+	if server.Name != a.host {
+		return "", nil, fmt.Errorf("wrong host name")
+	}
+	a.step = 0
+	return "LOGIN", nil, nil
+}
+
+func (a *loginAuth) Next(_ []byte, more bool) ([]byte, error) {
+	if !more {
+		return nil, nil
+	}
+	switch a.step {
+	case 0:
+		a.step++
+		return []byte(a.username), nil
+	case 1:
+		a.step++
+		return []byte(a.password), nil
+	default:
+		return nil, fmt.Errorf("unexpected server challenge")
+	}
+}
+
+func isLocalhostSMTPHost(name string) bool {
+	return name == "localhost" || name == "127.0.0.1" || name == "::1"
+}
+
+func (s *EmailService) sendMailSTARTTLS(addr string, config *SMTPConfig, from, to string, msg []byte, host string) error {
 	client, err := smtp.Dial(addr)
 	if err != nil {
 		return fmt.Errorf("smtp dial: %w", err)
@@ -307,11 +372,11 @@ func (s *EmailService) sendMailSTARTTLS(addr string, auth smtp.Auth, from, to st
 		return fmt.Errorf("starttls: %w", err)
 	}
 
-	return sendMailWithClient(client, auth, from, to, msg)
+	return sendMailWithClient(client, config, from, to, msg)
 }
 
 // sendMailTLS 使用TLS发送邮件
-func (s *EmailService) sendMailTLS(addr string, auth smtp.Auth, from, to string, msg []byte, host string) error {
+func (s *EmailService) sendMailTLS(addr string, config *SMTPConfig, from, to string, msg []byte, host string) error {
 	tlsConfig := &tls.Config{
 		ServerName: host,
 		// 强制 TLS 1.2+，避免协议降级导致的弱加密风险。
@@ -332,39 +397,30 @@ func (s *EmailService) sendMailTLS(addr string, auth smtp.Auth, from, to string,
 	}
 	defer func() { _ = client.Close() }()
 
-	return sendMailWithClient(client, auth, from, to, msg)
+	return sendMailWithClient(client, config, from, to, msg)
 }
 
-func sendMailWithClient(client *smtp.Client, auth smtp.Auth, from, to string, msg []byte) error {
-	if auth != nil {
-		if ok, _ := client.Extension("AUTH"); ok {
-			if err := client.Auth(auth); err != nil {
-				return fmt.Errorf("smtp auth: %w", err)
-			}
-		}
+func sendMailWithClient(client *smtp.Client, config *SMTPConfig, from, to string, msg []byte) error {
+	if err := authenticateSMTPClient(client, config); err != nil {
+		return fmt.Errorf("smtp auth: %w", err)
 	}
 
 	if err := client.Mail(from); err != nil {
 		return fmt.Errorf("smtp mail: %w", err)
 	}
-
 	if err := client.Rcpt(to); err != nil {
 		return fmt.Errorf("smtp rcpt: %w", err)
 	}
-
 	w, err := client.Data()
 	if err != nil {
 		return fmt.Errorf("smtp data: %w", err)
 	}
-
 	if _, err = w.Write(msg); err != nil {
 		return fmt.Errorf("write msg: %w", err)
 	}
-
 	if err = w.Close(); err != nil {
 		return fmt.Errorf("close writer: %w", err)
 	}
-
 	_ = client.Quit()
 	return nil
 }
@@ -520,12 +576,8 @@ func (s *EmailService) TestSMTPConnectionWithConfig(config *SMTPConfig) error {
 		}
 		defer func() { _ = client.Close() }()
 
-		auth, err := buildSMTPAuth(config)
-		if err != nil {
-			return err
-		}
-		if err = authenticateSMTPClient(client, auth); err != nil {
-			return err
+		if err = authenticateSMTPClient(client, config); err != nil {
+			return fmt.Errorf("smtp authentication failed: %w", err)
 		}
 
 		return client.Quit()
@@ -550,12 +602,8 @@ func (s *EmailService) TestSMTPConnectionWithConfig(config *SMTPConfig) error {
 			return fmt.Errorf("starttls failed: %w", err)
 		}
 
-		auth, err := buildSMTPAuth(config)
-		if err != nil {
-			return err
-		}
-		if err = authenticateSMTPClient(client, auth); err != nil {
-			return err
+		if err = authenticateSMTPClient(client, config); err != nil {
+			return fmt.Errorf("smtp authentication failed: %w", err)
 		}
 
 		return client.Quit()
@@ -568,29 +616,30 @@ func (s *EmailService) TestSMTPConnectionWithConfig(config *SMTPConfig) error {
 	}
 	defer func() { _ = client.Close() }()
 
-	auth, err := buildSMTPAuth(config)
-	if err != nil {
-		return err
-	}
-	if err = authenticateSMTPClient(client, auth); err != nil {
-		return err
+	if err = authenticateSMTPClient(client, config); err != nil {
+		return fmt.Errorf("smtp authentication failed: %w", err)
 	}
 
 	return client.Quit()
 }
 
-func authenticateSMTPClient(client *smtp.Client, auth smtp.Auth) error {
-	if auth == nil {
+func authenticateSMTPClient(client *smtp.Client, config *SMTPConfig) error {
+	if strings.TrimSpace(config.Username) == "" && strings.TrimSpace(config.Password) == "" {
 		return nil
 	}
-	if ok, _ := client.Extension("AUTH"); !ok {
+	ok, authExtension := client.Extension("AUTH")
+	if !ok {
 		return nil
+	}
+	auth, err := buildSMTPAuth(config, authExtension)
+	if err != nil {
+		return err
 	}
 	if err := client.Auth(auth); err != nil {
 		if ok := strings.Contains(strings.ToLower(err.Error()), "unencrypted connection"); ok {
-			return fmt.Errorf("smtp authentication failed: server rejected auth on unencrypted connection")
+			return fmt.Errorf("server rejected auth on unencrypted connection")
 		}
-		return fmt.Errorf("smtp authentication failed: %w", err)
+		return err
 	}
 	return nil
 }

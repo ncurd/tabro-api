@@ -955,7 +955,7 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeySMTPPort:                         "587",
 		SettingKeySMTPUseTLS:                       "false",
 		SettingKeySMTPSecurity:                     SMTPSecurityNone,
-		SettingKeySMTPAuthProtocol:                 SMTPAuthProtocolPlain,
+		SettingKeySMTPAuthProtocol:                 SMTPAuthProtocolAuto,
 		// Model fallback defaults
 		SettingKeyEnableModelFallback:      "false",
 		SettingKeyFallbackModelAnthropic:   "claude-3-5-sonnet-20241022",

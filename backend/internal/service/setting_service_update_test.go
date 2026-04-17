@@ -229,10 +229,10 @@ func TestSettingService_UpdateSettings_SMTPAuthProtocol_Normalized(t *testing.T)
 	svc := NewSettingService(repo, &config.Config{})
 
 	err := svc.UpdateSettings(context.Background(), &SystemSettings{
-		SMTPAuthProtocol: " PLAIN ",
+		SMTPAuthProtocol: " LOGIN ",
 	})
 	require.NoError(t, err)
-	require.Equal(t, SMTPAuthProtocolPlain, repo.updates[SettingKeySMTPAuthProtocol])
+	require.Equal(t, SMTPAuthProtocolLogin, repo.updates[SettingKeySMTPAuthProtocol])
 }
 
 func TestSettingService_ParseSettings_DefaultSMTPAuthProtocol(t *testing.T) {
@@ -240,5 +240,5 @@ func TestSettingService_ParseSettings_DefaultSMTPAuthProtocol(t *testing.T) {
 
 	settings := svc.parseSettings(map[string]string{})
 
-	require.Equal(t, SMTPAuthProtocolPlain, settings.SMTPAuthProtocol)
+	require.Equal(t, SMTPAuthProtocolAuto, settings.SMTPAuthProtocol)
 }

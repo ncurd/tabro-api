@@ -49,12 +49,19 @@ func normalizeSMTPAuthProtocolInput(values ...string) (string, error) {
 		if protocol == "" {
 			continue
 		}
-		if protocol != service.SMTPAuthProtocolPlain {
-			return "", fmt.Errorf("SMTP auth protocol must be %q", service.SMTPAuthProtocolPlain)
+		switch protocol {
+		case service.SMTPAuthProtocolAuto, service.SMTPAuthProtocolPlain, service.SMTPAuthProtocolLogin:
+			return protocol, nil
+		default:
+			return "", fmt.Errorf(
+				"SMTP auth protocol must be one of %q, %q, or %q",
+				service.SMTPAuthProtocolAuto,
+				service.SMTPAuthProtocolPlain,
+				service.SMTPAuthProtocolLogin,
+			)
 		}
-		return protocol, nil
 	}
-	return service.SMTPAuthProtocolPlain, nil
+	return service.SMTPAuthProtocolAuto, nil
 }
 
 // SettingHandler 系统设置处理器
@@ -396,6 +403,10 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	req.SMTPPassword = strings.TrimSpace(req.SMTPPassword)
 	req.SMTPFrom = strings.TrimSpace(req.SMTPFrom)
 	req.SMTPFromName = strings.TrimSpace(req.SMTPFromName)
+	providedAuthProtocol := strings.TrimSpace(req.SMTPAuthProtocol)
+	if providedAuthProtocol == "" {
+		providedAuthProtocol = strings.TrimSpace(req.AuthProtocol)
+	}
 	authProtocol, err := normalizeSMTPAuthProtocolInput(req.SMTPAuthProtocol, req.AuthProtocol)
 	if err != nil {
 		response.BadRequest(c, err.Error())
@@ -417,6 +428,8 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		req.SMTPFromName = previousSettings.SMTPFromName
 		req.SMTPUseTLS = previousSettings.SMTPUseTLS
 		req.SMTPSecurity = previousSettings.SMTPSecurity
+		req.SMTPAuthProtocol = previousSettings.SMTPAuthProtocol
+	} else if providedAuthProtocol == "" {
 		req.SMTPAuthProtocol = previousSettings.SMTPAuthProtocol
 	}
 
@@ -1520,6 +1533,10 @@ func (h *SettingHandler) TestSMTPConnection(c *gin.Context) {
 
 	req.SMTPHost = strings.TrimSpace(req.SMTPHost)
 	req.SMTPUsername = strings.TrimSpace(req.SMTPUsername)
+	providedAuthProtocol := strings.TrimSpace(req.SMTPAuthProtocol)
+	if providedAuthProtocol == "" {
+		providedAuthProtocol = strings.TrimSpace(req.AuthProtocol)
+	}
 	authProtocol, err := normalizeSMTPAuthProtocolInput(req.SMTPAuthProtocol, req.AuthProtocol)
 	if err != nil {
 		response.BadRequest(c, err.Error())
@@ -1547,6 +1564,9 @@ func (h *SettingHandler) TestSMTPConnection(c *gin.Context) {
 	}
 	if req.SMTPSecurity == "" && savedConfig != nil {
 		req.SMTPSecurity = savedConfig.Security
+	}
+	if providedAuthProtocol == "" && savedConfig != nil && savedConfig.AuthProtocol != "" {
+		req.SMTPAuthProtocol = savedConfig.AuthProtocol
 	}
 	password := strings.TrimSpace(req.SMTPPassword)
 	if password == "" && savedConfig != nil {
@@ -1604,6 +1624,10 @@ func (h *SettingHandler) SendTestEmail(c *gin.Context) {
 	req.SMTPUsername = strings.TrimSpace(req.SMTPUsername)
 	req.SMTPFrom = strings.TrimSpace(req.SMTPFrom)
 	req.SMTPFromName = strings.TrimSpace(req.SMTPFromName)
+	providedAuthProtocol := strings.TrimSpace(req.SMTPAuthProtocol)
+	if providedAuthProtocol == "" {
+		providedAuthProtocol = strings.TrimSpace(req.AuthProtocol)
+	}
 	authProtocol, err := normalizeSMTPAuthProtocolInput(req.SMTPAuthProtocol, req.AuthProtocol)
 	if err != nil {
 		response.BadRequest(c, err.Error())
@@ -1631,6 +1655,9 @@ func (h *SettingHandler) SendTestEmail(c *gin.Context) {
 	}
 	if req.SMTPSecurity == "" && savedConfig != nil {
 		req.SMTPSecurity = savedConfig.Security
+	}
+	if providedAuthProtocol == "" && savedConfig != nil && savedConfig.AuthProtocol != "" {
+		req.SMTPAuthProtocol = savedConfig.AuthProtocol
 	}
 	password := strings.TrimSpace(req.SMTPPassword)
 	if password == "" && savedConfig != nil {

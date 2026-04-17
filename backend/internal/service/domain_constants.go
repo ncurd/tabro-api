@@ -94,7 +94,7 @@ const (
 	SettingKeySMTPFromName     = "smtp_from_name"     // 发件人名称
 	SettingKeySMTPUseTLS       = "smtp_use_tls"       // 是否使用TLS
 	SettingKeySMTPSecurity     = "smtp_security"      // SMTP安全模式：none/starttls/tls
-	SettingKeySMTPAuthProtocol = "smtp_auth_protocol" // SMTP认证协议：plain
+	SettingKeySMTPAuthProtocol = "smtp_auth_protocol" // SMTP认证协议：auto/plain/login
 
 	// Cloudflare Turnstile 设置
 	SettingKeyTurnstileEnabled   = "turnstile_enabled"    // 是否启用 Turnstile 验证

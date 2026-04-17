@@ -3048,6 +3048,7 @@ const form = reactive<SettingsForm>({
   smtp_from_name: '',
   smtp_use_tls: true,
   smtp_security: 'tls',
+  smtp_auth_protocol: 'auto',
   // Cloudflare Turnstile
   turnstile_enabled: false,
   turnstile_site_key: '',
@@ -3519,6 +3520,7 @@ async function loadSettings() {
       Array.isArray(settings.table_page_size_options) ? settings.table_page_size_options : [10, 20, 50, 100]
     )
     form.smtp_security = settings.smtp_security || (settings.smtp_use_tls ? 'tls' : 'none')
+    form.smtp_auth_protocol = settings.smtp_auth_protocol || 'auto'
     form.smtp_use_tls = form.smtp_security === 'tls'
     registrationEmailSuffixWhitelistDraft.value = ''
     form.smtp_password = ''
@@ -3670,6 +3672,7 @@ async function saveSettings() {
       smtp_from_name: form.smtp_from_name,
       smtp_use_tls: form.smtp_security === 'tls',
       smtp_security: form.smtp_security,
+      smtp_auth_protocol: form.smtp_auth_protocol,
       turnstile_enabled: form.turnstile_enabled,
       turnstile_site_key: form.turnstile_site_key,
       turnstile_secret_key: form.turnstile_secret_key || undefined,
@@ -3748,6 +3751,7 @@ async function saveSettings() {
       }
     }
     form.smtp_security = updated.smtp_security || (updated.smtp_use_tls ? 'tls' : 'none')
+    form.smtp_auth_protocol = updated.smtp_auth_protocol || 'auto'
     form.smtp_use_tls = form.smtp_security === 'tls'
     registrationEmailSuffixWhitelistTags.value = normalizeRegistrationEmailSuffixDomains(
       updated.registration_email_suffix_whitelist
@@ -3786,7 +3790,8 @@ async function testSmtpConnection() {
       smtp_username: form.smtp_username,
       smtp_password: smtpPasswordForTest,
       smtp_use_tls: form.smtp_security === 'tls',
-      smtp_security: form.smtp_security
+      smtp_security: form.smtp_security,
+      smtp_auth_protocol: form.smtp_auth_protocol
     })
     // API returns { message: "..." } on success, errors are thrown as exceptions
     appStore.showSuccess(result.message || t('admin.settings.smtpConnectionSuccess'))
@@ -3815,7 +3820,8 @@ async function sendTestEmail() {
       smtp_from_email: form.smtp_from_email,
       smtp_from_name: form.smtp_from_name,
       smtp_use_tls: form.smtp_security === 'tls',
-      smtp_security: form.smtp_security
+      smtp_security: form.smtp_security,
+      smtp_auth_protocol: form.smtp_auth_protocol
     })
     // API returns { message: "..." } on success, errors are thrown as exceptions
     appStore.showSuccess(result.message || t('admin.settings.testEmailSent'))
