@@ -305,6 +305,23 @@ func TestParseUsageAndEnrichCoverage(t *testing.T) {
 	enrichResult(nil, state, 0)
 }
 
+func TestParseUsageAndAccumulate_TerminalEventVariants(t *testing.T) {
+	t.Parallel()
+
+	for _, eventType := range []string{"response.done", "response.incomplete", "response.cancelled", "response.canceled"} {
+		t.Run(eventType, func(t *testing.T) {
+			state := &relayState{}
+			payload := []byte(`{"type":"` + eventType + `","response":{"usage":{"input_tokens":4,"output_tokens":2,"input_tokens_details":{"cached_tokens":1}}}}`)
+
+			parseUsageAndAccumulate(state, payload, eventType, nil)
+
+			require.Equal(t, 4, state.usage.InputTokens)
+			require.Equal(t, 2, state.usage.OutputTokens)
+			require.Equal(t, 1, state.usage.CacheReadInputTokens)
+		})
+	}
+}
+
 func TestEmitTurnCompleteCoverage(t *testing.T) {
 	t.Parallel()
 

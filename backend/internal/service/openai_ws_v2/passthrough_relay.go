@@ -753,12 +753,7 @@ func isTerminalEvent(eventType string) bool {
 }
 
 func shouldParseUsage(eventType string) bool {
-	switch eventType {
-	case "response.completed", "response.done", "response.failed":
-		return true
-	default:
-		return false
-	}
+	return isTerminalEvent(eventType)
 }
 
 func isTokenEvent(eventType string) bool {
