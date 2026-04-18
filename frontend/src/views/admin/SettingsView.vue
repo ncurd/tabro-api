@@ -2918,13 +2918,13 @@ const currentInterfaceLanguage = computed(() => String(locale.value || 'en'))
 const isChineseLocale = computed(() => currentInterfaceLanguage.value.toLowerCase().startsWith('zh'))
 const paymentConfigGuideUrl = computed(() =>
   isChineseLocale.value
-    ? 'https://github.com/Wei-Shaw/sub2api/blob/main/docs/PAYMENT_CN.md'
-    : 'https://github.com/Wei-Shaw/sub2api/blob/main/docs/PAYMENT.md'
+    ? 'https://github.com/ncurd/tabro-api/blob/main/docs/PAYMENT_CN.md'
+    : 'https://github.com/ncurd/tabro-api/blob/main/docs/PAYMENT.md'
 )
 const paymentProviderGuideUrl = computed(() =>
   isChineseLocale.value
-    ? 'https://github.com/Wei-Shaw/sub2api/blob/main/docs/PAYMENT_CN.md#%E6%94%AF%E6%8C%81%E7%9A%84%E6%94%AF%E4%BB%98%E6%96%B9%E5%BC%8F'
-    : 'https://github.com/Wei-Shaw/sub2api/blob/main/docs/PAYMENT.md#supported-payment-methods'
+    ? 'https://github.com/ncurd/tabro-api/blob/main/docs/PAYMENT_CN.md#%E6%94%AF%E6%8C%81%E7%9A%84%E6%94%AF%E4%BB%98%E6%96%B9%E5%BC%8F'
+    : 'https://github.com/ncurd/tabro-api/blob/main/docs/PAYMENT.md#supported-payment-methods'
 )
 
 const loading = ref(true)

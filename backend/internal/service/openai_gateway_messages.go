@@ -12,11 +12,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
-	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
 
@@ -282,6 +282,7 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 	startTime time.Time,
 ) (*OpenAIForwardResult, error) {
 	requestID := resp.Header.Get("x-request-id")
+	var rawSSEBody strings.Builder
 
 	scanner := bufio.NewScanner(resp.Body)
 	maxLineSize := defaultMaxLineSize
@@ -296,6 +297,8 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 
 	for scanner.Scan() {
 		line := scanner.Text()
+		rawSSEBody.WriteString(line)
+		rawSSEBody.WriteByte('\n')
 
 		if !strings.HasPrefix(line, "data: ") || line == "data: [DONE]" {
 			continue
@@ -339,6 +342,26 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 	}
 
 	if finalResponse == nil {
+		if fallbackChatResp, ok := extractChatCompletionsResponseFromSSEBody(rawSSEBody.String(), upstreamModel); ok {
+			usage = openAIUsageFromChatCompletionsResponse(fallbackChatResp)
+			if converted := chatCompletionsResponseToResponsesResponse(fallbackChatResp); converted != nil {
+				anthropicResp := apicompat.ResponsesToAnthropic(converted, originalModel)
+				if s.responseHeaderFilter != nil {
+					responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
+				}
+				c.JSON(http.StatusOK, anthropicResp)
+
+				return &OpenAIForwardResult{
+					RequestID:     requestID,
+					Usage:         usage,
+					Model:         originalModel,
+					BillingModel:  billingModel,
+					UpstreamModel: upstreamModel,
+					Stream:        false,
+					Duration:      time.Since(startTime),
+				}, nil
+			}
+		}
 		writeAnthropicError(c, http.StatusBadGateway, "api_error", "Upstream stream ended without a terminal response event")
 		return nil, fmt.Errorf("upstream stream ended without terminal event")
 	}
