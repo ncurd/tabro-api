@@ -260,7 +260,13 @@ import { paymentAPI } from '@/api/payment'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { isMobileDevice } from '@/utils/device'
 import type { SubscriptionPlan, CheckoutInfoResponse, OrderType } from '@/types/payment'
-import { resolvePaymentPageOpenStrategy } from '@/views/user/paymentFlow'
+import {
+  closePendingPaymentPage,
+  navigatePendingPaymentPage,
+  openPendingPaymentPage,
+  resolvePaymentPageOpenStrategy,
+  shouldTrackPaymentInline,
+} from '@/views/user/paymentFlow'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import AmountInput from '@/components/payment/AmountInput.vue'
 import PaymentMethodSelector from '@/components/payment/PaymentMethodSelector.vue'
@@ -513,7 +519,10 @@ async function confirmSubscribe() {
 
 async function createOrder(orderAmount: number, orderType: OrderType, planId?: number) {
   const openStrategy = resolvePaymentPageOpenStrategy(selectedMethod.value, isMobileDevice())
-  const pendingStripeTab = openStrategy === 'new-tab' ? window.open('', '_blank', 'noopener') : null
+  const openWindow = window.open.bind(window)
+  const pendingStripeTab = openStrategy === 'new-tab'
+    ? openPendingPaymentPage(openWindow, t('payment.stripePay'), t('payment.stripePopup.redirecting'))
+    : null
   submitting.value = true
   errorMessage.value = ''
   try {
@@ -523,31 +532,15 @@ async function createOrder(orderAmount: number, orderType: OrderType, planId?: n
       order_type: orderType,
       plan_id: planId,
     })
-    const openWindow = (url: string) => {
+    const openPopupWindow = (url: string) => {
       const win = window.open(url, 'paymentPopup', POPUP_WINDOW_FEATURES)
-      if (!win || win.closed) {
-        window.location.href = url
-      }
-    }
-    const closePendingStripeTab = () => {
-      if (pendingStripeTab && !pendingStripeTab.closed) {
-        pendingStripeTab.close()
-      }
-    }
-    const openInNewTab = (url: string) => {
-      if (pendingStripeTab && !pendingStripeTab.closed) {
-        pendingStripeTab.location.href = url
-        pendingStripeTab.focus()
-        return
-      }
-      const win = window.open(url, '_blank', 'noopener')
       if (!win || win.closed) {
         window.location.href = url
       }
     }
 
     if (result.qr_code) {
-      closePendingStripeTab()
+      closePendingPaymentPage(pendingStripeTab)
       // QR mode: show QR code inline
       paymentState.value = {
         orderId: result.order_id,
@@ -559,33 +552,35 @@ async function createOrder(orderAmount: number, orderType: OrderType, planId?: n
       }
       paymentPhase.value = 'paying'
     } else if (result.pay_url) {
-      paymentState.value = {
-        orderId: result.order_id,
-        qrCode: '',
-        expiresAt: result.expires_at || '',
-        paymentType: selectedMethod.value,
-        payUrl: result.pay_url,
-        orderType,
+      if (shouldTrackPaymentInline(openStrategy)) {
+        paymentState.value = {
+          orderId: result.order_id,
+          qrCode: '',
+          expiresAt: result.expires_at || '',
+          paymentType: selectedMethod.value,
+          payUrl: result.pay_url,
+          orderType,
+        }
+        paymentPhase.value = 'paying'
       }
-      paymentPhase.value = 'paying'
       if (openStrategy === 'same-tab') {
         window.location.href = result.pay_url
         return
       }
       if (openStrategy === 'new-tab') {
-        openInNewTab(result.pay_url)
+        if (!navigatePendingPaymentPage(pendingStripeTab, result.pay_url, openWindow)) {
+          window.location.href = result.pay_url
+        }
         return
       }
-      openWindow(result.pay_url)
+      openPopupWindow(result.pay_url)
     } else {
-      closePendingStripeTab()
+      closePendingPaymentPage(pendingStripeTab)
       errorMessage.value = t('payment.result.failed')
       appStore.showError(errorMessage.value)
     }
   } catch (err: unknown) {
-    if (pendingStripeTab && !pendingStripeTab.closed) {
-      pendingStripeTab.close()
-    }
+    closePendingPaymentPage(pendingStripeTab)
     const apiErr = err as Record<string, unknown>
     if (apiErr.reason === 'TOO_MANY_PENDING') {
       const metadata = apiErr.metadata as Record<string, unknown> | undefined

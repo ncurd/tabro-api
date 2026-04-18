@@ -1814,6 +1814,30 @@ func TestExtractOpenAISSEDataLine(t *testing.T) {
 	}
 }
 
+func TestExtractOpenAIStreamPayloadLine(t *testing.T) {
+	tests := []struct {
+		name     string
+		line     string
+		wantData string
+		wantOK   bool
+	}{
+		{name: "标准 sse", line: `data: {"type":"x"}`, wantData: `{"type":"x"}`, wantOK: true},
+		{name: "无空格 sse", line: `data:{"type":"x"}`, wantData: `{"type":"x"}`, wantOK: true},
+		{name: "裸 json 行", line: `{"type":"response.completed"}`, wantData: `{"type":"response.completed"}`, wantOK: true},
+		{name: "裸 [DONE]", line: `[DONE]`, wantData: `[DONE]`, wantOK: true},
+		{name: "空行", line: `   `, wantData: ``, wantOK: false},
+		{name: "event 行", line: `event: message`, wantData: ``, wantOK: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := extractOpenAIStreamPayloadLine(tt.line)
+			require.Equal(t, tt.wantOK, ok)
+			require.Equal(t, tt.wantData, got)
+		})
+	}
+}
+
 func TestParseSSEUsage_SelectiveParsing(t *testing.T) {
 	svc := &OpenAIGatewayService{}
 	usage := &OpenAIUsage{InputTokens: 9, OutputTokens: 8, CacheReadInputTokens: 7}

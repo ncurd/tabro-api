@@ -12,11 +12,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
+	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
 
@@ -300,10 +300,10 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 		rawSSEBody.WriteString(line)
 		rawSSEBody.WriteByte('\n')
 
-		if !strings.HasPrefix(line, "data: ") || line == "data: [DONE]" {
+		payload, ok := extractOpenAIStreamPayloadLine(line)
+		if !ok || payload == "" || payload == "[DONE]" {
 			continue
 		}
-		payload := line[6:]
 
 		var event apicompat.ResponsesStreamEvent
 		if err := json.Unmarshal([]byte(payload), &event); err != nil {
@@ -528,10 +528,11 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 	if keepaliveInterval <= 0 {
 		for scanner.Scan() {
 			line := scanner.Text()
-			if !strings.HasPrefix(line, "data: ") || line == "data: [DONE]" {
+			payload, ok := extractOpenAIStreamPayloadLine(line)
+			if !ok || payload == "" || payload == "[DONE]" {
 				continue
 			}
-			if processDataLine(line[6:]) {
+			if processDataLine(payload) {
 				return resultWithUsage(), nil
 			}
 		}
@@ -584,10 +585,11 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 			}
 			lastDataAt = time.Now()
 			line := ev.line
-			if !strings.HasPrefix(line, "data: ") || line == "data: [DONE]" {
+			payload, ok := extractOpenAIStreamPayloadLine(line)
+			if !ok || payload == "" || payload == "[DONE]" {
 				continue
 			}
-			if processDataLine(line[6:]) {
+			if processDataLine(payload) {
 				return resultWithUsage(), nil
 			}
 
