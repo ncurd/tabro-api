@@ -3882,7 +3882,7 @@ func (s *OpenAIGatewayService) parseSSEUsageBytes(data []byte, usage *OpenAIUsag
 		return
 	}
 	eventType := gjson.GetBytes(data, "type").String()
-	if eventType != "response.completed" && eventType != "response.done" {
+	if !isOpenAIResponseTerminalEventType(eventType) {
 		return
 	}
 
@@ -4025,8 +4025,7 @@ func extractOpenAISSETerminalEvent(body string) (string, []byte, bool) {
 			continue
 		}
 		eventType := strings.TrimSpace(gjson.Get(data, "type").String())
-		switch eventType {
-		case "response.completed", "response.done", "response.failed":
+		if isOpenAIResponseTerminalEventType(eventType) {
 			return eventType, []byte(data), true
 		}
 	}

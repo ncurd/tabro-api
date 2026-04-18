@@ -118,12 +118,7 @@ func openAIStreamEventIsTerminal(data string) bool {
 	if trimmed == "[DONE]" {
 		return true
 	}
-	switch gjson.Get(trimmed, "type").String() {
-	case "response.completed", "response.done", "response.failed":
-		return true
-	default:
-		return false
-	}
+	return isOpenAIResponseTerminalEventType(gjson.Get(trimmed, "type").String())
 }
 
 func anthropicStreamEventIsTerminal(eventName, data string) bool {
