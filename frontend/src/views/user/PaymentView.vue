@@ -25,6 +25,20 @@
             @success="onPaymentSuccess"
           />
         </template>
+        <template v-else-if="paymentPhase === 'stripe'">
+          <StripePaymentInline
+            :order-id="paymentState.orderId"
+            :amount="paymentState.amount"
+            :client-secret="paymentState.clientSecret"
+            :order-type="paymentState.orderType || undefined"
+            :publishable-key="checkout.stripe_publishable_key"
+            :pay-amount="paymentState.payAmount"
+            @success="onPaymentSuccess"
+            @done="onStripeDone"
+            @back="resetPayment"
+            @redirect="onStripeRedirect"
+          />
+        </template>
         <!-- Tab content (select phase) -->
         <template v-else>
           <!-- Top-up Tab -->
@@ -260,20 +274,14 @@ import { paymentAPI } from '@/api/payment'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { isMobileDevice } from '@/utils/device'
 import type { SubscriptionPlan, CheckoutInfoResponse, OrderType } from '@/types/payment'
-import {
-  closePendingPaymentPage,
-  navigatePendingPaymentPage,
-  openPendingPaymentPage,
-  resolvePaymentPageOpenStrategy,
-  shouldTrackPaymentInline,
-} from '@/views/user/paymentFlow'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import AmountInput from '@/components/payment/AmountInput.vue'
 import PaymentMethodSelector from '@/components/payment/PaymentMethodSelector.vue'
-import { METHOD_ORDER, POPUP_WINDOW_FEATURES } from '@/components/payment/providerConfig'
+import { METHOD_ORDER, getPaymentPopupFeatures } from '@/components/payment/providerConfig'
 import { platformAccentBarClass, platformBadgeLightClass, platformBadgeClass, platformTextClass, platformLabel } from '@/utils/platformColors'
 import SubscriptionPlanCard from '@/components/payment/SubscriptionPlanCard.vue'
 import PaymentStatusPanel from '@/components/payment/PaymentStatusPanel.vue'
+import StripePaymentInline from '@/components/payment/StripePaymentInline.vue'
 import Icon from '@/components/icons/Icon.vue'
 import type { PaymentMethodOption } from '@/components/payment/PaymentMethodSelector.vue'
 
@@ -301,20 +309,23 @@ const selectedMethod = ref('')
 const selectedPlan = ref<SubscriptionPlan | null>(null)
 const previewImage = ref('')
 
-// Payment phase: 'select' → 'paying' (QR/redirect)
-const paymentPhase = ref<'select' | 'paying'>('select')
+// Payment phase: 'select' → 'paying' (QR/redirect) or 'stripe' (inline Stripe)
+const paymentPhase = ref<'select' | 'paying' | 'stripe'>('select')
 const paymentState = ref<{
   orderId: number
+  amount: number
   qrCode: string
   expiresAt: string
   paymentType: string
   payUrl: string
+  clientSecret: string
+  payAmount: number
   orderType: OrderType | ''
-}>({ orderId: 0, qrCode: '', expiresAt: '', paymentType: '', payUrl: '', orderType: '' })
+}>({ orderId: 0, amount: 0, qrCode: '', expiresAt: '', paymentType: '', payUrl: '', clientSecret: '', payAmount: 0, orderType: '' })
 
 function resetPayment() {
   paymentPhase.value = 'select'
-  paymentState.value = { orderId: 0, qrCode: '', expiresAt: '', paymentType: '', payUrl: '', orderType: '' }
+  paymentState.value = { orderId: 0, amount: 0, qrCode: '', expiresAt: '', paymentType: '', payUrl: '', clientSecret: '', payAmount: 0, orderType: '' }
 }
 
 function onPaymentDone() {
@@ -331,6 +342,20 @@ function onPaymentSuccess() {
   if (paymentState.value.orderType === 'subscription') {
     subscriptionStore.fetchActiveSubscriptions(true).catch(() => {})
   }
+}
+
+function onStripeDone() {
+  const wasSubscription = paymentState.value.orderType === 'subscription'
+  resetPayment()
+  selectedPlan.value = null
+  if (wasSubscription) {
+    subscriptionStore.fetchActiveSubscriptions(true).catch(() => {})
+  }
+}
+
+function onStripeRedirect(orderId: number, payUrl: string) {
+  paymentState.value = { ...paymentState.value, orderId, payUrl, qrCode: '' }
+  paymentPhase.value = 'paying'
 }
 
 // All checkout data from single API call
@@ -518,11 +543,6 @@ async function confirmSubscribe() {
 }
 
 async function createOrder(orderAmount: number, orderType: OrderType, planId?: number) {
-  const openStrategy = resolvePaymentPageOpenStrategy(selectedMethod.value, isMobileDevice())
-  const openWindow = window.open.bind(window)
-  const pendingStripeTab = openStrategy === 'new-tab'
-    ? openPendingPaymentPage(openWindow, t('payment.stripePay'), t('payment.stripePopup.redirecting'))
-    : null
   submitting.value = true
   errorMessage.value = ''
   try {
@@ -531,56 +551,58 @@ async function createOrder(orderAmount: number, orderType: OrderType, planId?: n
       payment_type: selectedMethod.value,
       order_type: orderType,
       plan_id: planId,
+      is_mobile: isMobileDevice(),
     })
-    const openPopupWindow = (url: string) => {
-      const win = window.open(url, 'paymentPopup', POPUP_WINDOW_FEATURES)
+    const openWindow = (url: string) => {
+      const win = window.open(url, 'paymentPopup', getPaymentPopupFeatures())
       if (!win || win.closed) {
         window.location.href = url
       }
     }
-
-    if (result.qr_code) {
-      closePendingPaymentPage(pendingStripeTab)
+    if (result.client_secret) {
+      // Stripe: show Payment Element inline (user picks method → confirms → redirect if needed)
+      paymentState.value = {
+        orderId: result.order_id, amount: result.amount, qrCode: '', expiresAt: result.expires_at || '',
+        paymentType: selectedMethod.value, payUrl: '',
+        clientSecret: result.client_secret, payAmount: result.pay_amount,
+        orderType,
+      }
+      paymentPhase.value = 'stripe'
+    } else if (isMobileDevice() && result.pay_url) {
+      // Mobile + pay_url: redirect directly instead of QR/popup (mobile browsers block popups)
+      paymentState.value = {
+        orderId: result.order_id, amount: result.amount, qrCode: '', expiresAt: result.expires_at || '',
+        paymentType: selectedMethod.value, payUrl: result.pay_url,
+        clientSecret: '', payAmount: 0,
+        orderType,
+      }
+      paymentPhase.value = 'paying'
+      window.location.href = result.pay_url
+      return
+    } else if (result.qr_code) {
       // QR mode: show QR code inline
       paymentState.value = {
-        orderId: result.order_id,
-        qrCode: result.qr_code,
-        expiresAt: result.expires_at || '',
-        paymentType: selectedMethod.value,
-        payUrl: '',
+        orderId: result.order_id, amount: result.amount, qrCode: result.qr_code,
+        expiresAt: result.expires_at || '', paymentType: selectedMethod.value, payUrl: '',
+        clientSecret: '', payAmount: 0,
         orderType,
       }
       paymentPhase.value = 'paying'
     } else if (result.pay_url) {
-      if (shouldTrackPaymentInline(openStrategy)) {
-        paymentState.value = {
-          orderId: result.order_id,
-          qrCode: '',
-          expiresAt: result.expires_at || '',
-          paymentType: selectedMethod.value,
-          payUrl: result.pay_url,
-          orderType,
-        }
-        paymentPhase.value = 'paying'
+      // Redirect/popup mode: open payment URL, show waiting state inline
+      openWindow(result.pay_url)
+      paymentState.value = {
+        orderId: result.order_id, amount: result.amount, qrCode: '', expiresAt: result.expires_at || '',
+        paymentType: selectedMethod.value, payUrl: result.pay_url,
+        clientSecret: '', payAmount: 0,
+        orderType,
       }
-      if (openStrategy === 'same-tab') {
-        window.location.href = result.pay_url
-        return
-      }
-      if (openStrategy === 'new-tab') {
-        if (!navigatePendingPaymentPage(pendingStripeTab, result.pay_url, openWindow)) {
-          window.location.href = result.pay_url
-        }
-        return
-      }
-      openPopupWindow(result.pay_url)
+      paymentPhase.value = 'paying'
     } else {
-      closePendingPaymentPage(pendingStripeTab)
       errorMessage.value = t('payment.result.failed')
       appStore.showError(errorMessage.value)
     }
   } catch (err: unknown) {
-    closePendingPaymentPage(pendingStripeTab)
     const apiErr = err as Record<string, unknown>
     if (apiErr.reason === 'TOO_MANY_PENDING') {
       const metadata = apiErr.metadata as Record<string, unknown> | undefined
