@@ -1851,6 +1851,15 @@ func TestExtractCodexFinalResponse_SampleReplay(t *testing.T) {
 	require.Contains(t, string(finalResp), `"input_tokens":11`)
 }
 
+func TestExtractCodexFinalResponse_AliyunRawJSONReplay(t *testing.T) {
+	body := testAliyunResponsesRawJSONStream()
+
+	finalResp, ok := extractCodexFinalResponse(body)
+	require.True(t, ok)
+	require.Contains(t, string(finalResp), `"id":"resp_qwen_1"`)
+	require.Contains(t, string(finalResp), `"input_tokens":11`)
+}
+
 func TestHandleSSEToJSON_CompletedEventReturnsJSON(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
@@ -1878,6 +1887,28 @@ func TestHandleSSEToJSON_CompletedEventReturnsJSON(t *testing.T) {
 	require.NotContains(t, rec.Body.String(), "event:")
 	require.Contains(t, rec.Body.String(), `"id":"resp_2"`)
 	require.NotContains(t, rec.Body.String(), "data:")
+}
+
+func TestHandleSSEToJSON_AliyunRawJSONReturnsJSON(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+
+	svc := &OpenAIGatewayService{cfg: &config.Config{}}
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+	}
+	body := []byte(testAliyunResponsesRawJSONStream())
+
+	usage, err := svc.handleSSEToJSON(resp, c, body, "qwen-plus", "qwen-plus")
+	require.NoError(t, err)
+	require.NotNil(t, usage)
+	require.Equal(t, 11, usage.InputTokens)
+	require.Equal(t, 3, usage.OutputTokens)
+	require.Contains(t, rec.Body.String(), `"id":"resp_qwen_1"`)
+	require.NotContains(t, rec.Body.String(), `"type":"response.completed"`)
 }
 
 func TestHandleSSEToJSON_NoFinalResponseKeepsSSEBody(t *testing.T) {
