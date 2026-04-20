@@ -86,13 +86,15 @@ const (
 	SettingKeyInvitationCodeEnabled            = "invitation_code_enabled"             // 是否启用邀请码注册
 
 	// 邮件服务设置
-	SettingKeySMTPHost     = "smtp_host"      // SMTP服务器地址
-	SettingKeySMTPPort     = "smtp_port"      // SMTP端口
-	SettingKeySMTPUsername = "smtp_username"  // SMTP用户名
-	SettingKeySMTPPassword = "smtp_password"  // SMTP密码（加密存储）
-	SettingKeySMTPFrom     = "smtp_from"      // 发件人地址
-	SettingKeySMTPFromName = "smtp_from_name" // 发件人名称
-	SettingKeySMTPUseTLS   = "smtp_use_tls"   // 是否使用TLS
+	SettingKeySMTPHost         = "smtp_host"          // SMTP服务器地址
+	SettingKeySMTPPort         = "smtp_port"          // SMTP端口
+	SettingKeySMTPUsername     = "smtp_username"      // SMTP用户名
+	SettingKeySMTPPassword     = "smtp_password"      // SMTP密码（加密存储）
+	SettingKeySMTPFrom         = "smtp_from"          // 发件人地址
+	SettingKeySMTPFromName     = "smtp_from_name"     // 发件人名称
+	SettingKeySMTPUseTLS       = "smtp_use_tls"       // 是否使用TLS
+	SettingKeySMTPSecurity     = "smtp_security"      // SMTP安全模式：none/starttls/tls
+	SettingKeySMTPAuthProtocol = "smtp_auth_protocol" // SMTP认证协议：auto/plain/login
 
 	// Cloudflare Turnstile 设置
 	SettingKeyTurnstileEnabled   = "turnstile_enabled"    // 是否启用 Turnstile 验证

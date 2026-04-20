@@ -104,12 +104,12 @@ func isAPIRoutePath(c *gin.Context) bool {
 // config file has an older CSP policy.
 func enhanceCSPPolicy(policy string) string {
 	// Add nonce placeholder to script-src if not present
-	if !strings.Contains(policy, NonceTemplate) && !strings.Contains(policy, "'nonce-") {
+	if !directiveContainsValue(policy, "script-src", NonceTemplate) && !strings.Contains(policy, "'nonce-") {
 		policy = addToDirective(policy, "script-src", NonceTemplate)
 	}
 
 	// Add Cloudflare Insights domain to script-src if not present
-	if !strings.Contains(policy, CloudflareInsightsDomain) {
+	if !directiveContainsValue(policy, "script-src", CloudflareInsightsDomain) {
 		policy = addToDirective(policy, "script-src", CloudflareInsightsDomain)
 	}
 
@@ -156,4 +156,19 @@ func addToDirective(policy, directive, value string) string {
 	// Insert value before the semicolon
 	insertPos := idx + endIdx
 	return policy[:insertPos] + " " + value + policy[insertPos:]
+}
+
+func directiveContainsValue(policy, directive, value string) bool {
+	directivePrefix := directive + " "
+	idx := strings.Index(policy, directivePrefix)
+	if idx == -1 {
+		return false
+	}
+
+	endIdx := strings.Index(policy[idx:], ";")
+	if endIdx == -1 {
+		return strings.Contains(policy[idx:], value)
+	}
+
+	return strings.Contains(policy[idx:idx+endIdx], value)
 }

@@ -1814,6 +1814,30 @@ func TestExtractOpenAISSEDataLine(t *testing.T) {
 	}
 }
 
+func TestExtractOpenAIStreamPayloadLine(t *testing.T) {
+	tests := []struct {
+		name     string
+		line     string
+		wantData string
+		wantOK   bool
+	}{
+		{name: "标准 sse", line: `data: {"type":"x"}`, wantData: `{"type":"x"}`, wantOK: true},
+		{name: "无空格 sse", line: `data:{"type":"x"}`, wantData: `{"type":"x"}`, wantOK: true},
+		{name: "裸 json 行", line: `{"type":"response.completed"}`, wantData: `{"type":"response.completed"}`, wantOK: true},
+		{name: "裸 [DONE]", line: `[DONE]`, wantData: `[DONE]`, wantOK: true},
+		{name: "空行", line: `   `, wantData: ``, wantOK: false},
+		{name: "event 行", line: `event: message`, wantData: ``, wantOK: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := extractOpenAIStreamPayloadLine(tt.line)
+			require.Equal(t, tt.wantOK, ok)
+			require.Equal(t, tt.wantData, got)
+		})
+	}
+}
+
 func TestParseSSEUsage_SelectiveParsing(t *testing.T) {
 	svc := &OpenAIGatewayService{}
 	usage := &OpenAIUsage{InputTokens: 9, OutputTokens: 8, CacheReadInputTokens: 7}
@@ -1835,6 +1859,46 @@ func TestParseSSEUsage_SelectiveParsing(t *testing.T) {
 	require.Equal(t, 13, usage.InputTokens)
 	require.Equal(t, 15, usage.OutputTokens)
 	require.Equal(t, 4, usage.CacheReadInputTokens)
+
+	for _, eventType := range []string{"response.incomplete", "response.cancelled", "response.canceled"} {
+		svc.parseSSEUsage(
+			`{"type":"`+eventType+`","response":{"usage":{"input_tokens":21,"output_tokens":34,"input_tokens_details":{"cached_tokens":5}}}}`,
+			usage,
+		)
+		require.Equal(t, 21, usage.InputTokens, eventType)
+		require.Equal(t, 34, usage.OutputTokens, eventType)
+		require.Equal(t, 5, usage.CacheReadInputTokens, eventType)
+	}
+}
+
+func TestOpenAIResponseTerminalEventHelpers_AdditionalStatuses(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		eventType string
+	}{
+		{name: "incomplete", eventType: "response.incomplete"},
+		{name: "cancelled", eventType: "response.cancelled"},
+		{name: "canceled", eventType: "response.canceled"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data := `{"type":"` + tt.eventType + `","response":{"id":"resp_terminal"}}`
+			require.True(t, openAIStreamEventIsTerminal(data))
+
+			body := strings.Join([]string{
+				`data: {"type":"response.in_progress","response":{"id":"resp_terminal"}}`,
+				`data: ` + data,
+				`data: [DONE]`,
+			}, "\n")
+			gotType, payload, ok := extractOpenAISSETerminalEvent(body)
+			require.True(t, ok)
+			require.Equal(t, tt.eventType, gotType)
+			require.Contains(t, string(payload), tt.eventType)
+		})
+	}
 }
 
 func TestExtractCodexFinalResponse_SampleReplay(t *testing.T) {

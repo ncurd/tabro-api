@@ -282,6 +282,7 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 	startTime time.Time,
 ) (*OpenAIForwardResult, error) {
 	requestID := resp.Header.Get("x-request-id")
+	var rawSSEBody strings.Builder
 
 	scanner := bufio.NewScanner(resp.Body)
 	maxLineSize := defaultMaxLineSize
@@ -293,15 +294,16 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 	var finalResponse *apicompat.ResponsesResponse
 	var usage OpenAIUsage
 	acc := apicompat.NewBufferedResponseAccumulator()
-	terminalEventType := ""
 
 	for scanner.Scan() {
 		line := scanner.Text()
+		rawSSEBody.WriteString(line)
+		rawSSEBody.WriteByte('\n')
 
-		if !strings.HasPrefix(line, "data: ") || line == "data: [DONE]" {
+		payload, ok := extractOpenAIStreamPayloadLine(line)
+		if !ok || payload == "" || payload == "[DONE]" {
 			continue
 		}
-		payload := line[6:]
 
 		var event apicompat.ResponsesStreamEvent
 		if err := json.Unmarshal([]byte(payload), &event); err != nil {
@@ -315,21 +317,16 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 		// Accumulate delta content for fallback when terminal output is empty.
 		acc.ProcessEvent(&event)
 
-		// Terminal events normally carry the complete ResponsesResponse, but
-		// some compatible upstreams only send the type and close after deltas.
-		if event.Type == "response.completed" || event.Type == "response.done" ||
-			event.Type == "response.incomplete" || event.Type == "response.failed" {
-			terminalEventType = event.Type
-			if event.Response != nil {
-				finalResponse = event.Response
-				if event.Response.Usage != nil {
-					usage = OpenAIUsage{
-						InputTokens:  event.Response.Usage.InputTokens,
-						OutputTokens: event.Response.Usage.OutputTokens,
-					}
-					if event.Response.Usage.InputTokensDetails != nil {
-						usage.CacheReadInputTokens = event.Response.Usage.InputTokensDetails.CachedTokens
-					}
+		// Terminal events carry the complete ResponsesResponse with output + usage.
+		if isOpenAIResponseTerminalEventType(event.Type) && event.Response != nil {
+			finalResponse = event.Response
+			if event.Response.Usage != nil {
+				usage = OpenAIUsage{
+					InputTokens:  event.Response.Usage.InputTokens,
+					OutputTokens: event.Response.Usage.OutputTokens,
+				}
+				if event.Response.Usage.InputTokensDetails != nil {
+					usage.CacheReadInputTokens = event.Response.Usage.InputTokensDetails.CachedTokens
 				}
 			}
 		}
@@ -344,11 +341,34 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 		}
 	}
 
-	finalResponse = reconstructBufferedResponsesResponse(acc, finalResponse, terminalEventType, requestID, "messages")
 	if finalResponse == nil {
+		if fallbackChatResp, ok := extractChatCompletionsResponseFromSSEBody(rawSSEBody.String(), upstreamModel); ok {
+			usage = openAIUsageFromChatCompletionsResponse(fallbackChatResp)
+			if converted := chatCompletionsResponseToResponsesResponse(fallbackChatResp); converted != nil {
+				anthropicResp := apicompat.ResponsesToAnthropic(converted, originalModel)
+				if s.responseHeaderFilter != nil {
+					responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
+				}
+				c.JSON(http.StatusOK, anthropicResp)
+
+				return &OpenAIForwardResult{
+					RequestID:     requestID,
+					Usage:         usage,
+					Model:         originalModel,
+					BillingModel:  billingModel,
+					UpstreamModel: upstreamModel,
+					Stream:        false,
+					Duration:      time.Since(startTime),
+				}, nil
+			}
+		}
 		writeAnthropicError(c, http.StatusBadGateway, "api_error", "Upstream stream ended without a terminal response event")
 		return nil, fmt.Errorf("upstream stream ended without terminal event")
 	}
+
+	// When the terminal event has an empty output array, reconstruct from
+	// accumulated delta events so the client receives the full content.
+	acc.SupplementResponseOutput(finalResponse)
 
 	anthropicResp := apicompat.ResponsesToAnthropic(finalResponse, originalModel)
 
@@ -438,7 +458,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 		}
 
 		// Extract usage from completion events
-		if (event.Type == "response.completed" || event.Type == "response.incomplete" || event.Type == "response.failed") &&
+		if isOpenAIResponseTerminalEventType(event.Type) &&
 			event.Response != nil && event.Response.Usage != nil {
 			usage = OpenAIUsage{
 				InputTokens:  event.Response.Usage.InputTokens,
@@ -508,10 +528,11 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 	if keepaliveInterval <= 0 {
 		for scanner.Scan() {
 			line := scanner.Text()
-			if !strings.HasPrefix(line, "data: ") || line == "data: [DONE]" {
+			payload, ok := extractOpenAIStreamPayloadLine(line)
+			if !ok || payload == "" || payload == "[DONE]" {
 				continue
 			}
-			if processDataLine(line[6:]) {
+			if processDataLine(payload) {
 				return resultWithUsage(), nil
 			}
 		}
@@ -564,10 +585,11 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 			}
 			lastDataAt = time.Now()
 			line := ev.line
-			if !strings.HasPrefix(line, "data: ") || line == "data: [DONE]" {
+			payload, ok := extractOpenAIStreamPayloadLine(line)
+			if !ok || payload == "" || payload == "[DONE]" {
 				continue
 			}
-			if processDataLine(line[6:]) {
+			if processDataLine(payload) {
 				return resultWithUsage(), nil
 			}
 

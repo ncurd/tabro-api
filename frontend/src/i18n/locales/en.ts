@@ -4471,6 +4471,8 @@ export default {
         siteSubtitle: 'Site Subtitle',
         siteSubtitlePlaceholder: 'Subscription to API Conversion Platform',
         siteSubtitleHint: 'Displayed on login and register pages',
+        interfaceLanguage: 'Interface Language',
+        interfaceLanguageHint: 'Affects only the admin interface language in this browser. The preference is stored locally in this browser.',
         apiBaseUrl: 'API Base URL',
         apiBaseUrlPlaceholder: 'https://api.example.com',
         apiBaseUrlHint:
@@ -4700,7 +4702,12 @@ export default {
         fromName: 'From Name',
         fromNamePlaceholder: 'Sub2API',
         useTls: 'Use TLS',
-        useTlsHint: 'Enable TLS encryption for SMTP connection'
+        useTlsHint: 'Enable TLS encryption for SMTP connection',
+        security: 'Connection Security',
+        securityHint: 'Choose the security mode for the SMTP connection',
+        securityNone: 'None',
+        securityStarttls: 'STARTTLS',
+        securityTls: 'Implicit TLS'
       },
       testEmail: {
         title: 'Send Test Email',

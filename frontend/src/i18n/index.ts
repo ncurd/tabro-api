@@ -1,30 +1,77 @@
 import { createI18n } from 'vue-i18n'
 
-type LocaleCode = 'en' | 'zh'
+export type LocaleCode = 'de' | 'en' | 'es' | 'fr' | 'hi' | 'it' | 'pt-BR' | 'vi' | 'zh-CN' | 'zh-TW'
 
 type LocaleMessages = Record<string, any>
 
 const LOCALE_KEY = 'sub2api_locale'
 const DEFAULT_LOCALE: LocaleCode = 'en'
+const LEGACY_LOCALE_MAP: Record<string, LocaleCode> = {
+  zh: 'zh-CN'
+}
 
 const localeLoaders: Record<LocaleCode, () => Promise<{ default: LocaleMessages }>> = {
+  de: () => import('./locales/de'),
   en: () => import('./locales/en'),
-  zh: () => import('./locales/zh')
+  es: () => import('./locales/es'),
+  fr: () => import('./locales/fr'),
+  hi: () => import('./locales/hi'),
+  it: () => import('./locales/it'),
+  'pt-BR': () => import('./locales/pt-BR'),
+  vi: () => import('./locales/vi'),
+  'zh-CN': () => import('./locales/zh-CN'),
+  'zh-TW': () => import('./locales/zh-TW')
 }
 
 function isLocaleCode(value: string): value is LocaleCode {
-  return value === 'en' || value === 'zh'
+  return value in localeLoaders
+}
+
+function normalizeLocale(value: string | null | undefined): LocaleCode | null {
+  if (!value) {
+    return null
+  }
+
+  if (isLocaleCode(value)) {
+    return value
+  }
+
+  const legacyLocale = LEGACY_LOCALE_MAP[value]
+  if (legacyLocale) {
+    return legacyLocale
+  }
+
+  const lowerValue = value.toLowerCase()
+
+  if (lowerValue === 'pt-br') {
+    return 'pt-BR'
+  }
+
+  const exactMatch = (Object.keys(localeLoaders) as LocaleCode[]).find(
+    (locale) => locale.toLowerCase() === lowerValue
+  )
+  if (exactMatch) {
+    return exactMatch
+  }
+
+  const primaryMatch = (Object.keys(localeLoaders) as LocaleCode[]).find(
+    (locale) => locale.split('-')[0].toLowerCase() === lowerValue.split('-')[0]
+  )
+  return primaryMatch ?? null
 }
 
 function getDefaultLocale(): LocaleCode {
-  const saved = localStorage.getItem(LOCALE_KEY)
-  if (saved && isLocaleCode(saved)) {
+  const saved = normalizeLocale(localStorage.getItem(LOCALE_KEY))
+  if (saved) {
+    if (saved !== localStorage.getItem(LOCALE_KEY)) {
+      localStorage.setItem(LOCALE_KEY, saved)
+    }
     return saved
   }
 
-  const browserLang = navigator.language.toLowerCase()
-  if (browserLang.startsWith('zh')) {
-    return 'zh'
+  const browserLocale = normalizeLocale(navigator.language)
+  if (browserLocale) {
+    return browserLocale
   }
 
   return DEFAULT_LOCALE
@@ -60,14 +107,15 @@ export async function initI18n(): Promise<void> {
 }
 
 export async function setLocale(locale: string): Promise<void> {
-  if (!isLocaleCode(locale)) {
+  const normalizedLocale = normalizeLocale(locale)
+  if (!normalizedLocale) {
     return
   }
 
-  await loadLocaleMessages(locale)
-  i18n.global.locale.value = locale
-  localStorage.setItem(LOCALE_KEY, locale)
-  document.documentElement.setAttribute('lang', locale)
+  await loadLocaleMessages(normalizedLocale)
+  i18n.global.locale.value = normalizedLocale
+  localStorage.setItem(LOCALE_KEY, normalizedLocale)
+  document.documentElement.setAttribute('lang', normalizedLocale)
 
   // 同步更新浏览器页签标题，使其跟随语言切换
   const { resolveDocumentTitle } = await import('@/router/title')
@@ -80,12 +128,20 @@ export async function setLocale(locale: string): Promise<void> {
 
 export function getLocale(): LocaleCode {
   const current = i18n.global.locale.value
-  return isLocaleCode(current) ? current : DEFAULT_LOCALE
+  return normalizeLocale(current) ?? DEFAULT_LOCALE
 }
 
 export const availableLocales = [
+  { code: 'de', name: 'Deutsch', flag: '🇩🇪' },
   { code: 'en', name: 'English', flag: '🇺🇸' },
-  { code: 'zh', name: '中文', flag: '🇨🇳' }
+  { code: 'es', name: 'Español', flag: '🇪🇸' },
+  { code: 'fr', name: 'Français', flag: '🇫🇷' },
+  { code: 'hi', name: 'हिन्दी', flag: '🇮🇳' },
+  { code: 'it', name: 'Italiano', flag: '🇮🇹' },
+  { code: 'pt-BR', name: 'Português (Brasil)', flag: '🇧🇷' },
+  { code: 'vi', name: 'Tiếng Việt', flag: '🇻🇳' },
+  { code: 'zh-CN', name: '简体中文', flag: '🇨🇳' },
+  { code: 'zh-TW', name: '繁體中文', flag: '🇹🇼' }
 ] as const
 
 export default i18n

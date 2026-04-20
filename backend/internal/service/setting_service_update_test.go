@@ -223,3 +223,22 @@ func TestSettingService_UpdateSettings_TablePreferences(t *testing.T) {
 	require.Equal(t, "1000", repo.updates[SettingKeyTableDefaultPageSize])
 	require.Equal(t, "[20,100]", repo.updates[SettingKeyTablePageSizeOptions])
 }
+
+func TestSettingService_UpdateSettings_SMTPAuthProtocol_Normalized(t *testing.T) {
+	repo := &settingUpdateRepoStub{}
+	svc := NewSettingService(repo, &config.Config{})
+
+	err := svc.UpdateSettings(context.Background(), &SystemSettings{
+		SMTPAuthProtocol: " LOGIN ",
+	})
+	require.NoError(t, err)
+	require.Equal(t, SMTPAuthProtocolLogin, repo.updates[SettingKeySMTPAuthProtocol])
+}
+
+func TestSettingService_ParseSettings_DefaultSMTPAuthProtocol(t *testing.T) {
+	svc := NewSettingService(&settingUpdateRepoStub{}, &config.Config{})
+
+	settings := svc.parseSettings(map[string]string{})
+
+	require.Equal(t, SMTPAuthProtocolAuto, settings.SMTPAuthProtocol)
+}

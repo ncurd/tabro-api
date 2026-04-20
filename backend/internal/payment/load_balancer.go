@@ -329,6 +329,51 @@ func InstanceSupportsType(supportedTypes string, target PaymentType) bool {
 	return false
 }
 
+func instanceSupportsPaymentTypeSelection(inst *dbent.PaymentProviderInstance, target PaymentType) bool {
+	if inst == nil {
+		return false
+	}
+
+	if inst.ProviderKey == TypeStripe {
+		return stripeInstanceSupportsType(inst.SupportedTypes, target)
+	}
+
+	return InstanceSupportsType(inst.SupportedTypes, target)
+}
+
+func stripeInstanceSupportsType(supportedTypes string, target PaymentType) bool {
+	if supportedTypes == "" {
+		return true
+	}
+
+	for _, raw := range strings.Split(supportedTypes, ",") {
+		current := strings.TrimSpace(raw)
+		if current == "" {
+			continue
+		}
+		if current == target {
+			return true
+		}
+		if current == TypeStripe && isStripeUnifiedSelectionType(target) {
+			return true
+		}
+		if target == TypeStripe && isStripeUnifiedSelectionType(current) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func isStripeUnifiedSelectionType(t PaymentType) bool {
+	switch t {
+	case TypeStripe, TypeCard, TypeLink, TypeAlipay, TypeWxpay:
+		return true
+	default:
+		return false
+	}
+}
+
 // GetInstanceConfig decrypts and returns the configuration for a provider instance by ID.
 func (lb *DefaultLoadBalancer) GetInstanceConfig(ctx context.Context, instanceID int64) (map[string]string, error) {
 	inst, err := lb.db.PaymentProviderInstance.Get(ctx, instanceID)

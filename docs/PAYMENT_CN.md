@@ -189,8 +189,14 @@ Sub2API 内置支付系统，支持用户自助充值，无需部署独立的支
 1. 登录 [Stripe Dashboard](https://dashboard.stripe.com/)
 2. 进入 **Developers → Webhooks**
 3. 添加端点，填写回调地址
-4. 订阅事件：`payment_intent.succeeded`、`payment_intent.payment_failed`
-5. 将生成的 Webhook Secret（`whsec_...`）填入服务商配置
+4. 将该端点的 API version 升级到与本项目内置 Stripe SDK 对应的 release train
+5. 订阅 Checkout 履约事件：
+   - `checkout.session.completed`
+   - `checkout.session.async_payment_succeeded`
+   - `checkout.session.async_payment_failed`
+6. 将生成的 Webhook Secret（`whsec_...`）填入服务商配置
+
+> 迁移说明：Sub2API 在升级阶段会临时兼容旧的 `payment_intent.*` webhook 事件，避免你在 Dashboard 尚未切换完成时回调立即失效；但长期推荐配置仍然是 Checkout 事件，并应同步升级 Stripe Dashboard 中该 endpoint 的 API version。
 
 ### 注意事项
 
@@ -198,6 +204,8 @@ Sub2API 内置支付系统，支持用户自助充值，无需部署独立的支
 - 确保服务器防火墙允许支付平台的回调请求
 - 系统会自动进行签名验证，防止伪造回调
 - 支付成功后自动完成余额充值，无需人工干预
+- `totp.encryption_key` 用于保护 TOTP 密文，`payment.encryption_key` 用于保护支付服务商的加密配置
+- 请将 `config.yaml` 与数据库一并备份，避免安装、升级或恢复后现有支付服务商密文无法解密
 
 ---
 
@@ -217,7 +225,7 @@ Sub2API 内置支付系统，支持用户自助充值，无需部署独立的支
   ├─ EasyPay    → 扫码 / H5 跳转
   ├─ 支付宝官方  → PC 页面支付 / H5 手机网站支付
   ├─ 微信官方    → Native 扫码 / H5 支付
-  └─ Stripe     → Payment Element（银行卡/支付宝/微信等）
+  └─ Stripe     → 跳转到 Stripe Checkout 托管支付页
        │
        ▼
   支付回调验签 → 订单 PAID

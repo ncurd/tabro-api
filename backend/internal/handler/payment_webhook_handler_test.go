@@ -97,3 +97,50 @@ func TestWebhookConstants(t *testing.T) {
 		assert.Equal(t, 200, webhookLogTruncateLen)
 	})
 }
+
+func TestExtractOutTradeNo(t *testing.T) {
+	tests := []struct {
+		name        string
+		providerKey string
+		rawBody     string
+		want        string
+	}{
+		{
+			name:        "easypay reads out_trade_no from query string",
+			providerKey: "easypay",
+			rawBody:     "out_trade_no=sub2_order_42&trade_status=TRADE_SUCCESS",
+			want:        "sub2_order_42",
+		},
+		{
+			name:        "stripe checkout session reads metadata orderId",
+			providerKey: "stripe",
+			rawBody:     `{"type":"checkout.session.completed","data":{"object":{"id":"cs_test_123","metadata":{"orderId":"sub2_order_42"}}}}`,
+			want:        "sub2_order_42",
+		},
+		{
+			name:        "stripe checkout session falls back to client_reference_id",
+			providerKey: "stripe",
+			rawBody:     `{"type":"checkout.session.completed","data":{"object":{"id":"cs_test_123","client_reference_id":"sub2_order_42"}}}`,
+			want:        "sub2_order_42",
+		},
+		{
+			name:        "stripe legacy payment intent reads metadata orderId",
+			providerKey: "stripe",
+			rawBody:     `{"type":"payment_intent.succeeded","data":{"object":{"id":"pi_test_123","metadata":{"orderId":"sub2_order_42"}}}}`,
+			want:        "sub2_order_42",
+		},
+		{
+			name:        "unknown provider returns empty",
+			providerKey: "alipay",
+			rawBody:     `{"out_trade_no":"sub2_order_42"}`,
+			want:        "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractOutTradeNo(tt.rawBody, tt.providerKey)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}

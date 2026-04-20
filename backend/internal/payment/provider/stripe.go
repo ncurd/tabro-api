@@ -14,9 +14,14 @@ import (
 
 // Stripe constants.
 const (
-	stripeCurrency            = "cny"
-	stripeEventPaymentSuccess = "payment_intent.succeeded"
-	stripeEventPaymentFailed  = "payment_intent.payment_failed"
+	stripeCurrency                 = "cny"
+	stripeCheckoutSessionPrefix    = "cs_"
+	stripePaymentIntentPrefix      = "pi_"
+	stripeEventCheckoutCompleted   = "checkout.session.completed"
+	stripeEventCheckoutAsyncPaid   = "checkout.session.async_payment_succeeded"
+	stripeEventCheckoutAsyncFailed = "checkout.session.async_payment_failed"
+	stripeEventPaymentSuccess      = "payment_intent.succeeded"
+	stripeEventPaymentFailed       = "payment_intent.payment_failed"
 )
 
 // Stripe implements the payment.CancelableProvider interface for Stripe payments.
@@ -68,74 +73,123 @@ var stripePaymentMethodTypes = map[string][]string{
 	payment.TypeLink:   {"link"},
 }
 
-// CreatePayment creates a Stripe PaymentIntent.
+// CreatePayment creates a Stripe Checkout Session and returns its hosted payment URL.
 func (s *Stripe) CreatePayment(ctx context.Context, req payment.CreatePaymentRequest) (*payment.CreatePaymentResponse, error) {
 	s.ensureInit()
+
+	if strings.TrimSpace(req.ReturnURL) == "" {
+		return nil, fmt.Errorf("stripe create payment: return url is required")
+	}
+
+	cancelURL := strings.TrimSpace(req.CancelURL)
+	if cancelURL == "" {
+		cancelURL = req.ReturnURL
+	}
 
 	amountInCents, err := payment.YuanToFen(req.Amount)
 	if err != nil {
 		return nil, fmt.Errorf("stripe create payment: %w", err)
 	}
 
-	// Collect all Stripe payment_method_types from the instance's configured sub-methods
 	methods := resolveStripeMethodTypes(req.InstanceSubMethods)
-
 	pmTypes := make([]*string, len(methods))
 	for i, m := range methods {
 		pmTypes[i] = stripe.String(m)
 	}
 
-	params := &stripe.PaymentIntentCreateParams{
-		Amount:             stripe.Int64(amountInCents),
-		Currency:           stripe.String(stripeCurrency),
+	params := &stripe.CheckoutSessionCreateParams{
+		SuccessURL:         stripe.String(req.ReturnURL),
+		CancelURL:          stripe.String(cancelURL),
+		ClientReferenceID:  stripe.String(req.OrderID),
+		Mode:               stripe.String(string(stripe.CheckoutSessionModePayment)),
 		PaymentMethodTypes: pmTypes,
-		Description:        stripe.String(req.Subject),
-		Metadata:           map[string]string{"orderId": req.OrderID},
+		Metadata: map[string]string{
+			"orderId": req.OrderID,
+		},
+		PaymentIntentData: &stripe.CheckoutSessionCreatePaymentIntentDataParams{
+			Description: stripe.String(req.Subject),
+			Metadata: map[string]string{
+				"orderId": req.OrderID,
+			},
+		},
+		LineItems: []*stripe.CheckoutSessionCreateLineItemParams{
+			{
+				Quantity: stripe.Int64(1),
+				PriceData: &stripe.CheckoutSessionCreateLineItemPriceDataParams{
+					Currency:   stripe.String(stripeCurrency),
+					UnitAmount: stripe.Int64(amountInCents),
+					ProductData: &stripe.CheckoutSessionCreateLineItemPriceDataProductDataParams{
+						Name: stripe.String(req.Subject),
+					},
+				},
+			},
+		},
 	}
 
-	// WeChat Pay requires payment_method_options with client type
 	if hasStripeMethod(methods, "wechat_pay") {
-		params.PaymentMethodOptions = &stripe.PaymentIntentCreatePaymentMethodOptionsParams{
-			WeChatPay: &stripe.PaymentIntentCreatePaymentMethodOptionsWeChatPayParams{
+		params.PaymentMethodOptions = &stripe.CheckoutSessionCreatePaymentMethodOptionsParams{
+			WeChatPay: &stripe.CheckoutSessionCreatePaymentMethodOptionsWeChatPayParams{
 				Client: stripe.String("web"),
 			},
 		}
 	}
 
-	params.SetIdempotencyKey(fmt.Sprintf("pi-%s", req.OrderID))
-	params.Context = ctx
+	params.SetIdempotencyKey(fmt.Sprintf("cs-%s", req.OrderID))
 
-	pi, err := s.sc.V1PaymentIntents.Create(ctx, params)
+	session, err := s.sc.V1CheckoutSessions.Create(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("stripe create payment: %w", err)
 	}
+	if strings.TrimSpace(session.URL) == "" {
+		return nil, fmt.Errorf("stripe create payment: checkout session missing url")
+	}
 
 	return &payment.CreatePaymentResponse{
-		TradeNo:      pi.ID,
-		ClientSecret: pi.ClientSecret,
+		TradeNo: session.ID,
+		PayURL:  session.URL,
 	}, nil
 }
 
-// QueryOrder retrieves a PaymentIntent by ID.
+// QueryOrder retrieves the upstream status for either a Checkout Session or a legacy PaymentIntent.
 func (s *Stripe) QueryOrder(ctx context.Context, tradeNo string) (*payment.QueryOrderResponse, error) {
 	s.ensureInit()
 
-	pi, err := s.sc.V1PaymentIntents.Retrieve(ctx, tradeNo, nil)
+	if isStripePaymentIntentID(tradeNo) {
+		return s.queryPaymentIntent(ctx, tradeNo)
+	}
+	return s.queryCheckoutSession(ctx, tradeNo)
+}
+
+func (s *Stripe) queryCheckoutSession(ctx context.Context, tradeNo string) (*payment.QueryOrderResponse, error) {
+	session, err := s.getCheckoutSession(ctx, tradeNo, false)
 	if err != nil {
 		return nil, fmt.Errorf("stripe query order: %w", err)
 	}
 
 	status := payment.ProviderStatusPending
-	switch pi.Status {
-	case stripe.PaymentIntentStatusSucceeded:
+	switch {
+	case session.PaymentStatus == stripe.CheckoutSessionPaymentStatusPaid:
 		status = payment.ProviderStatusPaid
-	case stripe.PaymentIntentStatusCanceled:
+	case session.Status == stripe.CheckoutSessionStatusExpired:
 		status = payment.ProviderStatusFailed
 	}
 
 	return &payment.QueryOrderResponse{
-		TradeNo: pi.ID,
+		TradeNo: session.ID,
 		Status:  status,
+		Amount:  payment.FenToYuan(session.AmountTotal),
+	}, nil
+}
+
+func (s *Stripe) queryPaymentIntent(ctx context.Context, tradeNo string) (*payment.QueryOrderResponse, error) {
+	pi, err := s.sc.V1PaymentIntents.Retrieve(ctx, tradeNo, nil)
+	if err != nil {
+		return nil, fmt.Errorf("stripe query order: %w", err)
+	}
+
+	return &payment.QueryOrderResponse{
+		TradeNo: pi.ID,
+		Status:  mapStripePaymentIntentStatus(pi.Status),
 		Amount:  payment.FenToYuan(pi.Amount),
 	}, nil
 }
@@ -154,12 +208,23 @@ func (s *Stripe) VerifyNotification(_ context.Context, rawBody string, headers m
 		return nil, fmt.Errorf("stripe notification missing stripe-signature header")
 	}
 
-	event, err := webhook.ConstructEvent([]byte(rawBody), sig, webhookSecret)
+	event, err := webhook.ConstructEventWithOptions(
+		[]byte(rawBody),
+		sig,
+		webhookSecret,
+		webhook.ConstructEventOptions{IgnoreAPIVersionMismatch: true},
+	)
 	if err != nil {
 		return nil, fmt.Errorf("stripe verify notification: %w", err)
 	}
 
 	switch event.Type {
+	case stripeEventCheckoutCompleted:
+		return parseStripeCheckoutSession(&event, rawBody)
+	case stripeEventCheckoutAsyncPaid:
+		return parseStripeCheckoutSessionWithStatus(&event, payment.ProviderStatusSuccess, rawBody)
+	case stripeEventCheckoutAsyncFailed:
+		return parseStripeCheckoutSessionWithStatus(&event, payment.ProviderStatusFailed, rawBody)
 	case stripeEventPaymentSuccess:
 		return parseStripePaymentIntent(&event, payment.ProviderStatusSuccess, rawBody)
 	case stripeEventPaymentFailed:
@@ -167,6 +232,40 @@ func (s *Stripe) VerifyNotification(_ context.Context, rawBody string, headers m
 	}
 
 	return nil, nil
+}
+
+func parseStripeCheckoutSession(event *stripe.Event, rawBody string) (*payment.PaymentNotification, error) {
+	var session stripe.CheckoutSession
+	if err := json.Unmarshal(event.Data.Raw, &session); err != nil {
+		return nil, fmt.Errorf("stripe parse checkout.session: %w", err)
+	}
+	if session.PaymentStatus != stripe.CheckoutSessionPaymentStatusPaid {
+		return nil, nil
+	}
+	return stripeCheckoutSessionNotification(&session, payment.ProviderStatusSuccess, rawBody), nil
+}
+
+func parseStripeCheckoutSessionWithStatus(event *stripe.Event, status string, rawBody string) (*payment.PaymentNotification, error) {
+	var session stripe.CheckoutSession
+	if err := json.Unmarshal(event.Data.Raw, &session); err != nil {
+		return nil, fmt.Errorf("stripe parse checkout.session: %w", err)
+	}
+	return stripeCheckoutSessionNotification(&session, status, rawBody), nil
+}
+
+func stripeCheckoutSessionNotification(session *stripe.CheckoutSession, status string, rawBody string) *payment.PaymentNotification {
+	orderID := session.Metadata["orderId"]
+	if orderID == "" {
+		orderID = session.ClientReferenceID
+	}
+
+	return &payment.PaymentNotification{
+		TradeNo: session.ID,
+		OrderID: orderID,
+		Amount:  payment.FenToYuan(session.AmountTotal),
+		Status:  status,
+		RawData: rawBody,
+	}
 }
 
 func parseStripePaymentIntent(event *stripe.Event, status string, rawBody string) (*payment.PaymentNotification, error) {
@@ -192,27 +291,58 @@ func (s *Stripe) Refund(ctx context.Context, req payment.RefundRequest) (*paymen
 		return nil, fmt.Errorf("stripe refund: %w", err)
 	}
 
+	paymentIntentID, err := s.resolveRefundPaymentIntent(ctx, req.TradeNo)
+	if err != nil {
+		return nil, fmt.Errorf("stripe refund: %w", err)
+	}
+
 	params := &stripe.RefundCreateParams{
-		PaymentIntent: stripe.String(req.TradeNo),
+		PaymentIntent: stripe.String(paymentIntentID),
 		Amount:        stripe.Int64(amountInCents),
 		Reason:        stripe.String(string(stripe.RefundReasonRequestedByCustomer)),
 	}
-	params.Context = ctx
 
-	r, err := s.sc.V1Refunds.Create(ctx, params)
+	refund, err := s.sc.V1Refunds.Create(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("stripe refund: %w", err)
 	}
 
 	refundStatus := payment.ProviderStatusPending
-	if r.Status == stripe.RefundStatusSucceeded {
+	if refund.Status == stripe.RefundStatusSucceeded {
 		refundStatus = payment.ProviderStatusSuccess
 	}
 
 	return &payment.RefundResponse{
-		RefundID: r.ID,
+		RefundID: refund.ID,
 		Status:   refundStatus,
 	}, nil
+}
+
+func (s *Stripe) resolveRefundPaymentIntent(ctx context.Context, tradeNo string) (string, error) {
+	if isStripePaymentIntentID(tradeNo) {
+		return tradeNo, nil
+	}
+
+	session, err := s.getCheckoutSession(ctx, tradeNo, true)
+	if err != nil {
+		return "", fmt.Errorf("retrieve checkout session: %w", err)
+	}
+	if session.PaymentIntent == nil || strings.TrimSpace(session.PaymentIntent.ID) == "" {
+		return "", fmt.Errorf("checkout session %s missing payment_intent", tradeNo)
+	}
+	return session.PaymentIntent.ID, nil
+}
+
+func (s *Stripe) getCheckoutSession(ctx context.Context, tradeNo string, expandPaymentIntent bool) (*stripe.CheckoutSession, error) {
+	params := &stripe.CheckoutSessionRetrieveParams{}
+	if expandPaymentIntent {
+		params.AddExpand("payment_intent")
+	}
+	session, err := s.sc.V1CheckoutSessions.Retrieve(ctx, tradeNo, params)
+	if err != nil {
+		return nil, err
+	}
+	return session, nil
 }
 
 // resolveStripeMethodTypes converts instance supported_types (comma-separated)
@@ -244,11 +374,31 @@ func hasStripeMethod(methods []string, target string) bool {
 	return false
 }
 
-// CancelPayment cancels a pending PaymentIntent.
+func mapStripePaymentIntentStatus(status stripe.PaymentIntentStatus) string {
+	switch status {
+	case stripe.PaymentIntentStatusSucceeded:
+		return payment.ProviderStatusPaid
+	case stripe.PaymentIntentStatusCanceled:
+		return payment.ProviderStatusFailed
+	default:
+		return payment.ProviderStatusPending
+	}
+}
+
+func isStripePaymentIntentID(tradeNo string) bool {
+	return strings.HasPrefix(strings.TrimSpace(tradeNo), stripePaymentIntentPrefix)
+}
+
+// CancelPayment expires a pending Checkout Session or cancels a legacy PaymentIntent.
 func (s *Stripe) CancelPayment(ctx context.Context, tradeNo string) error {
 	s.ensureInit()
 
-	_, err := s.sc.V1PaymentIntents.Cancel(ctx, tradeNo, nil)
+	var err error
+	if isStripePaymentIntentID(tradeNo) {
+		_, err = s.sc.V1PaymentIntents.Cancel(ctx, tradeNo, nil)
+	} else {
+		_, err = s.sc.V1CheckoutSessions.Expire(ctx, tradeNo, &stripe.CheckoutSessionExpireParams{})
+	}
 	if err != nil {
 		return fmt.Errorf("stripe cancel payment: %w", err)
 	}

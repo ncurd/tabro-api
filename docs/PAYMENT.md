@@ -189,8 +189,14 @@ When adding a provider, the system auto-generates callback URLs from your site d
 1. Log in to [Stripe Dashboard](https://dashboard.stripe.com/)
 2. Go to **Developers → Webhooks**
 3. Add an endpoint with the callback URL
-4. Subscribe to events: `payment_intent.succeeded`, `payment_intent.payment_failed`
-5. Copy the generated Webhook Secret (`whsec_...`) to your provider configuration
+4. Upgrade the endpoint API version to match the installed Stripe SDK release train used by this project
+5. Subscribe to Checkout fulfillment events:
+   - `checkout.session.completed`
+   - `checkout.session.async_payment_succeeded`
+   - `checkout.session.async_payment_failed`
+6. Copy the generated Webhook Secret (`whsec_...`) to your provider configuration
+
+> Migration note: Sub2API keeps temporary compatibility with legacy `payment_intent.*` webhook events during rollout, but the recommended steady-state configuration is Checkout-based and the endpoint API version should still be upgraded in Stripe Dashboard.
 
 ### Important Notes
 
@@ -198,6 +204,8 @@ When adding a provider, the system auto-generates callback URLs from your site d
 - Ensure your firewall allows callback requests from payment platforms
 - The system automatically verifies callback signatures to prevent forgery
 - Balance top-up is processed automatically upon successful payment — no manual intervention needed
+- `totp.encryption_key` protects TOTP secrets; `payment.encryption_key` protects encrypted provider config
+- Back up `config.yaml` and the database together so existing payment provider secrets remain decryptable after install/upgrade/recovery
 
 ---
 
@@ -217,7 +225,7 @@ User selects amount and payment method
   ├─ EasyPay     → QR code / H5 redirect
   ├─ Alipay      → PC page pay / H5 mobile pay
   ├─ WeChat Pay  → Native QR / H5 pay
-  └─ Stripe      → Payment Element (card/Alipay/WeChat/etc.)
+  └─ Stripe      → Redirect to Stripe Checkout hosted page
        │
        ▼
   Webhook callback verified → Order PAID

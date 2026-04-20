@@ -2946,7 +2946,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		if data, ok := extractOpenAISSEDataLine(line); ok {
+		if data, ok := extractOpenAIStreamPayloadLine(line); ok {
 			dataBytes := []byte(data)
 			trimmedData := strings.TrimSpace(data)
 			if trimmedData == "[DONE]" {
@@ -3650,8 +3650,9 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 	processSSELine := func(line string, queueDrained bool) {
 		lastDataAt = time.Now()
 
-		// Extract data from SSE line (supports both "data: " and "data:" formats)
-		if data, ok := extractOpenAISSEDataLine(line); ok {
+		// Extract data from OpenAI-compatible stream lines. Besides SSE `data:`
+		// lines, some upstreams emit bare JSON lines for streaming payloads.
+		if data, ok := extractOpenAIStreamPayloadLine(line); ok {
 
 			// Replace model in response if needed.
 			// Fast path: most events do not contain model field values.
@@ -3826,6 +3827,27 @@ func extractOpenAISSEDataLine(line string) (string, bool) {
 	return line[start:], true
 }
 
+// extractOpenAIStreamPayloadLine extracts a logical event payload line from an
+// OpenAI-compatible stream. Besides standard SSE `data:` lines, some upstreams
+// emit bare JSON lines (for example in vendor docs/examples), which we also
+// accept here for compatibility.
+func extractOpenAIStreamPayloadLine(line string) (string, bool) {
+	if data, ok := extractOpenAISSEDataLine(line); ok {
+		return data, true
+	}
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return "", false
+	}
+	if trimmed == "[DONE]" {
+		return trimmed, true
+	}
+	if strings.HasPrefix(trimmed, "{") && strings.HasSuffix(trimmed, "}") {
+		return trimmed, true
+	}
+	return "", false
+}
+
 func (s *OpenAIGatewayService) replaceModelInSSELine(line, fromModel, toModel string) string {
 	data, ok := extractOpenAISSEDataLine(line)
 	if !ok {
@@ -3882,7 +3904,7 @@ func (s *OpenAIGatewayService) parseSSEUsageBytes(data []byte, usage *OpenAIUsag
 		return
 	}
 	eventType := gjson.GetBytes(data, "type").String()
-	if eventType != "response.completed" && eventType != "response.done" {
+	if !isOpenAIResponseTerminalEventType(eventType) {
 		return
 	}
 
@@ -4020,13 +4042,12 @@ func (s *OpenAIGatewayService) handleSSEToJSON(resp *http.Response, c *gin.Conte
 func extractOpenAISSETerminalEvent(body string) (string, []byte, bool) {
 	lines := strings.Split(body, "\n")
 	for _, line := range lines {
-		data, ok := extractOpenAISSEDataLine(line)
+		data, ok := extractOpenAIStreamPayloadLine(line)
 		if !ok || data == "" || data == "[DONE]" {
 			continue
 		}
 		eventType := strings.TrimSpace(gjson.Get(data, "type").String())
-		switch eventType {
-		case "response.completed", "response.done", "response.failed":
+		if isOpenAIResponseTerminalEventType(eventType) {
 			return eventType, []byte(data), true
 		}
 	}
@@ -4065,7 +4086,7 @@ func (s *OpenAIGatewayService) writeOpenAINonStreamingProtocolError(resp *http.R
 func extractCodexFinalResponse(body string) ([]byte, bool) {
 	lines := strings.Split(body, "\n")
 	for _, line := range lines {
-		data, ok := extractOpenAISSEDataLine(line)
+		data, ok := extractOpenAIStreamPayloadLine(line)
 		if !ok {
 			continue
 		}
@@ -4089,7 +4110,7 @@ func reconstructResponseOutputFromSSE(bodyText string) ([]byte, bool) {
 	acc := apicompat.NewBufferedResponseAccumulator()
 	lines := strings.Split(bodyText, "\n")
 	for _, line := range lines {
-		data, ok := extractOpenAISSEDataLine(line)
+		data, ok := extractOpenAIStreamPayloadLine(line)
 		if !ok || data == "" || data == "[DONE]" {
 			continue
 		}
@@ -4114,7 +4135,7 @@ func (s *OpenAIGatewayService) parseSSEUsageFromBody(body string) *OpenAIUsage {
 	usage := &OpenAIUsage{}
 	lines := strings.Split(body, "\n")
 	for _, line := range lines {
-		data, ok := extractOpenAISSEDataLine(line)
+		data, ok := extractOpenAIStreamPayloadLine(line)
 		if !ok {
 			continue
 		}

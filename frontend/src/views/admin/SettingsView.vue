@@ -1997,6 +1997,30 @@
               </div>
             </div>
 
+            <div>
+              <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                {{ t('admin.settings.site.interfaceLanguage') }}
+              </label>
+              <select
+                data-testid="interface-language-select"
+                class="input"
+                :value="currentInterfaceLanguage"
+                :disabled="interfaceLanguageChanging"
+                @change="handleInterfaceLanguageChange"
+              >
+                <option
+                  v-for="language in interfaceLanguageOptions"
+                  :key="language.code"
+                  :value="language.code"
+                >
+                  {{ language.name }} ({{ language.code }})
+                </option>
+              </select>
+              <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.settings.site.interfaceLanguageHint') }}
+              </p>
+            </div>
+
             <!-- API Base URL -->
             <div>
               <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -2348,7 +2372,13 @@
             <h2 class="text-lg font-semibold text-gray-900 dark:text-white">{{ t('admin.settings.payment.title') }}</h2>
             <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
               {{ t('admin.settings.payment.description') }}
-              <a :href="locale === 'zh' ? 'https://github.com/Wei-Shaw/sub2api/blob/main/docs/PAYMENT_CN.md' : 'https://github.com/Wei-Shaw/sub2api/blob/main/docs/PAYMENT.md'" target="_blank" rel="noopener noreferrer" class="ml-2 inline-flex items-center text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300">
+              <a
+                data-testid="payment-config-guide-link"
+                :href="paymentConfigGuideUrl"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="ml-2 inline-flex items-center text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
+              >
                 <svg class="mr-0.5 h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
                 {{ t('admin.settings.payment.configGuide') }}
               </a>
@@ -2444,7 +2474,13 @@
                 </div>
                 <p class="mt-2 text-xs text-gray-400 dark:text-gray-500">
                   {{ t('admin.settings.payment.enabledPaymentTypesHint') }}
-                  <a :href="locale === 'zh' ? 'https://github.com/Wei-Shaw/sub2api/blob/main/docs/PAYMENT_CN.md#%E6%94%AF%E6%8C%81%E7%9A%84%E6%94%AF%E4%BB%98%E6%96%B9%E5%BC%8F' : 'https://github.com/Wei-Shaw/sub2api/blob/main/docs/PAYMENT.md#supported-payment-methods'" target="_blank" rel="noopener noreferrer" class="ml-1 text-primary-500 hover:text-primary-600 dark:text-primary-400 dark:hover:text-primary-300">
+                  <a
+                    data-testid="payment-provider-guide-link"
+                    :href="paymentProviderGuideUrl"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="ml-1 text-primary-500 hover:text-primary-600 dark:text-primary-400 dark:hover:text-primary-300"
+                  >
                     {{ t('admin.settings.payment.findProvider') }}
                     <svg class="mb-0.5 ml-0.5 inline h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
                   </a>
@@ -2632,19 +2668,18 @@
               </div>
             </div>
 
-            <!-- Use TLS Toggle -->
-            <div
-              class="flex items-center justify-between border-t border-gray-100 pt-4 dark:border-dark-700"
-            >
-              <div>
-                <label class="font-medium text-gray-900 dark:text-white">{{
-                  t('admin.settings.smtp.useTls')
-                }}</label>
-                <p class="text-sm text-gray-500 dark:text-gray-400">
-                  {{ t('admin.settings.smtp.useTlsHint') }}
-                </p>
-              </div>
-              <Toggle v-model="form.smtp_use_tls" />
+            <div class="border-t border-gray-100 pt-4 dark:border-dark-700">
+              <label class="mb-2 block font-medium text-gray-900 dark:text-white">
+                {{ t('admin.settings.smtp.security') }}
+              </label>
+              <p class="mb-3 text-sm text-gray-500 dark:text-gray-400">
+                {{ t('admin.settings.smtp.securityHint') }}
+              </p>
+              <select v-model="form.smtp_security" class="input">
+                <option value="none">{{ t('admin.settings.smtp.securityNone') }}</option>
+                <option value="starttls">{{ t('admin.settings.smtp.securityStarttls') }}</option>
+                <option value="tls">{{ t('admin.settings.smtp.securityTls') }}</option>
+              </select>
             </div>
 
           </div>
@@ -2850,6 +2885,7 @@ import ProxySelector from '@/components/common/ProxySelector.vue'
 import ImageUpload from '@/components/common/ImageUpload.vue'
 import BackupSettings from '@/views/admin/BackupView.vue'
 import { useClipboard } from '@/composables/useClipboard'
+import { availableLocales, setLocale } from '@/i18n'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { useAppStore } from '@/stores'
 import { useAdminSettingsStore } from '@/stores/adminSettings'
@@ -2876,6 +2912,20 @@ const settingsTabs = [
   { key: 'backup'   as SettingsTab, icon: 'database' as const },
 ]
 const { copyToClipboard } = useClipboard()
+const interfaceLanguageOptions = availableLocales
+const interfaceLanguageChanging = ref(false)
+const currentInterfaceLanguage = computed(() => String(locale.value || 'en'))
+const isChineseLocale = computed(() => currentInterfaceLanguage.value.toLowerCase().startsWith('zh'))
+const paymentConfigGuideUrl = computed(() =>
+  isChineseLocale.value
+    ? 'https://github.com/ncurd/tabro-api/blob/main/docs/PAYMENT_CN.md'
+    : 'https://github.com/ncurd/tabro-api/blob/main/docs/PAYMENT.md'
+)
+const paymentProviderGuideUrl = computed(() =>
+  isChineseLocale.value
+    ? 'https://github.com/ncurd/tabro-api/blob/main/docs/PAYMENT_CN.md#%E6%94%AF%E6%8C%81%E7%9A%84%E6%94%AF%E4%BB%98%E6%96%B9%E5%BC%8F'
+    : 'https://github.com/ncurd/tabro-api/blob/main/docs/PAYMENT.md#supported-payment-methods'
+)
 
 const loading = ref(true)
 const loadFailed = ref(false)
@@ -2997,6 +3047,8 @@ const form = reactive<SettingsForm>({
   smtp_from_email: '',
   smtp_from_name: '',
   smtp_use_tls: true,
+  smtp_security: 'tls',
+  smtp_auth_protocol: 'auto',
   // Cloudflare Turnstile
   turnstile_enabled: false,
   turnstile_site_key: '',
@@ -3416,6 +3468,30 @@ function parseTablePageSizeOptionsInput(raw: string): number[] | null {
   return deduped
 }
 
+async function handleInterfaceLanguageChange(event: Event) {
+  const target = event.target as HTMLSelectElement | null
+  const nextLocale = target?.value?.trim()
+
+  if (!nextLocale || nextLocale === currentInterfaceLanguage.value || interfaceLanguageChanging.value) {
+    if (target) {
+      target.value = currentInterfaceLanguage.value
+    }
+    return
+  }
+
+  interfaceLanguageChanging.value = true
+  try {
+    await setLocale(nextLocale)
+  } catch (_error: unknown) {
+    if (target) {
+      target.value = currentInterfaceLanguage.value
+    }
+    appStore.showError(t('common.error'))
+  } finally {
+    interfaceLanguageChanging.value = false
+  }
+}
+
 async function loadSettings() {
   loading.value = true
   loadFailed.value = false
@@ -3443,6 +3519,9 @@ async function loadSettings() {
     tablePageSizeOptionsInput.value = formatTablePageSizeOptions(
       Array.isArray(settings.table_page_size_options) ? settings.table_page_size_options : [10, 20, 50, 100]
     )
+    form.smtp_security = settings.smtp_security || (settings.smtp_use_tls ? 'tls' : 'none')
+    form.smtp_auth_protocol = settings.smtp_auth_protocol || 'auto'
+    form.smtp_use_tls = form.smtp_security === 'tls'
     registrationEmailSuffixWhitelistDraft.value = ''
     form.smtp_password = ''
     smtpPasswordManuallyEdited.value = false
@@ -3591,7 +3670,9 @@ async function saveSettings() {
       smtp_password: form.smtp_password || undefined,
       smtp_from_email: form.smtp_from_email,
       smtp_from_name: form.smtp_from_name,
-      smtp_use_tls: form.smtp_use_tls,
+      smtp_use_tls: form.smtp_security === 'tls',
+      smtp_security: form.smtp_security,
+      smtp_auth_protocol: form.smtp_auth_protocol,
       turnstile_enabled: form.turnstile_enabled,
       turnstile_site_key: form.turnstile_site_key,
       turnstile_secret_key: form.turnstile_secret_key || undefined,
@@ -3669,6 +3750,9 @@ async function saveSettings() {
         (form as Record<string, unknown>)[key] = value
       }
     }
+    form.smtp_security = updated.smtp_security || (updated.smtp_use_tls ? 'tls' : 'none')
+    form.smtp_auth_protocol = updated.smtp_auth_protocol || 'auto'
+    form.smtp_use_tls = form.smtp_security === 'tls'
     registrationEmailSuffixWhitelistTags.value = normalizeRegistrationEmailSuffixDomains(
       updated.registration_email_suffix_whitelist
     )
@@ -3705,7 +3789,9 @@ async function testSmtpConnection() {
       smtp_port: form.smtp_port,
       smtp_username: form.smtp_username,
       smtp_password: smtpPasswordForTest,
-      smtp_use_tls: form.smtp_use_tls
+      smtp_use_tls: form.smtp_security === 'tls',
+      smtp_security: form.smtp_security,
+      smtp_auth_protocol: form.smtp_auth_protocol
     })
     // API returns { message: "..." } on success, errors are thrown as exceptions
     appStore.showSuccess(result.message || t('admin.settings.smtpConnectionSuccess'))
@@ -3733,7 +3819,9 @@ async function sendTestEmail() {
       smtp_password: smtpPasswordForSend,
       smtp_from_email: form.smtp_from_email,
       smtp_from_name: form.smtp_from_name,
-      smtp_use_tls: form.smtp_use_tls
+      smtp_use_tls: form.smtp_security === 'tls',
+      smtp_security: form.smtp_security,
+      smtp_auth_protocol: form.smtp_auth_protocol
     })
     // API returns { message: "..." } on success, errors are thrown as exceptions
     appStore.showSuccess(result.message || t('admin.settings.testEmailSent'))
