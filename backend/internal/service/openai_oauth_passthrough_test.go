@@ -166,6 +166,54 @@ func captureStructuredLog(t *testing.T) (*inMemoryLogSink, func()) {
 	}
 }
 
+func TestNormalizeOpenAIPassthroughOAuthBody_NormalizesChatGPTCodexModels(t *testing.T) {
+	tests := []struct {
+		name      string
+		body      []byte
+		compact   bool
+		wantModel string
+	}{
+		{
+			name:      "gpt55 maps to latest ChatGPT Codex compatible model",
+			body:      []byte(`{"model":"gpt-5.5","stream":false,"store":true,"instructions":"local-test-instructions","input":[{"type":"text","text":"hi"}]}`),
+			wantModel: "gpt-5.4",
+		},
+		{
+			name:      "gpt51 maps to codex variant",
+			body:      []byte(`{"model":"gpt-5.1","stream":false,"store":true,"instructions":"local-test-instructions","input":[{"type":"text","text":"hi"}]}`),
+			wantModel: "gpt-5.1-codex",
+		},
+		{
+			name:      "supported gpt52 is preserved",
+			body:      []byte(`{"model":"gpt-5.2","stream":false,"store":true,"instructions":"local-test-instructions","input":[{"type":"text","text":"hi"}]}`),
+			wantModel: "gpt-5.2",
+		},
+		{
+			name:      "compact still normalizes model while removing stream controls",
+			body:      []byte(`{"model":"gpt-5.5-pro","stream":true,"store":true,"instructions":"local-test-instructions","input":[{"type":"text","text":"hi"}]}`),
+			compact:   true,
+			wantModel: "gpt-5.4",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, changed, err := normalizeOpenAIPassthroughOAuthBody(tt.body, tt.compact)
+			require.NoError(t, err)
+			require.True(t, changed)
+			require.Equal(t, tt.wantModel, gjson.GetBytes(got, "model").String())
+
+			if tt.compact {
+				require.False(t, gjson.GetBytes(got, "store").Exists())
+				require.False(t, gjson.GetBytes(got, "stream").Exists())
+			} else {
+				require.Equal(t, false, gjson.GetBytes(got, "store").Bool())
+				require.Equal(t, true, gjson.GetBytes(got, "stream").Bool())
+			}
+		})
+	}
+}
+
 func TestOpenAIGatewayService_OAuthPassthrough_StreamKeepsToolNameAndBodyNormalized(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -251,6 +299,51 @@ func TestOpenAIGatewayService_OAuthPassthrough_StreamKeepsToolNameAndBodyNormali
 	body := rec.Body.String()
 	require.Contains(t, body, "apply_patch")
 	require.NotContains(t, body, "\"name\":\"edit\"")
+}
+
+func TestOpenAIGatewayService_OAuthPassthrough_NormalizesGpt55BeforeUpstream(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(nil))
+	c.Request.Header.Set("User-Agent", "codex_cli_rs/0.1.0")
+
+	originalBody := []byte(`{"model":"gpt-5.5","stream":false,"store":true,"instructions":"local-test-instructions","input":[{"type":"text","text":"hi"}]}`)
+
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "x-request-id": []string{"rid"}},
+		Body:       io.NopCloser(strings.NewReader("data: [DONE]\n\n")),
+	}
+	upstream := &httpUpstreamRecorder{resp: resp}
+
+	svc := &OpenAIGatewayService{
+		cfg:          &config.Config{Gateway: config.GatewayConfig{ForceCodexCLI: false}},
+		httpUpstream: upstream,
+	}
+
+	account := &Account{
+		ID:             123,
+		Name:           "acc",
+		Platform:       PlatformOpenAI,
+		Type:           AccountTypeOAuth,
+		Concurrency:    1,
+		Credentials:    map[string]any{"access_token": "oauth-token", "chatgpt_account_id": "chatgpt-acc"},
+		Extra:          map[string]any{"openai_passthrough": true},
+		Status:         StatusActive,
+		Schedulable:    true,
+		RateMultiplier: f64p(1),
+	}
+
+	result, err := svc.Forward(context.Background(), c, account, originalBody)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "gpt-5.4", result.Model)
+	require.NotNil(t, upstream.lastReq)
+	require.Equal(t, "gpt-5.4", gjson.GetBytes(upstream.lastBody, "model").String())
+	require.Equal(t, false, gjson.GetBytes(upstream.lastBody, "store").Bool())
+	require.Equal(t, true, gjson.GetBytes(upstream.lastBody, "stream").Bool())
 }
 
 func TestOpenAIGatewayService_OAuthPassthrough_CompactUsesJSONAndKeepsNonStreaming(t *testing.T) {
