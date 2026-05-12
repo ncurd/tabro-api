@@ -25,7 +25,13 @@ const openaiModels = [
   'gpt-5.2', 'gpt-5.2-2025-12-11', 'gpt-5.2-chat-latest',
   'gpt-5.2-codex', 'gpt-5.2-pro', 'gpt-5.2-pro-2025-12-11',
   // GPT-5.4 系列
-  'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-nano', 'gpt-5.4-2026-03-05',
+  'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-nano', 'gpt-5.4-pro', 'gpt-5.4-2026-03-05',
+  // GPT-5.5 系列
+  'gpt-5.5', 'gpt-5.5-2026-04-23', 'gpt-5.5-pro', 'gpt-5.5-pro-2026-04-23',
+  // 图片和 Realtime 系列
+  'gpt-image-1-mini', 'gpt-image-1.5', 'gpt-image-1.5-2025-12-16',
+  'gpt-image-2', 'gpt-image-2-2026-04-21',
+  'gpt-realtime-1.5', 'gpt-realtime-2', 'gpt-realtime-mini', 'gpt-realtime-translate',
   // GPT-5.3 系列
   'gpt-5.3-codex', 'gpt-5.3-codex-spark',
   'chatgpt-4o-latest',

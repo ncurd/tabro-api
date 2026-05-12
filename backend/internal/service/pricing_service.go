@@ -72,6 +72,7 @@ type LiteLLMModelPricing struct {
 	SupportsPromptCaching               bool    `json:"supports_prompt_caching"`
 	OutputCostPerImage                  float64 `json:"output_cost_per_image"`       // 图片生成模型每张图片价格
 	OutputCostPerImageToken             float64 `json:"output_cost_per_image_token"` // 图片输出 token 价格
+	OutputCostPerSecond                 float64 `json:"output_cost_per_second"`      // 音频输出每秒价格
 }
 
 // PricingRemoteClient 远程价格数据获取接口
@@ -96,6 +97,7 @@ type LiteLLMRawEntry struct {
 	SupportsPromptCaching               bool     `json:"supports_prompt_caching"`
 	OutputCostPerImage                  *float64 `json:"output_cost_per_image"`
 	OutputCostPerImageToken             *float64 `json:"output_cost_per_image_token"`
+	OutputCostPerSecond                 *float64 `json:"output_cost_per_second"`
 }
 
 // PricingService 动态价格服务
@@ -372,7 +374,7 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 		}
 
 		// 只保留有有效价格的条目
-		if entry.InputCostPerToken == nil && entry.OutputCostPerToken == nil {
+		if entry.InputCostPerToken == nil && entry.OutputCostPerToken == nil && entry.OutputCostPerSecond == nil {
 			continue
 		}
 
@@ -412,6 +414,9 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 		}
 		if entry.OutputCostPerImageToken != nil {
 			pricing.OutputCostPerImageToken = *entry.OutputCostPerImageToken
+		}
+		if entry.OutputCostPerSecond != nil {
+			pricing.OutputCostPerSecond = *entry.OutputCostPerSecond
 		}
 
 		result[modelName] = pricing

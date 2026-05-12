@@ -2,10 +2,35 @@ package service
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestFallbackPricingFile_ContainsLatestOpenAIModels(t *testing.T) {
+	path := filepath.Join("..", "..", "resources", "model-pricing", "model_prices_and_context_window.json")
+	body, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	svc := &PricingService{}
+	data, err := svc.parsePricingData(body)
+	require.NoError(t, err)
+
+	for _, model := range []string{
+		"gpt-5.5",
+		"gpt-5.5-pro",
+		"gpt-image-2",
+		"gpt-image-2-2026-04-21",
+		"gpt-realtime-1.5",
+		"gpt-realtime-2",
+		"gpt-realtime-mini",
+		"gpt-realtime-translate",
+	} {
+		require.Contains(t, data, model)
+	}
+}
 
 func TestParsePricingData_ParsesPriorityAndServiceTierFields(t *testing.T) {
 	svc := &PricingService{}
