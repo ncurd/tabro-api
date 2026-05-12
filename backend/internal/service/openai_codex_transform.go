@@ -6,7 +6,20 @@ import (
 )
 
 var codexModelMap = map[string]string{
+	"gpt-5.5":                    "gpt-5.5",
+	"gpt-5.5-none":               "gpt-5.5",
+	"gpt-5.5-low":                "gpt-5.5",
+	"gpt-5.5-medium":             "gpt-5.5",
+	"gpt-5.5-high":               "gpt-5.5",
+	"gpt-5.5-xhigh":              "gpt-5.5",
+	"gpt-5.5-pro":                "gpt-5.5",
+	"gpt-5.5-pro-none":           "gpt-5.5",
+	"gpt-5.5-pro-low":            "gpt-5.5",
+	"gpt-5.5-pro-medium":         "gpt-5.5",
+	"gpt-5.5-pro-high":           "gpt-5.5",
+	"gpt-5.5-pro-xhigh":          "gpt-5.5",
 	"gpt-5.4":                    "gpt-5.4",
+	"gpt-5.4-pro":                "gpt-5.4",
 	"gpt-5.4-mini":               "gpt-5.4-mini",
 	"gpt-5.4-nano":               "gpt-5.4-nano",
 	"gpt-5.4-none":               "gpt-5.4",
@@ -54,20 +67,20 @@ var codexModelMap = map[string]string{
 	"gpt-5.1-codex-mini":         "gpt-5.1-codex-mini",
 	"gpt-5.1-codex-mini-medium":  "gpt-5.1-codex-mini",
 	"gpt-5.1-codex-mini-high":    "gpt-5.1-codex-mini",
-	"gpt-5.1":                    "gpt-5.1",
-	"gpt-5.1-none":               "gpt-5.1",
-	"gpt-5.1-low":                "gpt-5.1",
-	"gpt-5.1-medium":             "gpt-5.1",
-	"gpt-5.1-high":               "gpt-5.1",
-	"gpt-5.1-chat-latest":        "gpt-5.1",
+	"gpt-5.1":                    "gpt-5.1-codex",
+	"gpt-5.1-none":               "gpt-5.1-codex",
+	"gpt-5.1-low":                "gpt-5.1-codex",
+	"gpt-5.1-medium":             "gpt-5.1-codex",
+	"gpt-5.1-high":               "gpt-5.1-codex",
+	"gpt-5.1-chat-latest":        "gpt-5.1-codex",
 	"gpt-5-codex":                "gpt-5.1-codex",
 	"codex-mini-latest":          "gpt-5.1-codex-mini",
 	"gpt-5-codex-mini":           "gpt-5.1-codex-mini",
 	"gpt-5-codex-mini-medium":    "gpt-5.1-codex-mini",
 	"gpt-5-codex-mini-high":      "gpt-5.1-codex-mini",
-	"gpt-5":                      "gpt-5.1",
-	"gpt-5-mini":                 "gpt-5.1",
-	"gpt-5-nano":                 "gpt-5.1",
+	"gpt-5":                      "gpt-5.1-codex",
+	"gpt-5-mini":                 "gpt-5.1-codex",
+	"gpt-5-nano":                 "gpt-5.1-codex",
 }
 
 type codexTransformResult struct {
@@ -220,7 +233,7 @@ func applyCodexOAuthTransform(reqBody map[string]any, isCodexCLI bool, isCompact
 
 func normalizeCodexModel(model string) string {
 	if model == "" {
-		return "gpt-5.1"
+		return "gpt-5.1-codex"
 	}
 
 	modelID := model
@@ -235,6 +248,9 @@ func normalizeCodexModel(model string) string {
 
 	normalized := strings.ToLower(modelID)
 
+	if strings.Contains(normalized, "gpt-5.5") || strings.Contains(normalized, "gpt 5.5") {
+		return "gpt-5.4"
+	}
 	if strings.Contains(normalized, "gpt-5.4-mini") || strings.Contains(normalized, "gpt 5.4 mini") {
 		return "gpt-5.4-mini"
 	}
@@ -271,16 +287,16 @@ func normalizeCodexModel(model string) string {
 		return "gpt-5.1-codex"
 	}
 	if strings.Contains(normalized, "gpt-5.1") || strings.Contains(normalized, "gpt 5.1") {
-		return "gpt-5.1"
+		return "gpt-5.1-codex"
 	}
 	if strings.Contains(normalized, "codex") {
 		return "gpt-5.1-codex"
 	}
 	if strings.Contains(normalized, "gpt-5") || strings.Contains(normalized, "gpt 5") {
-		return "gpt-5.1"
+		return "gpt-5.1-codex"
 	}
 
-	return "gpt-5.1"
+	return "gpt-5.1-codex"
 }
 
 func normalizeOpenAIModelForUpstream(account *Account, model string) string {
