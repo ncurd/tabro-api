@@ -30,3 +30,11 @@ describe('AppSidebar header styles', () => {
     expect(sidebarBrandBlockMatch?.[0]).not.toContain('overflow: hidden;')
   })
 })
+
+describe('AppSidebar model pricing icon', () => {
+  it('uses a dedicated icon instead of the usage chart icon', () => {
+    expect(componentSource).toContain('const ModelPricingIcon =')
+    expect(componentSource).toContain("{ path: '/model-pricing', label: modelPricingLabel.value, icon: ModelPricingIcon")
+    expect(componentSource).not.toContain("{ path: '/model-pricing', label: modelPricingLabel.value, icon: ChartIcon")
+  })
+})

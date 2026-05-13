@@ -206,6 +206,7 @@ type CreateOrderRequest struct {
 	PaymentType string  `json:"payment_type" binding:"required"`
 	OrderType   string  `json:"order_type"`
 	PlanID      int64   `json:"plan_id"`
+	Currency    string  `json:"currency"`
 }
 
 // CreateOrder creates a new payment order.
@@ -232,6 +233,7 @@ func (h *PaymentHandler) CreateOrder(c *gin.Context) {
 		SrcURL:      c.Request.Referer(),
 		OrderType:   req.OrderType,
 		PlanID:      req.PlanID,
+		Currency:    req.Currency,
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)

@@ -64,6 +64,12 @@ func RegisterUserRoutes(
 			groups.GET("/rates", h.APIKey.GetUserGroupRates)
 		}
 
+		// 当前用户可用模型价格
+		modelPricing := authenticated.Group("/model-pricing")
+		{
+			modelPricing.GET("/available", h.ModelPricing.GetAvailable)
+		}
+
 		// 使用记录
 		usage := authenticated.Group("/usage")
 		{

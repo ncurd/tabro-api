@@ -243,7 +243,7 @@ func (s *PaymentService) getOrderProvider(ctx context.Context, o *dbent.PaymentO
 			if err == nil {
 				providerKey := s.registry.GetProviderKey(o.PaymentType)
 				if providerKey == "" {
-					providerKey = o.PaymentType
+					providerKey = payment.GetBasePaymentType(o.PaymentType)
 				}
 				p, err := provider.CreateProvider(providerKey, *o.ProviderInstanceID, cfg)
 				if err == nil {
@@ -253,5 +253,5 @@ func (s *PaymentService) getOrderProvider(ctx context.Context, o *dbent.PaymentO
 		}
 	}
 	s.EnsureProviders(ctx)
-	return s.registry.GetProvider(o.PaymentType)
+	return s.registry.GetProvider(payment.GetBasePaymentType(o.PaymentType))
 }

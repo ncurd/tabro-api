@@ -23,6 +23,11 @@ func (s *PaymentService) CreateOrder(ctx context.Context, req CreateOrderRequest
 	if req.OrderType == "" {
 		req.OrderType = payment.OrderTypeBalance
 	}
+	normalizedCurrency, err := normalizePaymentCurrency(req.PaymentType, req.OrderType, req.Currency)
+	if err != nil {
+		return nil, infraerrors.BadRequest("UNSUPPORTED_CURRENCY", err.Error())
+	}
+	req.Currency = normalizedCurrency
 	cfg, err := s.configService.GetPaymentConfig(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("get payment config: %w", err)
@@ -47,11 +52,13 @@ func (s *PaymentService) CreateOrder(ctx context.Context, req CreateOrderRequest
 	orderAmount := req.Amount
 	limitAmount := req.Amount
 	if plan != nil {
+		req.Currency = defaultPaymentCurrency
 		orderAmount = plan.Price
 		limitAmount = plan.Price
 	} else if req.OrderType == payment.OrderTypeBalance {
-		orderAmount = calculateCreditedBalance(req.Amount, cfg.BalanceRechargeMultiplier)
+		orderAmount = calculateRechargeCredits(req.Amount, req.PaymentType, req.Currency, cfg.BalanceRechargeMultiplier)
 	}
+	req.PaymentType = paymentTypeWithCurrency(req.PaymentType, req.OrderType, req.Currency)
 	feeRate := cfg.RechargeFeeRate
 	payAmountStr := payment.CalculatePayAmount(limitAmount, feeRate)
 	payAmount, _ := strconv.ParseFloat(payAmountStr, 64)
@@ -200,7 +207,8 @@ func (s *PaymentService) checkDailyLimit(ctx context.Context, tx *dbent.Tx, user
 func (s *PaymentService) invokeProvider(ctx context.Context, order *dbent.PaymentOrder, req CreateOrderRequest, cfg *PaymentConfig, limitAmount float64, payAmountStr string, payAmount float64, plan *dbent.SubscriptionPlan) (*CreateOrderResponse, error) {
 	// Select an instance across all providers that support the requested payment type.
 	// This enables cross-provider load balancing (e.g. EasyPay + Alipay direct for "alipay").
-	sel, err := s.loadBalancer.SelectInstance(ctx, "", req.PaymentType, payment.Strategy(cfg.LoadBalanceStrategy), payAmount)
+	selectionPaymentType := payment.GetBasePaymentType(req.PaymentType)
+	sel, err := s.loadBalancer.SelectInstance(ctx, "", selectionPaymentType, payment.Strategy(cfg.LoadBalanceStrategy), payAmount)
 	if err != nil {
 		return nil, infraerrors.ServiceUnavailable("PAYMENT_GATEWAY_ERROR", fmt.Sprintf("payment method (%s) is not configured", req.PaymentType))
 	}
@@ -211,13 +219,14 @@ func (s *PaymentService) invokeProvider(ctx context.Context, order *dbent.Paymen
 	if err != nil {
 		return nil, infraerrors.ServiceUnavailable("PAYMENT_GATEWAY_ERROR", "payment method is temporarily unavailable")
 	}
-	subject := s.buildPaymentSubject(plan, limitAmount, cfg)
+	subject := s.buildPaymentSubject(plan, limitAmount, cfg, req.Currency)
 	outTradeNo := order.OutTradeNo
 	notifyURL, returnURL, cancelURL := buildPaymentCallbackURLs(req, sel.ProviderKey, outTradeNo, order.ID)
 	pr, err := prov.CreatePayment(ctx, payment.CreatePaymentRequest{
 		OrderID:            outTradeNo,
 		Amount:             payAmountStr,
-		PaymentType:        req.PaymentType,
+		Currency:           req.Currency,
+		PaymentType:        selectionPaymentType,
 		Subject:            subject,
 		NotifyURL:          notifyURL,
 		ReturnURL:          returnURL,
@@ -240,11 +249,12 @@ func (s *PaymentService) invokeProvider(ctx context.Context, order *dbent.Paymen
 		"payAmount":      order.PayAmount,
 		"paymentType":    req.PaymentType,
 		"orderType":      req.OrderType,
+		"currency":       req.Currency,
 	})
-	return &CreateOrderResponse{OrderID: order.ID, Amount: order.Amount, PayAmount: payAmount, FeeRate: order.FeeRate, Status: OrderStatusPending, PaymentType: req.PaymentType, PayURL: pr.PayURL, QRCode: pr.QRCode, ClientSecret: pr.ClientSecret, ExpiresAt: order.ExpiresAt, PaymentMode: sel.PaymentMode}, nil
+	return &CreateOrderResponse{OrderID: order.ID, Amount: order.Amount, PayAmount: payAmount, FeeRate: order.FeeRate, Status: OrderStatusPending, PaymentType: req.PaymentType, PayURL: pr.PayURL, QRCode: pr.QRCode, ClientSecret: pr.ClientSecret, ExpiresAt: order.ExpiresAt, PaymentMode: sel.PaymentMode, Currency: req.Currency}, nil
 }
 
-func (s *PaymentService) buildPaymentSubject(plan *dbent.SubscriptionPlan, limitAmount float64, cfg *PaymentConfig) string {
+func (s *PaymentService) buildPaymentSubject(plan *dbent.SubscriptionPlan, limitAmount float64, cfg *PaymentConfig, currency string) string {
 	if plan != nil {
 		if plan.ProductName != "" {
 			return plan.ProductName
@@ -257,7 +267,11 @@ func (s *PaymentService) buildPaymentSubject(plan *dbent.SubscriptionPlan, limit
 	if pf != "" || sf != "" {
 		return strings.TrimSpace(pf + " " + amountStr + " " + sf)
 	}
-	return "Sub2API " + amountStr + " CNY"
+	currency = strings.ToUpper(strings.TrimSpace(currency))
+	if currency == "" {
+		currency = defaultPaymentCurrency
+	}
+	return "Sub2API " + amountStr + " " + currency
 }
 
 func buildPaymentCallbackURLs(req CreateOrderRequest, providerKey, outTradeNo string, orderID int64) (string, string, string) {

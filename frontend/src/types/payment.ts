@@ -154,6 +154,7 @@ export interface CreateOrderRequest {
   payment_type: string
   order_type: string
   plan_id?: number
+  currency?: string
 }
 
 export interface CreateOrderResult {
@@ -165,6 +166,7 @@ export interface CreateOrderResult {
   fee_rate: number
   expires_at: string
   payment_mode?: string
+  currency?: string
 }
 
 export interface DashboardStats {

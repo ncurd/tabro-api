@@ -1,4 +1,5 @@
 import type { OrderStatus } from '@/types/payment'
+import { isStripePaymentType } from '@/utils/paymentCurrency'
 
 const SUCCESS_STATUSES = new Set<OrderStatus>(['COMPLETED', 'PAID', 'RECHARGING'])
 
@@ -24,7 +25,7 @@ export interface PaymentPageWindow {
 export type PaymentWindowOpener = (url?: string, target?: string, features?: string) => PaymentPageWindow | null
 
 export function resolvePaymentPageOpenStrategy(paymentType: string, isMobile: boolean): PaymentPageOpenStrategy {
-  if (paymentType === 'stripe') return 'new-tab'
+  if (isStripePaymentType(paymentType)) return 'new-tab'
   if (isMobile) return 'same-tab'
   return 'popup'
 }

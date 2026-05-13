@@ -12,19 +12,19 @@
         <span v-if="row.user_notes" class="ml-1 text-xs text-gray-400">({{ row.user_notes }})</span>
       </div>
     </template>
-    <template #cell-pay_amount="{ value, row }">
+    <template #cell-pay_amount="{ row }">
       <div class="text-sm">
-        <span class="font-medium text-gray-900 dark:text-white">¥{{ value.toFixed(2) }}</span>
+        <span class="font-medium text-gray-900 dark:text-white">{{ formatOrderPayAmount(row) }}</span>
         <span v-if="row.fee_rate > 0" class="ml-1 text-xs text-gray-400" :title="t('payment.orders.fee') + ': ' + row.fee_rate + '%'">
           ({{ t('payment.orders.fee') }} {{ row.fee_rate }}%)
         </span>
         <div v-if="row.amount !== row.pay_amount" class="text-xs text-gray-500">
-          {{ t('payment.orders.creditedAmount') }}: {{ row.order_type === 'balance' ? '$' : '¥' }}{{ row.amount.toFixed(2) }}
+          {{ t('payment.orders.creditedAmount') }}: {{ row.order_type === 'balance' ? formatCredits(row.amount) : `¥${row.amount.toFixed(2)}` }}
         </div>
       </div>
     </template>
     <template #cell-payment_type="{ value }">
-      <span class="text-sm text-gray-700 dark:text-gray-300">{{ t('payment.methods.' + value, value) }}</span>
+      <span class="text-sm text-gray-700 dark:text-gray-300">{{ formatPaymentMethod(value) }}</span>
     </template>
     <template #cell-status="{ value }">
       <OrderStatusBadge :status="value" />
@@ -45,6 +45,8 @@ import type { PaymentOrder } from '@/types/payment'
 import type { Column } from '@/components/common/types'
 import DataTable from '@/components/common/DataTable.vue'
 import OrderStatusBadge from '@/components/payment/OrderStatusBadge.vue'
+import { formatCredits } from '@/utils/credits'
+import { formatPaymentAmount, getBasePaymentType, getPaymentCurrencyFromType, isStripePaymentType } from '@/utils/paymentCurrency'
 
 const { t } = useI18n()
 
@@ -55,6 +57,19 @@ const props = defineProps<{
 }>()
 
 function formatDate(dateStr: string) { return new Date(dateStr).toLocaleString() }
+
+function formatOrderPayAmount(order: PaymentOrder): string {
+  return formatPaymentAmount(order.pay_amount, getPaymentCurrencyFromType(order.payment_type))
+}
+
+function formatPaymentMethod(paymentType: string): string {
+  const baseType = getBasePaymentType(paymentType)
+  const label = t('payment.methods.' + baseType, baseType)
+  if (isStripePaymentType(paymentType) && paymentType.includes('_')) {
+    return `${label} (${getPaymentCurrencyFromType(paymentType)})`
+  }
+  return label
+}
 
 const columns = computed((): Column[] => {
   const cols: Column[] = [

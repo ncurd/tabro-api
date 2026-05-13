@@ -68,6 +68,7 @@ type CreateOrderRequest struct {
 	UserID      int64
 	Amount      float64
 	PaymentType string
+	Currency    string
 	ClientIP    string
 	IsMobile    bool
 	SrcHost     string
@@ -88,6 +89,7 @@ type CreateOrderResponse struct {
 	ClientSecret string    `json:"client_secret,omitempty"`
 	ExpiresAt    time.Time `json:"expires_at"`
 	PaymentMode  string    `json:"payment_mode,omitempty"`
+	Currency     string    `json:"currency,omitempty"`
 }
 
 type OrderListParams struct {

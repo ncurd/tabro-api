@@ -45,11 +45,11 @@
           </div>
           <div class="flex justify-between">
             <span class="text-gray-500 dark:text-gray-400">{{ t('payment.orders.amount') }}</span>
-            <span class="font-medium text-gray-900 dark:text-white">{{ paidOrder.order_type === 'balance' ? '$' : '¥' }}{{ paidOrder.amount.toFixed(2) }}</span>
+            <span class="font-medium text-gray-900 dark:text-white">{{ paidOrder.order_type === 'balance' ? formatCredits(paidOrder.amount) : `¥${paidOrder.amount.toFixed(2)}` }}</span>
           </div>
           <div class="flex justify-between">
             <span class="text-gray-500 dark:text-gray-400">{{ t('payment.orders.payAmount') }}</span>
-            <span class="font-medium text-gray-900 dark:text-white">¥{{ paidOrder.pay_amount.toFixed(2) }}</span>
+            <span class="font-medium text-gray-900 dark:text-white">{{ formatOrderPayAmount(paidOrder) }}</span>
           </div>
         </div>
       </div>
@@ -84,6 +84,8 @@ import type { PaymentOrder } from '@/types/payment'
 import QRCode from 'qrcode'
 import alipayIcon from '@/assets/icons/alipay.svg'
 import wxpayIcon from '@/assets/icons/wxpay.svg'
+import { formatCredits } from '@/utils/credits'
+import { formatPaymentAmount, getPaymentCurrencyFromType } from '@/utils/paymentCurrency'
 
 const props = defineProps<{
   show: boolean
@@ -137,6 +139,10 @@ const countdownDisplay = computed(() => {
   const s = remainingSeconds.value % 60
   return m.toString().padStart(2, '0') + ':' + s.toString().padStart(2, '0')
 })
+
+function formatOrderPayAmount(order: PaymentOrder): string {
+  return formatPaymentAmount(order.pay_amount, getPaymentCurrencyFromType(order.payment_type))
+}
 
 function getLogoForType(): string | null {
   if (isAlipay.value) return alipayIcon

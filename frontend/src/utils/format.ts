@@ -4,6 +4,7 @@
  */
 
 import { i18n, getLocale } from '@/i18n'
+import { formatCredits } from '@/utils/credits'
 
 /**
  * 格式化相对时间
@@ -56,10 +57,13 @@ export function formatNumber(num: number | null | undefined): string {
  * 格式化货币金额
  * @param amount 金额
  * @param currency 货币代码，默认 USD
- * @returns 格式化后的字符串，如 "$1.25"
+ * @returns 格式化后的字符串，如 "1.25 ✦"
  */
 export function formatCurrency(amount: number | null | undefined, currency: string = 'USD'): string {
-  if (amount === null || amount === undefined) return '$0.00'
+  if (currency === 'USD') {
+    return formatCredits(amount ?? 0, { fractionDigits: amount != null && amount > 0 && amount < 0.01 ? 6 : 2 })
+  }
+  if (amount === null || amount === undefined) return '0.00'
 
   const locale = getLocale()
 

@@ -13,6 +13,10 @@ describe('paymentFlow helpers', () => {
     expect(resolvePaymentPageOpenStrategy('stripe', false)).toBe('new-tab')
   })
 
+  it('opens persisted stripe currency payment types in a new tab', () => {
+    expect(resolvePaymentPageOpenStrategy('stripe_usd', false)).toBe('new-tab')
+  })
+
   it('keeps non-stripe desktop payments in popup flow', () => {
     expect(resolvePaymentPageOpenStrategy('alipay', false)).toBe('popup')
   })

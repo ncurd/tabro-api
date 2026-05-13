@@ -32,6 +32,73 @@ func TestFallbackPricingFile_ContainsLatestOpenAIModels(t *testing.T) {
 	}
 }
 
+func TestFallbackPricingFile_ContainsAliyunAdjacentModelFamilies(t *testing.T) {
+	path := filepath.Join("..", "..", "resources", "model-pricing", "model_prices_and_context_window.json")
+	body, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	svc := &PricingService{}
+	data, err := svc.parsePricingData(body)
+	require.NoError(t, err)
+
+	for _, model := range []string{
+		"dashscope/qwen-plus",
+		"minimax/MiniMax-M2.5",
+		"meta.llama3-3-70b-instruct-v1:0",
+		"moonshot/kimi-latest",
+		"deepseek/deepseek-v3",
+		"zai/glm-4.5",
+	} {
+		require.Contains(t, data, model)
+	}
+}
+
+func TestGetModelPricing_ProviderCandidatesCoverAliyunAdjacentModelFamilies(t *testing.T) {
+	qwenPricing := &LiteLLMModelPricing{InputCostPerToken: 1}
+	minimaxPricing := &LiteLLMModelPricing{InputCostPerToken: 2}
+	llamaPricing := &LiteLLMModelPricing{InputCostPerToken: 3}
+	kimiPricing := &LiteLLMModelPricing{InputCostPerToken: 4}
+	deepseekPricing := &LiteLLMModelPricing{InputCostPerToken: 5}
+	glmPricing := &LiteLLMModelPricing{InputCostPerToken: 6}
+
+	svc := &PricingService{
+		pricingData: map[string]*LiteLLMModelPricing{
+			"dashscope/qwen-plus":             qwenPricing,
+			"minimax/MiniMax-M2.5":            minimaxPricing,
+			"meta.llama3-3-70b-instruct-v1:0": llamaPricing,
+			"moonshot/kimi-latest":            kimiPricing,
+			"deepseek/deepseek-v3":            deepseekPricing,
+			"zai/glm-4.5":                     glmPricing,
+		},
+	}
+
+	require.Same(t, qwenPricing, svc.GetModelPricing("qwen-plus"))
+	require.Same(t, minimaxPricing, svc.GetModelPricing("minimax-m2.5"))
+	require.Same(t, llamaPricing, svc.GetModelPricing("llama-3.3-70b-instruct"))
+	require.Same(t, kimiPricing, svc.GetModelPricing("kimi-latest"))
+	require.Same(t, deepseekPricing, svc.GetModelPricing("deepseek-v3"))
+	require.Same(t, glmPricing, svc.GetModelPricing("glm-4.5"))
+}
+
+func TestFallbackPricingFile_ContainsDashScopeMiniMaxAndLlamaModels(t *testing.T) {
+	path := filepath.Join("..", "..", "resources", "model-pricing", "model_prices_and_context_window.json")
+	body, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	svc := &PricingService{}
+	data, err := svc.parsePricingData(body)
+	require.NoError(t, err)
+
+	for _, model := range []string{
+		"dashscope/qwen-plus",
+		"dashscope/qwen3-coder-plus",
+		"minimax/MiniMax-M2.5",
+		"meta.llama3-3-70b-instruct-v1:0",
+	} {
+		require.Contains(t, data, model)
+	}
+}
+
 func TestParsePricingData_ParsesPriorityAndServiceTierFields(t *testing.T) {
 	svc := &PricingService{}
 	body := []byte(`{
@@ -58,6 +125,48 @@ func TestParsePricingData_ParsesPriorityAndServiceTierFields(t *testing.T) {
 	require.InDelta(t, 3e-5, pricing.OutputCostPerTokenPriority, 1e-12)
 	require.InDelta(t, 5e-7, pricing.CacheReadInputTokenCostPriority, 1e-12)
 	require.True(t, pricing.SupportsServiceTier)
+}
+
+func TestParsePricingData_UsesFirstTierWhenTopLevelPricesMissing(t *testing.T) {
+	svc := &PricingService{}
+	body := []byte(`{
+		"dashscope/qwen3-coder-plus": {
+			"litellm_provider": "dashscope",
+			"mode": "chat",
+			"tiered_pricing": [
+				{
+					"input_cost_per_token": 0.000001,
+					"output_cost_per_token": 0.000005,
+					"cache_read_input_token_cost": 0.0000001
+				}
+			]
+		}
+	}`)
+
+	data, err := svc.parsePricingData(body)
+	require.NoError(t, err)
+	pricing := data["dashscope/qwen3-coder-plus"]
+	require.NotNil(t, pricing)
+	require.InDelta(t, 1e-6, pricing.InputCostPerToken, 1e-12)
+	require.InDelta(t, 5e-6, pricing.OutputCostPerToken, 1e-12)
+	require.InDelta(t, 1e-7, pricing.CacheReadInputTokenCost, 1e-12)
+}
+
+func TestGetModelPricing_ProviderAliases(t *testing.T) {
+	qwenPricing := &LiteLLMModelPricing{InputCostPerToken: 1.6e-6}
+	llamaPricing := &LiteLLMModelPricing{InputCostPerToken: 7.2e-7}
+	minimaxPricing := &LiteLLMModelPricing{InputCostPerToken: 3e-7}
+	svc := &PricingService{
+		pricingData: map[string]*LiteLLMModelPricing{
+			"dashscope/qwen-max":              qwenPricing,
+			"meta.llama3-3-70b-instruct-v1:0": llamaPricing,
+			"minimax.minimax-m2.5":            minimaxPricing,
+		},
+	}
+
+	require.Same(t, qwenPricing, svc.GetModelPricing("qwen-max"))
+	require.Same(t, llamaPricing, svc.GetModelPricing("llama-3.3-70b-instruct"))
+	require.Same(t, minimaxPricing, svc.GetModelPricing("minimax-m2.5"))
 }
 
 func TestGetModelPricing_Gpt53CodexSparkUsesGpt51CodexPricing(t *testing.T) {

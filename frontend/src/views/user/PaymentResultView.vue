@@ -38,23 +38,23 @@
             </div>
             <div class="flex justify-between">
               <span class="text-gray-500 dark:text-gray-400">{{ t('payment.orders.baseAmount') }}</span>
-              <span class="font-medium text-gray-900 dark:text-white">&#165;{{ baseAmount.toFixed(2) }}</span>
+              <span class="font-medium text-gray-900 dark:text-white">{{ formatOrderPaymentAmount(baseAmount) }}</span>
             </div>
             <div v-if="order.fee_rate > 0" class="flex justify-between">
               <span class="text-gray-500 dark:text-gray-400">{{ t('payment.orders.fee') }} ({{ order.fee_rate }}%)</span>
-              <span class="font-medium text-gray-900 dark:text-white">&#165;{{ feeAmount.toFixed(2) }}</span>
+              <span class="font-medium text-gray-900 dark:text-white">{{ formatOrderPaymentAmount(feeAmount) }}</span>
             </div>
             <div class="flex justify-between">
               <span class="text-gray-500 dark:text-gray-400">{{ t('payment.orders.payAmount') }}</span>
-              <span class="font-bold text-primary-600 dark:text-primary-400">&#165;{{ order.pay_amount.toFixed(2) }}</span>
+              <span class="font-bold text-primary-600 dark:text-primary-400">{{ formatOrderPaymentAmount(order.pay_amount) }}</span>
             </div>
             <div v-if="order.amount !== order.pay_amount" class="flex justify-between">
               <span class="text-gray-500 dark:text-gray-400">{{ t('payment.orders.creditedAmount') }}</span>
-              <span class="font-medium text-gray-900 dark:text-white">{{ order.order_type === 'balance' ? '$' : '¥' }}{{ order.amount.toFixed(2) }}</span>
+              <span class="font-medium text-gray-900 dark:text-white">{{ order.order_type === 'balance' ? formatCredits(order.amount) : formatOrderPaymentAmount(order.amount) }}</span>
             </div>
             <div class="flex justify-between">
               <span class="text-gray-500 dark:text-gray-400">{{ t('payment.orders.paymentMethod') }}</span>
-              <span class="font-medium text-gray-900 dark:text-white">{{ t('payment.methods.' + order.payment_type, order.payment_type) }}</span>
+              <span class="font-medium text-gray-900 dark:text-white">{{ formatPaymentMethod(order.payment_type) }}</span>
             </div>
             <div class="flex justify-between">
               <span class="text-gray-500 dark:text-gray-400">{{ t('payment.orders.status') }}</span>
@@ -98,6 +98,8 @@ import { usePaymentStore } from '@/stores/payment'
 import { paymentAPI } from '@/api/payment'
 import type { PaymentOrder } from '@/types/payment'
 import { isPaymentResultSuccessful } from '@/views/user/paymentFlow'
+import { formatCredits } from '@/utils/credits'
+import { formatPaymentAmount, getBasePaymentType, getPaymentCurrencyFromType, isStripePaymentType } from '@/utils/paymentCurrency'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -126,6 +128,19 @@ const feeAmount = computed(() => {
   if (!order.value || order.value.fee_rate <= 0) return 0
   return Math.round((order.value.pay_amount - baseAmount.value) * 100) / 100
 })
+
+function formatOrderPaymentAmount(amount: number): string {
+  return formatPaymentAmount(amount, getPaymentCurrencyFromType(order.value?.payment_type))
+}
+
+function formatPaymentMethod(paymentType: string): string {
+  const baseType = getBasePaymentType(paymentType)
+  const label = t('payment.methods.' + baseType, baseType)
+  if (isStripePaymentType(paymentType) && paymentType.includes('_')) {
+    return `${label} (${getPaymentCurrencyFromType(paymentType)})`
+  }
+  return label
+}
 
 const isSuccess = computed(() => {
   return isPaymentResultSuccessful(

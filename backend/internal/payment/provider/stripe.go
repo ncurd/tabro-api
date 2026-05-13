@@ -14,7 +14,7 @@ import (
 
 // Stripe constants.
 const (
-	stripeCurrency                 = "cny"
+	stripeDefaultCurrency          = "cny"
 	stripeCheckoutSessionPrefix    = "cs_"
 	stripePaymentIntentPrefix      = "pi_"
 	stripeEventCheckoutCompleted   = "checkout.session.completed"
@@ -86,10 +86,12 @@ func (s *Stripe) CreatePayment(ctx context.Context, req payment.CreatePaymentReq
 		cancelURL = req.ReturnURL
 	}
 
-	amountInCents, err := payment.YuanToFen(req.Amount)
+	amountInMinorUnits, err := payment.DecimalAmountToMinorUnits(req.Amount)
 	if err != nil {
 		return nil, fmt.Errorf("stripe create payment: %w", err)
 	}
+	currency := resolveStripeCurrency(req.Currency)
+	metadataCurrency := strings.ToUpper(currency)
 
 	methods := resolveStripeMethodTypes(req.InstanceSubMethods)
 	pmTypes := make([]*string, len(methods))
@@ -104,20 +106,22 @@ func (s *Stripe) CreatePayment(ctx context.Context, req payment.CreatePaymentReq
 		Mode:               stripe.String(string(stripe.CheckoutSessionModePayment)),
 		PaymentMethodTypes: pmTypes,
 		Metadata: map[string]string{
-			"orderId": req.OrderID,
+			"orderId":  req.OrderID,
+			"currency": metadataCurrency,
 		},
 		PaymentIntentData: &stripe.CheckoutSessionCreatePaymentIntentDataParams{
 			Description: stripe.String(req.Subject),
 			Metadata: map[string]string{
-				"orderId": req.OrderID,
+				"orderId":  req.OrderID,
+				"currency": metadataCurrency,
 			},
 		},
 		LineItems: []*stripe.CheckoutSessionCreateLineItemParams{
 			{
 				Quantity: stripe.Int64(1),
 				PriceData: &stripe.CheckoutSessionCreateLineItemPriceDataParams{
-					Currency:   stripe.String(stripeCurrency),
-					UnitAmount: stripe.Int64(amountInCents),
+					Currency:   stripe.String(currency),
+					UnitAmount: stripe.Int64(amountInMinorUnits),
 					ProductData: &stripe.CheckoutSessionCreateLineItemPriceDataProductDataParams{
 						Name: stripe.String(req.Subject),
 					},
@@ -150,6 +154,21 @@ func (s *Stripe) CreatePayment(ctx context.Context, req payment.CreatePaymentReq
 	}, nil
 }
 
+func resolveStripeCurrency(currency string) string {
+	switch strings.ToLower(strings.TrimSpace(currency)) {
+	case "usd":
+		return "usd"
+	case "gbp":
+		return "gbp"
+	case "eur":
+		return "eur"
+	case "cny":
+		return "cny"
+	default:
+		return stripeDefaultCurrency
+	}
+}
+
 // QueryOrder retrieves the upstream status for either a Checkout Session or a legacy PaymentIntent.
 func (s *Stripe) QueryOrder(ctx context.Context, tradeNo string) (*payment.QueryOrderResponse, error) {
 	s.ensureInit()
@@ -175,9 +194,10 @@ func (s *Stripe) queryCheckoutSession(ctx context.Context, tradeNo string) (*pay
 	}
 
 	return &payment.QueryOrderResponse{
-		TradeNo: session.ID,
-		Status:  status,
-		Amount:  payment.FenToYuan(session.AmountTotal),
+		TradeNo:  session.ID,
+		Status:   status,
+		Amount:   payment.MinorUnitsToDecimal(session.AmountTotal),
+		Currency: strings.ToUpper(string(session.Currency)),
 	}, nil
 }
 
@@ -188,9 +208,10 @@ func (s *Stripe) queryPaymentIntent(ctx context.Context, tradeNo string) (*payme
 	}
 
 	return &payment.QueryOrderResponse{
-		TradeNo: pi.ID,
-		Status:  mapStripePaymentIntentStatus(pi.Status),
-		Amount:  payment.FenToYuan(pi.Amount),
+		TradeNo:  pi.ID,
+		Status:   mapStripePaymentIntentStatus(pi.Status),
+		Amount:   payment.MinorUnitsToDecimal(pi.Amount),
+		Currency: strings.ToUpper(string(pi.Currency)),
 	}, nil
 }
 
@@ -260,11 +281,12 @@ func stripeCheckoutSessionNotification(session *stripe.CheckoutSession, status s
 	}
 
 	return &payment.PaymentNotification{
-		TradeNo: session.ID,
-		OrderID: orderID,
-		Amount:  payment.FenToYuan(session.AmountTotal),
-		Status:  status,
-		RawData: rawBody,
+		TradeNo:  session.ID,
+		OrderID:  orderID,
+		Amount:   payment.MinorUnitsToDecimal(session.AmountTotal),
+		Currency: strings.ToUpper(string(session.Currency)),
+		Status:   status,
+		RawData:  rawBody,
 	}
 }
 
@@ -274,11 +296,12 @@ func parseStripePaymentIntent(event *stripe.Event, status string, rawBody string
 		return nil, fmt.Errorf("stripe parse payment_intent: %w", err)
 	}
 	return &payment.PaymentNotification{
-		TradeNo: pi.ID,
-		OrderID: pi.Metadata["orderId"],
-		Amount:  payment.FenToYuan(pi.Amount),
-		Status:  status,
-		RawData: rawBody,
+		TradeNo:  pi.ID,
+		OrderID:  pi.Metadata["orderId"],
+		Amount:   payment.MinorUnitsToDecimal(pi.Amount),
+		Currency: strings.ToUpper(string(pi.Currency)),
+		Status:   status,
+		RawData:  rawBody,
 	}, nil
 }
 

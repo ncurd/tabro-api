@@ -98,7 +98,7 @@ describe('AccountStatusIndicator', () => {
     expect(wrapper.text()).not.toContain('⚡')
   })
 
-  it('AICredits key 生效 → 显示积分已用尽 (credits_exhausted)', () => {
+  it('AICredits key 生效 → 显示✦已用尽 (credits_exhausted)', () => {
     const wrapper = mount(AccountStatusIndicator, {
       props: {
         account: makeAccount({
@@ -125,7 +125,7 @@ describe('AccountStatusIndicator', () => {
     expect(wrapper.text()).toContain('account.creditsExhausted')
   })
 
-  it('模型限流 + overages 启用 + AICredits key 生效 → 普通限流样式（积分耗尽，无 ⚡）', () => {
+  it('模型限流 + overages 启用 + AICredits key 生效 → 普通限流样式（✦耗尽，无 ⚡）', () => {
     const wrapper = mount(AccountStatusIndicator, {
       props: {
         account: makeAccount({
@@ -153,10 +153,10 @@ describe('AccountStatusIndicator', () => {
       }
     })
 
-    // 模型限流 + 积分耗尽 → 不应显示 ⚡
+    // 模型限流 + ✦耗尽 → 不应显示 ⚡
     expect(wrapper.text()).toContain('CSon45')
     expect(wrapper.text()).not.toContain('⚡')
-    // AICredits 积分耗尽状态应显示
+    // AICredits ✦耗尽状态应显示
     expect(wrapper.text()).toContain('account.creditsExhausted')
   })
 })

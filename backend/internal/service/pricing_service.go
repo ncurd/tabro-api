@@ -83,6 +83,25 @@ type PricingRemoteClient interface {
 
 // LiteLLMRawEntry 用于解析原始JSON数据
 type LiteLLMRawEntry struct {
+	InputCostPerToken                   *float64                    `json:"input_cost_per_token"`
+	InputCostPerTokenPriority           *float64                    `json:"input_cost_per_token_priority"`
+	OutputCostPerToken                  *float64                    `json:"output_cost_per_token"`
+	OutputCostPerTokenPriority          *float64                    `json:"output_cost_per_token_priority"`
+	CacheCreationInputTokenCost         *float64                    `json:"cache_creation_input_token_cost"`
+	CacheCreationInputTokenCostAbove1hr *float64                    `json:"cache_creation_input_token_cost_above_1hr"`
+	CacheReadInputTokenCost             *float64                    `json:"cache_read_input_token_cost"`
+	CacheReadInputTokenCostPriority     *float64                    `json:"cache_read_input_token_cost_priority"`
+	SupportsServiceTier                 bool                        `json:"supports_service_tier"`
+	LiteLLMProvider                     string                      `json:"litellm_provider"`
+	Mode                                string                      `json:"mode"`
+	SupportsPromptCaching               bool                        `json:"supports_prompt_caching"`
+	OutputCostPerImage                  *float64                    `json:"output_cost_per_image"`
+	OutputCostPerImageToken             *float64                    `json:"output_cost_per_image_token"`
+	OutputCostPerSecond                 *float64                    `json:"output_cost_per_second"`
+	TieredPricing                       []LiteLLMTieredPricingEntry `json:"tiered_pricing"`
+}
+
+type LiteLLMTieredPricingEntry struct {
 	InputCostPerToken                   *float64 `json:"input_cost_per_token"`
 	InputCostPerTokenPriority           *float64 `json:"input_cost_per_token_priority"`
 	OutputCostPerToken                  *float64 `json:"output_cost_per_token"`
@@ -91,10 +110,6 @@ type LiteLLMRawEntry struct {
 	CacheCreationInputTokenCostAbove1hr *float64 `json:"cache_creation_input_token_cost_above_1hr"`
 	CacheReadInputTokenCost             *float64 `json:"cache_read_input_token_cost"`
 	CacheReadInputTokenCostPriority     *float64 `json:"cache_read_input_token_cost_priority"`
-	SupportsServiceTier                 bool     `json:"supports_service_tier"`
-	LiteLLMProvider                     string   `json:"litellm_provider"`
-	Mode                                string   `json:"mode"`
-	SupportsPromptCaching               bool     `json:"supports_prompt_caching"`
 	OutputCostPerImage                  *float64 `json:"output_cost_per_image"`
 	OutputCostPerImageToken             *float64 `json:"output_cost_per_image_token"`
 	OutputCostPerSecond                 *float64 `json:"output_cost_per_second"`
@@ -372,6 +387,7 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 			skipped++
 			continue
 		}
+		entry.applyFirstTierPricing()
 
 		// 只保留有有效价格的条目
 		if entry.InputCostPerToken == nil && entry.OutputCostPerToken == nil && entry.OutputCostPerSecond == nil {
@@ -431,6 +447,46 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 	}
 
 	return result, nil
+}
+
+func (e *LiteLLMRawEntry) applyFirstTierPricing() {
+	if e == nil || len(e.TieredPricing) == 0 {
+		return
+	}
+	tier := e.TieredPricing[0]
+	if e.InputCostPerToken == nil {
+		e.InputCostPerToken = tier.InputCostPerToken
+	}
+	if e.InputCostPerTokenPriority == nil {
+		e.InputCostPerTokenPriority = tier.InputCostPerTokenPriority
+	}
+	if e.OutputCostPerToken == nil {
+		e.OutputCostPerToken = tier.OutputCostPerToken
+	}
+	if e.OutputCostPerTokenPriority == nil {
+		e.OutputCostPerTokenPriority = tier.OutputCostPerTokenPriority
+	}
+	if e.CacheCreationInputTokenCost == nil {
+		e.CacheCreationInputTokenCost = tier.CacheCreationInputTokenCost
+	}
+	if e.CacheCreationInputTokenCostAbove1hr == nil {
+		e.CacheCreationInputTokenCostAbove1hr = tier.CacheCreationInputTokenCostAbove1hr
+	}
+	if e.CacheReadInputTokenCost == nil {
+		e.CacheReadInputTokenCost = tier.CacheReadInputTokenCost
+	}
+	if e.CacheReadInputTokenCostPriority == nil {
+		e.CacheReadInputTokenCostPriority = tier.CacheReadInputTokenCostPriority
+	}
+	if e.OutputCostPerImage == nil {
+		e.OutputCostPerImage = tier.OutputCostPerImage
+	}
+	if e.OutputCostPerImageToken == nil {
+		e.OutputCostPerImageToken = tier.OutputCostPerImageToken
+	}
+	if e.OutputCostPerSecond == nil {
+		e.OutputCostPerSecond = tier.OutputCostPerSecond
+	}
 }
 
 // loadPricingData 从本地文件加载价格数据
@@ -548,6 +604,16 @@ func (s *PricingService) GetModelPricing(modelName string) *LiteLLMModelPricing 
 			return pricing
 		}
 	}
+	for _, candidate := range lookupCandidates {
+		if candidate == "" {
+			continue
+		}
+		for key, pricing := range s.pricingData {
+			if strings.EqualFold(key, candidate) {
+				return pricing
+			}
+		}
+	}
 
 	// 2. 处理常见的模型名称变体
 	// claude-opus-4-5-20251101 -> claude-opus-4.5-20251101
@@ -592,6 +658,7 @@ func (s *PricingService) buildModelLookupCandidates(modelLower string) []string 
 		lastSegment(modelLower),
 		lastSegment(strings.TrimPrefix(modelLower, "models/")),
 	)
+	candidates = append(candidates, providerModelLookupCandidates(modelLower)...)
 
 	seen := make(map[string]struct{}, len(candidates))
 	out := make([]string, 0, len(candidates))
@@ -610,6 +677,65 @@ func (s *PricingService) buildModelLookupCandidates(modelLower string) []string 
 		return []string{modelLower}
 	}
 	return out
+}
+
+func providerModelLookupCandidates(modelLower string) []string {
+	model := strings.TrimPrefix(strings.TrimSpace(modelLower), "models/")
+	model = strings.TrimLeft(model, "/")
+	if model == "" || strings.Contains(model, "/") {
+		return nil
+	}
+
+	candidates := make([]string, 0, 12)
+	if strings.HasPrefix(model, "qwen") || strings.HasPrefix(model, "qwq") {
+		candidates = append(candidates, "dashscope/"+model)
+	}
+	if strings.HasPrefix(model, "minimax") {
+		candidates = append(candidates, "minimax/"+minimaxPricingModelID(model), "minimax/"+model, "minimax."+model)
+	}
+	if strings.HasPrefix(model, "llama-") {
+		if bedrock := bedrockLlamaPricingID(model); bedrock != "" {
+			candidates = append(candidates, bedrock)
+		}
+	}
+	if strings.HasPrefix(model, "kimi-") || strings.HasPrefix(model, "moonshot-") {
+		candidates = append(candidates, "moonshot/"+model)
+	}
+	if strings.HasPrefix(model, "deepseek-") {
+		candidates = append(candidates, "deepseek/"+model)
+	}
+	if strings.HasPrefix(model, "glm-") || strings.HasPrefix(model, "chatglm") || strings.HasPrefix(model, "zai-") {
+		candidates = append(candidates, "zai/"+model)
+	}
+	return candidates
+}
+
+func minimaxPricingModelID(model string) string {
+	suffix := strings.TrimPrefix(model, "minimax-")
+	if suffix == model || suffix == "" {
+		return model
+	}
+	return "MiniMax-" + strings.ToUpper(suffix[:1]) + suffix[1:]
+}
+
+func bedrockLlamaPricingID(model string) string {
+	replacer := strings.NewReplacer(
+		"llama-4-", "llama4-",
+		"llama-3.3-", "llama3-3-",
+		"llama-3.2-", "llama3-2-",
+		"llama-3.1-", "llama3-1-",
+		"llama-3-", "llama3-",
+	)
+	normalized := replacer.Replace(model)
+	normalized = strings.ReplaceAll(normalized, "-vision", "")
+	switch {
+	case strings.HasPrefix(normalized, "llama4-"):
+		return "meta." + normalized + "-v1:0"
+	case strings.HasPrefix(normalized, "llama3-"):
+		return "meta." + normalized + "-v1:0"
+	default:
+		return ""
+	}
 }
 
 func normalizeModelNameForPricing(model string) string {

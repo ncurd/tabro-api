@@ -88,7 +88,7 @@
       ]"
     >
       <div v-for="item in activeModelStatuses" :key="`${item.kind}-${item.model}`" class="group relative mb-1 break-inside-avoid">
-        <!-- 积分已用尽 -->
+        <!-- ✦已用尽 -->
         <span
           v-if="item.kind === 'credits_exhausted'"
           class="inline-flex items-center gap-1 rounded bg-red-100 px-1.5 py-0.5 text-xs font-medium text-red-700 dark:bg-red-900/30 dark:text-red-400"
@@ -97,7 +97,7 @@
           {{ t('admin.accounts.status.creditsExhausted') }}
           <span class="text-[10px] opacity-70">{{ formatModelResetTime(item.reset_at) }}</span>
         </span>
-        <!-- 正在走积分（模型限流但积分可用）-->
+        <!-- 正在走✦（模型限流但✦可用）-->
         <span
           v-else-if="item.kind === 'credits_active'"
           class="inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
@@ -183,7 +183,7 @@ type AccountModelStatusItem = {
   reset_at: string
 }
 
-// Computed: active model statuses (普通模型限流 + 积分耗尽 + 走积分中)
+// Computed: active model statuses (普通模型限流 + ✦耗尽 + 走✦中)
 const activeModelStatuses = computed<AccountModelStatusItem[]>(() => {
   const extra = props.account.extra as Record<string, unknown> | undefined
   const modelLimits = extra?.model_rate_limits as
@@ -194,7 +194,7 @@ const activeModelStatuses = computed<AccountModelStatusItem[]>(() => {
 
   if (!modelLimits) return items
 
-  // 检查 AICredits key 是否生效（积分是否耗尽）
+  // 检查 AICredits key 是否生效（✦是否耗尽）
   const aiCreditsEntry = modelLimits['AICredits']
   const hasActiveAICredits = aiCreditsEntry && new Date(aiCreditsEntry.rate_limit_reset_at) > now
   const allowOverages = !!(extra?.allow_overages)
@@ -203,10 +203,10 @@ const activeModelStatuses = computed<AccountModelStatusItem[]>(() => {
     if (new Date(info.rate_limit_reset_at) <= now) continue
 
     if (model === 'AICredits') {
-      // AICredits key → 积分已用尽
+      // AICredits key → ✦已用尽
       items.push({ kind: 'credits_exhausted', model, reset_at: info.rate_limit_reset_at })
     } else if (allowOverages && !hasActiveAICredits) {
-      // 普通模型限流 + overages 启用 + 积分可用 → 正在走积分
+      // 普通模型限流 + overages 启用 + ✦可用 → 正在走✦
       items.push({ kind: 'credits_active', model, reset_at: info.rate_limit_reset_at })
     } else {
       // 普通模型限流

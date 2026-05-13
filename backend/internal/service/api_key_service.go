@@ -775,6 +775,17 @@ func (s *APIKeyService) GetAvailableGroups(ctx context.Context, userID int64) ([
 	return availableGroups, nil
 }
 
+// GetModelPricingGroups returns all active groups for the pricing page.
+// The pricing page is informational, so it intentionally does not apply API key
+// binding permission filters such as exclusive-group allow lists.
+func (s *APIKeyService) GetModelPricingGroups(ctx context.Context, _ int64) ([]Group, error) {
+	allGroups, err := s.groupRepo.ListActive(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list active groups: %w", err)
+	}
+	return allGroups, nil
+}
+
 // canUserBindGroupInternal 内部方法，检查用户是否可以绑定分组（使用预加载的订阅数据）
 func (s *APIKeyService) canUserBindGroupInternal(user *User, group *Group, subscribedGroupIDs map[int64]bool) bool {
 	// 订阅类型分组：需要有效订阅

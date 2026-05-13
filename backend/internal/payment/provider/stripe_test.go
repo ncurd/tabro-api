@@ -61,6 +61,57 @@ func TestStripeCreatePaymentReturnsCheckoutSessionURL(t *testing.T) {
 	require.Empty(t, resp.ClientSecret)
 }
 
+func TestStripeCreatePaymentUsesRequestedCurrency(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		currency string
+		want     string
+	}{
+		{currency: "USD", want: "usd"},
+		{currency: "EUR", want: "eur"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.currency, func(t *testing.T) {
+			t.Parallel()
+
+			provider := newTestStripeProvider(t, func(w http.ResponseWriter, r *http.Request) {
+				require.Equal(t, http.MethodPost, r.Method)
+				require.Equal(t, "/v1/checkout/sessions", r.URL.Path)
+				require.NoError(t, r.ParseForm())
+
+				require.Equal(t, tt.want, r.Form.Get("line_items[0][price_data][currency]"))
+				require.Equal(t, "1000", r.Form.Get("line_items[0][price_data][unit_amount]"))
+				require.Equal(t, tt.currency, r.Form.Get("metadata[currency]"))
+				require.Equal(t, tt.currency, r.Form.Get("payment_intent_data[metadata][currency]"))
+
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = fmt.Fprintf(w, `{"id":"cs_test_%s","object":"checkout.session","url":"https://checkout.stripe.com/c/pay/cs_test_%s"}`, tt.want, tt.want)
+			})
+
+			resp, err := provider.CreatePayment(context.Background(), payment.CreatePaymentRequest{
+				OrderID:     "sub2_order_43",
+				Amount:      "10.00",
+				Currency:    tt.currency,
+				PaymentType: payment.TypeStripe,
+				Subject:     "Balance Recharge",
+				ReturnURL:   "https://app.example.com/payment/result?order_id=43&out_trade_no=sub2_order_43",
+			})
+			require.NoError(t, err)
+			require.Equal(t, "cs_test_"+tt.want, resp.TradeNo)
+			require.Equal(t, "https://checkout.stripe.com/c/pay/cs_test_"+tt.want, resp.PayURL)
+		})
+	}
+}
+
+func TestResolveStripeCurrency(t *testing.T) {
+	require.Equal(t, "cny", resolveStripeCurrency(""))
+	require.Equal(t, "usd", resolveStripeCurrency("USD"))
+	require.Equal(t, "gbp", resolveStripeCurrency(" gbp "))
+	require.Equal(t, "eur", resolveStripeCurrency("eur"))
+}
+
 func TestStripeQueryOrderMapsCheckoutSessionStatus(t *testing.T) {
 	t.Parallel()
 

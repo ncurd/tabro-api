@@ -20,7 +20,7 @@
           </div>
           <div class="text-right">
             <span class="text-sm font-medium text-gray-900 dark:text-white">
-              ${{ method.amount.toFixed(2) }}
+              {{ formatCredits(method.amount) }}
             </span>
             <span class="ml-2 text-xs text-gray-500 dark:text-gray-400">
               ({{ method.count }})
@@ -41,6 +41,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { formatCredits } from '@/utils/credits'
 
 const { t } = useI18n()
 

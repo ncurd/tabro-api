@@ -58,7 +58,7 @@
             ({{ row.fee_rate }}%)
           </span>
           <div v-if="row.amount !== row.pay_amount" class="text-xs text-gray-500">
-            {{ t('payment.orders.creditedAmount') }}: {{ row.order_type === 'balance' ? '$' : '¥' }}{{ row.amount.toFixed(2) }}
+            {{ t('payment.orders.creditedAmount') }}: {{ row.order_type === 'balance' ? formatCredits(row.amount) : `¥${row.amount.toFixed(2)}` }}
           </div>
         </div>
       </template>
@@ -115,7 +115,7 @@
             @click="emit('refund', row)"
             class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400"
           >
-            <Icon name="dollar" size="sm" />
+            <Icon name="creditCard" size="sm" />
             <span class="text-xs">{{ t('payment.admin.refund') }}</span>
           </button>
         </div>
@@ -143,6 +143,7 @@ import Pagination from '@/components/common/Pagination.vue'
 import Select from '@/components/common/Select.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { statusBadgeClass, canRefund, formatOrderDateTime } from '@/components/payment/orderUtils'
+import { formatCredits } from '@/utils/credits'
 
 const { t } = useI18n()
 

@@ -84,6 +84,8 @@ func GetBasePaymentType(t string) string {
 		return TypeEasyPay
 	case t == TypeStripe || t == TypeCard || t == TypeLink:
 		return TypeStripe
+	case len(t) > len(TypeStripe) && t[:len(TypeStripe)+1] == TypeStripe+"_":
+		return TypeStripe
 	case len(t) >= len(TypeAlipay) && t[:len(TypeAlipay)] == TypeAlipay:
 		return TypeAlipay
 	case len(t) >= len(TypeWxpay) && t[:len(TypeWxpay)] == TypeWxpay:
@@ -96,7 +98,8 @@ func GetBasePaymentType(t string) string {
 // CreatePaymentRequest holds the parameters for creating a new payment.
 type CreatePaymentRequest struct {
 	OrderID            string // Internal order ID
-	Amount             string // Pay amount in CNY (formatted to 2 decimal places)
+	Amount             string // Pay amount formatted to 2 decimal places
+	Currency           string // ISO currency code, e.g. CNY, USD, GBP
 	PaymentType        string // e.g. "alipay", "wxpay", "stripe"
 	Subject            string // Product description
 	NotifyURL          string // Webhook callback URL
@@ -117,19 +120,21 @@ type CreatePaymentResponse struct {
 
 // QueryOrderResponse describes the payment status from the upstream provider.
 type QueryOrderResponse struct {
-	TradeNo string
-	Status  string  // "pending", "paid", "failed", "refunded"
-	Amount  float64 // Amount in CNY
-	PaidAt  string  // RFC3339 timestamp or empty
+	TradeNo  string
+	Status   string  // "pending", "paid", "failed", "refunded"
+	Amount   float64 // Amount in payment currency
+	Currency string  // ISO currency code when provided by the upstream
+	PaidAt   string  // RFC3339 timestamp or empty
 }
 
 // PaymentNotification is the parsed result of a webhook/notify callback.
 type PaymentNotification struct {
-	TradeNo string
-	OrderID string
-	Amount  float64
-	Status  string // "success" or "failed"
-	RawData string // Raw notification body for audit
+	TradeNo  string
+	OrderID  string
+	Amount   float64
+	Currency string
+	Status   string // "success" or "failed"
+	RawData  string // Raw notification body for audit
 }
 
 // RefundRequest contains the parameters for requesting a refund.
