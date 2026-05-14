@@ -135,3 +135,4 @@ docs/*
 frontend/coverage/
 aicodex
 output/
+backend/.local-data
