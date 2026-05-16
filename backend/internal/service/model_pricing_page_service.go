@@ -193,6 +193,7 @@ func defaultModelIDsForPricingPlatform(platform string) []string {
 			"qwen3-vl-235b-a22b-instruct",
 			"qwen3-vl-32b-instruct",
 			"qwen3.5-plus",
+			"qwen3.6-plus",
 			"deepseek-chat",
 			"deepseek-reasoner",
 			"deepseek-v3",

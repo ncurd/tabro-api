@@ -278,6 +278,23 @@ func TestLoadDefaultServerMode(t *testing.T) {
 	}
 }
 
+func TestLoadDefaultPricingUsesLiteLLMRemote(t *testing.T) {
+	resetViperWithJWTSecret(t)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	const wantURL = "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
+	if cfg.Pricing.RemoteURL != wantURL {
+		t.Fatalf("Pricing.RemoteURL = %q, want %q", cfg.Pricing.RemoteURL, wantURL)
+	}
+	if cfg.Pricing.HashURL != "" {
+		t.Fatalf("Pricing.HashURL = %q, want empty", cfg.Pricing.HashURL)
+	}
+}
+
 func TestLoadDefaultJWTAccessTokenExpireMinutes(t *testing.T) {
 	resetViperWithJWTSecret(t)
 

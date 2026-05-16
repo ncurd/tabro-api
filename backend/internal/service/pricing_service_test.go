@@ -1,13 +1,30 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
 )
+
+type pricingRemoteClientStub struct {
+	body       []byte
+	fetchJSONs int
+}
+
+func (s *pricingRemoteClientStub) FetchPricingJSON(_ context.Context, _ string) ([]byte, error) {
+	s.fetchJSONs++
+	return s.body, nil
+}
+
+func (s *pricingRemoteClientStub) FetchHashText(_ context.Context, _ string) (string, error) {
+	return "", nil
+}
 
 func TestFallbackPricingFile_ContainsLatestOpenAIModels(t *testing.T) {
 	path := filepath.Join("..", "..", "resources", "model-pricing", "model_prices_and_context_window.json")
@@ -55,6 +72,7 @@ func TestFallbackPricingFile_ContainsAliyunAdjacentModelFamilies(t *testing.T) {
 
 func TestGetModelPricing_ProviderCandidatesCoverAliyunAdjacentModelFamilies(t *testing.T) {
 	qwenPricing := &LiteLLMModelPricing{InputCostPerToken: 1}
+	qwenOpenRouterPricing := &LiteLLMModelPricing{InputCostPerToken: 7}
 	minimaxPricing := &LiteLLMModelPricing{InputCostPerToken: 2}
 	llamaPricing := &LiteLLMModelPricing{InputCostPerToken: 3}
 	kimiPricing := &LiteLLMModelPricing{InputCostPerToken: 4}
@@ -64,6 +82,7 @@ func TestGetModelPricing_ProviderCandidatesCoverAliyunAdjacentModelFamilies(t *t
 	svc := &PricingService{
 		pricingData: map[string]*LiteLLMModelPricing{
 			"dashscope/qwen-plus":             qwenPricing,
+			"openrouter/qwen/qwen3.6-plus":    qwenOpenRouterPricing,
 			"minimax/MiniMax-M2.5":            minimaxPricing,
 			"meta.llama3-3-70b-instruct-v1:0": llamaPricing,
 			"moonshot/kimi-latest":            kimiPricing,
@@ -73,11 +92,113 @@ func TestGetModelPricing_ProviderCandidatesCoverAliyunAdjacentModelFamilies(t *t
 	}
 
 	require.Same(t, qwenPricing, svc.GetModelPricing("qwen-plus"))
+	require.Same(t, qwenOpenRouterPricing, svc.GetModelPricing("qwen3.6-plus"))
 	require.Same(t, minimaxPricing, svc.GetModelPricing("minimax-m2.5"))
 	require.Same(t, llamaPricing, svc.GetModelPricing("llama-3.3-70b-instruct"))
 	require.Same(t, kimiPricing, svc.GetModelPricing("kimi-latest"))
 	require.Same(t, deepseekPricing, svc.GetModelPricing("deepseek-v3"))
 	require.Same(t, glmPricing, svc.GetModelPricing("glm-4.5"))
+}
+
+func TestParsePricingData_KeepsImageOnlyPricingEntries(t *testing.T) {
+	svc := &PricingService{}
+
+	data, err := svc.parsePricingData([]byte(`{
+		"dashscope/qwen-image-future": {
+			"output_cost_per_image": 0.025,
+			"litellm_provider": "dashscope",
+			"mode": "image_generation"
+		}
+	}`))
+
+	require.NoError(t, err)
+	require.Contains(t, data, "dashscope/qwen-image-future")
+	require.InDelta(t, 0.025, data["dashscope/qwen-image-future"].OutputCostPerImage, 1e-12)
+}
+
+func TestLoadPricingData_MergesMissingModelsFromFallbackFile(t *testing.T) {
+	dir := t.TempDir()
+	localFile := filepath.Join(dir, "local.json")
+	fallbackFile := filepath.Join(dir, "fallback.json")
+
+	require.NoError(t, os.WriteFile(localFile, []byte(`{
+		"gpt-local": {
+			"input_cost_per_token": 0.000001,
+			"output_cost_per_token": 0.000002,
+			"litellm_provider": "openai",
+			"mode": "chat"
+		}
+	}`), 0644))
+	require.NoError(t, os.WriteFile(fallbackFile, []byte(`{
+		"dashscope/qwen-plus": {
+			"input_cost_per_token": 0.0000004,
+			"output_cost_per_token": 0.0000012,
+			"litellm_provider": "dashscope",
+			"mode": "chat"
+		}
+	}`), 0644))
+
+	svc := &PricingService{
+		cfg: &config.Config{},
+	}
+	svc.cfg.Pricing.FallbackFile = fallbackFile
+
+	require.NoError(t, svc.loadPricingData(localFile))
+	require.Contains(t, svc.pricingData, "gpt-local")
+	require.Contains(t, svc.pricingData, "dashscope/qwen-plus")
+	require.Same(t, svc.pricingData["dashscope/qwen-plus"], svc.GetModelPricing("qwen-plus"))
+}
+
+func TestCheckAndUpdatePricing_DownloadsWhenRemoteSourceChanges(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "model_pricing.json"), []byte(`{
+		"gpt-local": {
+			"input_cost_per_token": 0.000001,
+			"output_cost_per_token": 0.000002,
+			"litellm_provider": "openai",
+			"mode": "chat"
+		}
+	}`), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "model_pricing.source"), []byte("https://old.example/prices.json\n"), 0644))
+
+	remote := &pricingRemoteClientStub{body: []byte(`{
+		"dashscope/qwen-plus": {
+			"input_cost_per_token": 0.0000004,
+			"output_cost_per_token": 0.0000012,
+			"litellm_provider": "dashscope",
+			"mode": "chat"
+		}
+	}`)}
+	svc := NewPricingService(&config.Config{}, remote)
+	svc.cfg.Pricing.DataDir = dir
+	svc.cfg.Pricing.RemoteURL = "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
+	svc.cfg.Pricing.HashURL = ""
+
+	require.NoError(t, svc.checkAndUpdatePricing())
+	require.Equal(t, 1, remote.fetchJSONs)
+	require.Contains(t, svc.pricingData, "dashscope/qwen-plus")
+
+	source, err := os.ReadFile(filepath.Join(dir, "model_pricing.source"))
+	require.NoError(t, err)
+	require.Equal(t, svc.cfg.Pricing.RemoteURL, strings.TrimSpace(string(source)))
+}
+
+func TestResolveFallbackPricingFileFindsBackendResourcesFromRepositoryRoot(t *testing.T) {
+	originalWD, err := os.Getwd()
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, os.Chdir(originalWD))
+	})
+
+	repoRoot := filepath.Join("..", "..", "..")
+	require.NoError(t, os.Chdir(repoRoot))
+
+	svc := &PricingService{cfg: &config.Config{}}
+	svc.cfg.Pricing.FallbackFile = "./resources/model-pricing/model_prices_and_context_window.json"
+
+	resolved, err := svc.resolveFallbackPricingFile()
+	require.NoError(t, err)
+	require.True(t, strings.HasSuffix(filepath.ToSlash(resolved), "backend/resources/model-pricing/model_prices_and_context_window.json"))
 }
 
 func TestFallbackPricingFile_ContainsDashScopeMiniMaxAndLlamaModels(t *testing.T) {

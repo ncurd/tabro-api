@@ -187,6 +187,7 @@ func TestModelPricingPageServiceListAvailablePricingUsesAliyunDefaultsForDashSco
 	require.NotEmpty(t, result.Groups[0].Models)
 	require.Equal(t, "qwen-turbo", result.Groups[0].Models[0].ID)
 	require.Contains(t, availableModelIDs(result.Groups[0].Models), "qwen-plus")
+	require.Contains(t, availableModelIDs(result.Groups[0].Models), "qwen3.6-plus")
 
 	qwenPlus, ok := availableModelByID(result.Groups[0].Models, "qwen-plus")
 	require.True(t, ok)

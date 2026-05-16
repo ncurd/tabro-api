@@ -214,6 +214,14 @@ func (s *PricingService) checkAndUpdatePricing() error {
 		return s.downloadPricingData()
 	}
 
+	if s.remoteSourceChanged() {
+		logger.LegacyPrintf("service.pricing", "%s", "[Pricing] Remote pricing source changed, downloading...")
+		if err := s.downloadPricingData(); err != nil {
+			logger.LegacyPrintf("service.pricing", "[Pricing] Download failed, using existing file: %v", err)
+		}
+		return nil
+	}
+
 	// 如果配置了哈希URL，通过远程哈希检查是否有更新
 	if s.cfg.Pricing.HashURL != "" {
 		remoteHash, err := s.fetchRemoteHash()
@@ -280,6 +288,11 @@ func (s *PricingService) syncWithRemote() error {
 
 	// 没有哈希URL时，基于时间检查
 	pricingFile := s.getPricingFilePath()
+	if s.remoteSourceChanged() {
+		logger.LegacyPrintf("service.pricing", "%s", "[Pricing] Remote pricing source changed, downloading new version...")
+		return s.downloadPricingData()
+	}
+
 	info, err := os.Stat(pricingFile)
 	if err != nil {
 		return s.downloadPricingData()
@@ -352,6 +365,9 @@ func (s *PricingService) downloadPricingData() error {
 	if err := os.WriteFile(hashFile, []byte(syncHash+"\n"), 0644); err != nil {
 		logger.LegacyPrintf("service.pricing", "[Pricing] Failed to save hash: %v", err)
 	}
+	if err := s.saveRemoteSource(); err != nil {
+		logger.LegacyPrintf("service.pricing", "[Pricing] Failed to save remote source: %v", err)
+	}
 
 	// 更新内存数据
 	s.mu.Lock()
@@ -389,8 +405,9 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 		}
 		entry.applyFirstTierPricing()
 
-		// 只保留有有效价格的条目
-		if entry.InputCostPerToken == nil && entry.OutputCostPerToken == nil && entry.OutputCostPerSecond == nil {
+		// 只保留有有效价格的条目。LiteLLM 中图片生成模型常只有
+		// output_cost_per_image，不能按 token-only 模型的字段过滤。
+		if !entry.hasAnyPrice() {
 			continue
 		}
 
@@ -489,6 +506,15 @@ func (e *LiteLLMRawEntry) applyFirstTierPricing() {
 	}
 }
 
+func (e *LiteLLMRawEntry) hasAnyPrice() bool {
+	return e != nil &&
+		(e.InputCostPerToken != nil ||
+			e.OutputCostPerToken != nil ||
+			e.OutputCostPerSecond != nil ||
+			e.OutputCostPerImage != nil ||
+			e.OutputCostPerImageToken != nil)
+}
+
 // loadPricingData 从本地文件加载价格数据
 func (s *PricingService) loadPricingData(filePath string) error {
 	data, err := os.ReadFile(filePath)
@@ -501,6 +527,7 @@ func (s *PricingService) loadPricingData(filePath string) error {
 	if err != nil {
 		return fmt.Errorf("parse pricing data: %w", err)
 	}
+	s.mergeFallbackPricingData(pricingData, filePath)
 
 	// 计算哈希
 	hash := sha256.Sum256(data)
@@ -524,10 +551,9 @@ func (s *PricingService) loadPricingData(filePath string) error {
 
 // useFallbackPricing 使用回退价格文件
 func (s *PricingService) useFallbackPricing() error {
-	fallbackFile := s.cfg.Pricing.FallbackFile
-
-	if _, err := os.Stat(fallbackFile); os.IsNotExist(err) {
-		return fmt.Errorf("fallback file not found: %s", fallbackFile)
+	fallbackFile, err := s.resolveFallbackPricingFile()
+	if err != nil {
+		return err
 	}
 
 	logger.LegacyPrintf("service.pricing", "[Pricing] Using fallback file: %s", fallbackFile)
@@ -544,6 +570,112 @@ func (s *PricingService) useFallbackPricing() error {
 	}
 
 	return s.loadPricingData(fallbackFile)
+}
+
+func (s *PricingService) mergeFallbackPricingData(pricingData map[string]*LiteLLMModelPricing, loadedFile string) {
+	if len(pricingData) == 0 {
+		return
+	}
+	fallbackFile, err := s.resolveFallbackPricingFile()
+	if err != nil {
+		return
+	}
+	if sameFilePath(loadedFile, fallbackFile) {
+		return
+	}
+
+	body, err := os.ReadFile(fallbackFile)
+	if err != nil {
+		return
+	}
+	fallbackData, err := s.parsePricingData(body)
+	if err != nil {
+		return
+	}
+
+	merged := 0
+	for model, pricing := range fallbackData {
+		if _, ok := pricingData[model]; ok {
+			continue
+		}
+		pricingData[model] = pricing
+		merged++
+	}
+	if merged > 0 {
+		logger.LegacyPrintf("service.pricing", "[Pricing] Merged %d missing models from fallback file", merged)
+	}
+}
+
+func (s *PricingService) resolveFallbackPricingFile() (string, error) {
+	configured := ""
+	if s != nil && s.cfg != nil {
+		configured = strings.TrimSpace(s.cfg.Pricing.FallbackFile)
+	}
+	if configured == "" {
+		configured = "./resources/model-pricing/model_prices_and_context_window.json"
+	}
+
+	for _, candidate := range fallbackPricingFileCandidates(configured) {
+		if candidate == "" {
+			continue
+		}
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate, nil
+		}
+	}
+	return "", fmt.Errorf("fallback file not found: %s", configured)
+}
+
+func fallbackPricingFileCandidates(configured string) []string {
+	candidates := []string{configured}
+	if filepath.IsAbs(configured) {
+		return uniqueStrings(candidates)
+	}
+
+	trimmed := strings.TrimPrefix(configured, "./")
+	if cwd, err := os.Getwd(); err == nil {
+		candidates = append(candidates,
+			filepath.Join(cwd, configured),
+			filepath.Join(cwd, trimmed),
+			filepath.Join(cwd, "backend", configured),
+			filepath.Join(cwd, "backend", trimmed),
+		)
+	}
+	if exe, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exe)
+		candidates = append(candidates,
+			filepath.Join(exeDir, configured),
+			filepath.Join(exeDir, trimmed),
+		)
+	}
+	return uniqueStrings(candidates)
+}
+
+func sameFilePath(a, b string) bool {
+	absA, errA := filepath.Abs(a)
+	absB, errB := filepath.Abs(b)
+	if errA == nil && errB == nil {
+		return absA == absB
+	}
+	return filepath.Clean(a) == filepath.Clean(b)
+}
+
+func uniqueStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		cleaned := filepath.Clean(value)
+		if _, ok := seen[cleaned]; ok {
+			continue
+		}
+		seen[cleaned] = struct{}{}
+		out = append(out, cleaned)
+	}
+	return out
 }
 
 // fetchRemoteHash 从远程获取哈希值
@@ -688,7 +820,7 @@ func providerModelLookupCandidates(modelLower string) []string {
 
 	candidates := make([]string, 0, 12)
 	if strings.HasPrefix(model, "qwen") || strings.HasPrefix(model, "qwq") {
-		candidates = append(candidates, "dashscope/"+model)
+		candidates = append(candidates, "dashscope/"+model, "openrouter/qwen/"+model)
 	}
 	if strings.HasPrefix(model, "minimax") {
 		candidates = append(candidates, "minimax/"+minimaxPricingModelID(model), "minimax/"+model, "minimax."+model)
@@ -1012,6 +1144,36 @@ func (s *PricingService) getPricingFilePath() string {
 // getHashFilePath 获取哈希文件路径
 func (s *PricingService) getHashFilePath() string {
 	return filepath.Join(s.cfg.Pricing.DataDir, "model_pricing.sha256")
+}
+
+func (s *PricingService) getSourceFilePath() string {
+	return filepath.Join(s.cfg.Pricing.DataDir, "model_pricing.source")
+}
+
+func (s *PricingService) remoteSourceChanged() bool {
+	if s == nil || s.cfg == nil {
+		return false
+	}
+	current := strings.TrimSpace(s.cfg.Pricing.RemoteURL)
+	if current == "" {
+		return false
+	}
+	body, err := os.ReadFile(s.getSourceFilePath())
+	if err != nil {
+		return true
+	}
+	return strings.TrimSpace(string(body)) != current
+}
+
+func (s *PricingService) saveRemoteSource() error {
+	if s == nil || s.cfg == nil {
+		return nil
+	}
+	current := strings.TrimSpace(s.cfg.Pricing.RemoteURL)
+	if current == "" {
+		return nil
+	}
+	return os.WriteFile(s.getSourceFilePath(), []byte(current+"\n"), 0644)
 }
 
 // isNumeric 检查字符串是否为纯数字
