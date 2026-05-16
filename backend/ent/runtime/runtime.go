@@ -13,6 +13,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/errorpassthroughrule"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/idempotencyrecord"
+	"github.com/Wei-Shaw/sub2api/ent/mediagenerationjob"
 	"github.com/Wei-Shaw/sub2api/ent/paymentauditlog"
 	"github.com/Wei-Shaw/sub2api/ent/paymentorder"
 	"github.com/Wei-Shaw/sub2api/ent/paymentproviderinstance"
@@ -512,6 +513,107 @@ func init() {
 	idempotencyrecordDescErrorReason := idempotencyrecordFields[6].Descriptor()
 	// idempotencyrecord.ErrorReasonValidator is a validator for the "error_reason" field. It is called by the builders before save.
 	idempotencyrecord.ErrorReasonValidator = idempotencyrecordDescErrorReason.Validators[0].(func(string) error)
+	mediagenerationjobMixin := schema.MediaGenerationJob{}.Mixin()
+	mediagenerationjobMixinFields0 := mediagenerationjobMixin[0].Fields()
+	_ = mediagenerationjobMixinFields0
+	mediagenerationjobFields := schema.MediaGenerationJob{}.Fields()
+	_ = mediagenerationjobFields
+	// mediagenerationjobDescCreatedAt is the schema descriptor for created_at field.
+	mediagenerationjobDescCreatedAt := mediagenerationjobMixinFields0[0].Descriptor()
+	// mediagenerationjob.DefaultCreatedAt holds the default value on creation for the created_at field.
+	mediagenerationjob.DefaultCreatedAt = mediagenerationjobDescCreatedAt.Default.(func() time.Time)
+	// mediagenerationjobDescUpdatedAt is the schema descriptor for updated_at field.
+	mediagenerationjobDescUpdatedAt := mediagenerationjobMixinFields0[1].Descriptor()
+	// mediagenerationjob.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	mediagenerationjob.DefaultUpdatedAt = mediagenerationjobDescUpdatedAt.Default.(func() time.Time)
+	// mediagenerationjob.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	mediagenerationjob.UpdateDefaultUpdatedAt = mediagenerationjobDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// mediagenerationjobDescPublicID is the schema descriptor for public_id field.
+	mediagenerationjobDescPublicID := mediagenerationjobFields[0].Descriptor()
+	// mediagenerationjob.PublicIDValidator is a validator for the "public_id" field. It is called by the builders before save.
+	mediagenerationjob.PublicIDValidator = mediagenerationjobDescPublicID.Validators[0].(func(string) error)
+	// mediagenerationjobDescKind is the schema descriptor for kind field.
+	mediagenerationjobDescKind := mediagenerationjobFields[1].Descriptor()
+	// mediagenerationjob.KindValidator is a validator for the "kind" field. It is called by the builders before save.
+	mediagenerationjob.KindValidator = mediagenerationjobDescKind.Validators[0].(func(string) error)
+	// mediagenerationjobDescProvider is the schema descriptor for provider field.
+	mediagenerationjobDescProvider := mediagenerationjobFields[2].Descriptor()
+	// mediagenerationjob.ProviderValidator is a validator for the "provider" field. It is called by the builders before save.
+	mediagenerationjob.ProviderValidator = mediagenerationjobDescProvider.Validators[0].(func(string) error)
+	// mediagenerationjobDescPlatform is the schema descriptor for platform field.
+	mediagenerationjobDescPlatform := mediagenerationjobFields[3].Descriptor()
+	// mediagenerationjob.PlatformValidator is a validator for the "platform" field. It is called by the builders before save.
+	mediagenerationjob.PlatformValidator = mediagenerationjobDescPlatform.Validators[0].(func(string) error)
+	// mediagenerationjobDescStatus is the schema descriptor for status field.
+	mediagenerationjobDescStatus := mediagenerationjobFields[4].Descriptor()
+	// mediagenerationjob.StatusValidator is a validator for the "status" field. It is called by the builders before save.
+	mediagenerationjob.StatusValidator = func() func(string) error {
+		validators := mediagenerationjobDescStatus.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(status string) error {
+			for _, fn := range fns {
+				if err := fn(status); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// mediagenerationjobDescUpstreamStatus is the schema descriptor for upstream_status field.
+	mediagenerationjobDescUpstreamStatus := mediagenerationjobFields[5].Descriptor()
+	// mediagenerationjob.UpstreamStatusValidator is a validator for the "upstream_status" field. It is called by the builders before save.
+	mediagenerationjob.UpstreamStatusValidator = mediagenerationjobDescUpstreamStatus.Validators[0].(func(string) error)
+	// mediagenerationjobDescUpstreamTaskID is the schema descriptor for upstream_task_id field.
+	mediagenerationjobDescUpstreamTaskID := mediagenerationjobFields[6].Descriptor()
+	// mediagenerationjob.UpstreamTaskIDValidator is a validator for the "upstream_task_id" field. It is called by the builders before save.
+	mediagenerationjob.UpstreamTaskIDValidator = mediagenerationjobDescUpstreamTaskID.Validators[0].(func(string) error)
+	// mediagenerationjobDescUpstreamRequestID is the schema descriptor for upstream_request_id field.
+	mediagenerationjobDescUpstreamRequestID := mediagenerationjobFields[7].Descriptor()
+	// mediagenerationjob.UpstreamRequestIDValidator is a validator for the "upstream_request_id" field. It is called by the builders before save.
+	mediagenerationjob.UpstreamRequestIDValidator = mediagenerationjobDescUpstreamRequestID.Validators[0].(func(string) error)
+	// mediagenerationjobDescModel is the schema descriptor for model field.
+	mediagenerationjobDescModel := mediagenerationjobFields[12].Descriptor()
+	// mediagenerationjob.ModelValidator is a validator for the "model" field. It is called by the builders before save.
+	mediagenerationjob.ModelValidator = mediagenerationjobDescModel.Validators[0].(func(string) error)
+	// mediagenerationjobDescResultContentType is the schema descriptor for result_content_type field.
+	mediagenerationjobDescResultContentType := mediagenerationjobFields[16].Descriptor()
+	// mediagenerationjob.ResultContentTypeValidator is a validator for the "result_content_type" field. It is called by the builders before save.
+	mediagenerationjob.ResultContentTypeValidator = mediagenerationjobDescResultContentType.Validators[0].(func(string) error)
+	// mediagenerationjobDescAudioVoice is the schema descriptor for audio_voice field.
+	mediagenerationjobDescAudioVoice := mediagenerationjobFields[18].Descriptor()
+	// mediagenerationjob.AudioVoiceValidator is a validator for the "audio_voice" field. It is called by the builders before save.
+	mediagenerationjob.AudioVoiceValidator = mediagenerationjobDescAudioVoice.Validators[0].(func(string) error)
+	// mediagenerationjobDescAudioFormat is the schema descriptor for audio_format field.
+	mediagenerationjobDescAudioFormat := mediagenerationjobFields[19].Descriptor()
+	// mediagenerationjob.AudioFormatValidator is a validator for the "audio_format" field. It is called by the builders before save.
+	mediagenerationjob.AudioFormatValidator = mediagenerationjobDescAudioFormat.Validators[0].(func(string) error)
+	// mediagenerationjobDescAudioCharacterCount is the schema descriptor for audio_character_count field.
+	mediagenerationjobDescAudioCharacterCount := mediagenerationjobFields[20].Descriptor()
+	// mediagenerationjob.DefaultAudioCharacterCount holds the default value on creation for the audio_character_count field.
+	mediagenerationjob.DefaultAudioCharacterCount = mediagenerationjobDescAudioCharacterCount.Default.(int)
+	// mediagenerationjobDescVideoDurationSeconds is the schema descriptor for video_duration_seconds field.
+	mediagenerationjobDescVideoDurationSeconds := mediagenerationjobFields[21].Descriptor()
+	// mediagenerationjob.DefaultVideoDurationSeconds holds the default value on creation for the video_duration_seconds field.
+	mediagenerationjob.DefaultVideoDurationSeconds = mediagenerationjobDescVideoDurationSeconds.Default.(int)
+	// mediagenerationjobDescVideoResolution is the schema descriptor for video_resolution field.
+	mediagenerationjobDescVideoResolution := mediagenerationjobFields[22].Descriptor()
+	// mediagenerationjob.VideoResolutionValidator is a validator for the "video_resolution" field. It is called by the builders before save.
+	mediagenerationjob.VideoResolutionValidator = mediagenerationjobDescVideoResolution.Validators[0].(func(string) error)
+	// mediagenerationjobDescVideoRatio is the schema descriptor for video_ratio field.
+	mediagenerationjobDescVideoRatio := mediagenerationjobFields[23].Descriptor()
+	// mediagenerationjob.VideoRatioValidator is a validator for the "video_ratio" field. It is called by the builders before save.
+	mediagenerationjob.VideoRatioValidator = mediagenerationjobDescVideoRatio.Validators[0].(func(string) error)
+	// mediagenerationjobDescVideoCount is the schema descriptor for video_count field.
+	mediagenerationjobDescVideoCount := mediagenerationjobFields[24].Descriptor()
+	// mediagenerationjob.DefaultVideoCount holds the default value on creation for the video_count field.
+	mediagenerationjob.DefaultVideoCount = mediagenerationjobDescVideoCount.Default.(int)
+	// mediagenerationjobDescErrorCode is the schema descriptor for error_code field.
+	mediagenerationjobDescErrorCode := mediagenerationjobFields[25].Descriptor()
+	// mediagenerationjob.ErrorCodeValidator is a validator for the "error_code" field. It is called by the builders before save.
+	mediagenerationjob.ErrorCodeValidator = mediagenerationjobDescErrorCode.Validators[0].(func(string) error)
 	paymentauditlogFields := schema.PaymentAuditLog{}.Fields()
 	_ = paymentauditlogFields
 	// paymentauditlogDescOrderID is the schema descriptor for order_id field.

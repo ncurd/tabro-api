@@ -53,10 +53,9 @@
 
           <!-- Doc Link -->
           <a
-            v-if="docUrl"
-            :href="docUrl"
-            target="_blank"
-            rel="noopener noreferrer"
+            :href="docHref"
+            :target="isExternalDocUrl ? '_blank' : undefined"
+            :rel="isExternalDocUrl ? 'noopener noreferrer' : undefined"
             class="rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-dark-400 dark:hover:bg-dark-800 dark:hover:text-white"
             :title="t('home.viewDocs')"
           >
@@ -382,10 +381,9 @@
         </p>
         <div class="flex items-center gap-4">
           <a
-            v-if="docUrl"
-            :href="docUrl"
-            target="_blank"
-            rel="noopener noreferrer"
+            :href="docHref"
+            :target="isExternalDocUrl ? '_blank' : undefined"
+            :rel="isExternalDocUrl ? 'noopener noreferrer' : undefined"
             class="text-sm text-gray-500 transition-colors hover:text-gray-700 dark:text-dark-400 dark:hover:text-white"
           >
             {{ t('home.docs') }}
@@ -421,6 +419,11 @@ const siteName = computed(() => appStore.cachedPublicSettings?.site_name || appS
 const siteLogo = computed(() => appStore.cachedPublicSettings?.site_logo || appStore.siteLogo || '')
 const siteSubtitle = computed(() => appStore.cachedPublicSettings?.site_subtitle || 'AI API Gateway Platform')
 const docUrl = computed(() => appStore.cachedPublicSettings?.doc_url || appStore.docUrl || '')
+const docHref = computed(() => docUrl.value || '/docs')
+const isExternalDocUrl = computed(() => {
+  const url = docHref.value.trim()
+  return url.startsWith('http://') || url.startsWith('https://')
+})
 const homeContent = computed(() => appStore.cachedPublicSettings?.home_content || '')
 
 // Check if homeContent is a URL (for iframe display)

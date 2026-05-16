@@ -14,3 +14,8 @@ declare module '*.vue' {
   const component: DefineComponent<{}, {}, any>
   export default component
 }
+
+declare module '*.mdx?raw' {
+  const content: string
+  export default content
+}

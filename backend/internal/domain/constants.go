@@ -18,10 +18,13 @@ const (
 
 // Platform constants
 const (
-	PlatformAnthropic   = "anthropic"
-	PlatformOpenAI      = "openai"
-	PlatformGemini      = "gemini"
-	PlatformAntigravity = "antigravity"
+	PlatformAnthropic     = "anthropic"
+	PlatformOpenAI        = "openai"
+	PlatformGemini        = "gemini"
+	PlatformAntigravity   = "antigravity"
+	PlatformAzureSpeech   = "azure_speech"
+	PlatformDashScope     = "dashscope"
+	PlatformVolcengineArk = "volcengine_ark"
 )
 
 // Account type constants

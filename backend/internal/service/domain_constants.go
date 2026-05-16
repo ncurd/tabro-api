@@ -20,10 +20,13 @@ const (
 
 // Platform constants
 const (
-	PlatformAnthropic   = domain.PlatformAnthropic
-	PlatformOpenAI      = domain.PlatformOpenAI
-	PlatformGemini      = domain.PlatformGemini
-	PlatformAntigravity = domain.PlatformAntigravity
+	PlatformAnthropic     = domain.PlatformAnthropic
+	PlatformOpenAI        = domain.PlatformOpenAI
+	PlatformGemini        = domain.PlatformGemini
+	PlatformAntigravity   = domain.PlatformAntigravity
+	PlatformAzureSpeech   = domain.PlatformAzureSpeech
+	PlatformDashScope     = domain.PlatformDashScope
+	PlatformVolcengineArk = domain.PlatformVolcengineArk
 )
 
 // Account type constants

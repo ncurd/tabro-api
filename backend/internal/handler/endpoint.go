@@ -15,10 +15,14 @@ import (
 // ──────────────────────────────────────────────────────────
 
 const (
-	EndpointMessages        = "/v1/messages"
-	EndpointChatCompletions = "/v1/chat/completions"
-	EndpointResponses       = "/v1/responses"
-	EndpointGeminiModels    = "/v1beta/models"
+	EndpointMessages          = "/v1/messages"
+	EndpointChatCompletions   = "/v1/chat/completions"
+	EndpointResponses         = "/v1/responses"
+	EndpointImagesGenerations = "/v1/images/generations"
+	EndpointAudioSpeech       = "/v1/audio/speech"
+	EndpointAudioSpeechJobs   = "/v1/audio/speech/jobs"
+	EndpointVideoGenerations  = "/v1/videos/generations"
+	EndpointGeminiModels      = "/v1beta/models"
 )
 
 // gin.Context keys used by the middleware and helpers below.
@@ -46,6 +50,14 @@ func NormalizeInboundEndpoint(path string) string {
 		return EndpointMessages
 	case strings.Contains(path, EndpointResponses):
 		return EndpointResponses
+	case strings.Contains(path, EndpointImagesGenerations):
+		return EndpointImagesGenerations
+	case strings.Contains(path, EndpointAudioSpeechJobs):
+		return EndpointAudioSpeechJobs
+	case strings.Contains(path, EndpointAudioSpeech):
+		return EndpointAudioSpeech
+	case strings.Contains(path, EndpointVideoGenerations):
+		return EndpointVideoGenerations
 	case strings.Contains(path, EndpointGeminiModels):
 		return EndpointGeminiModels
 	default:
@@ -69,6 +81,12 @@ func DeriveUpstreamEndpoint(inbound, rawRequestPath, platform string) string {
 
 	switch platform {
 	case service.PlatformOpenAI:
+		if inbound == EndpointImagesGenerations {
+			return EndpointImagesGenerations
+		}
+		if inbound == EndpointAudioSpeech || inbound == EndpointAudioSpeechJobs || inbound == EndpointVideoGenerations {
+			return inbound
+		}
 		// OpenAI forwards everything to the Responses API.
 		// Preserve subresource suffix (e.g. /v1/responses/compact).
 		if suffix := responsesSubpathSuffix(rawRequestPath); suffix != "" {

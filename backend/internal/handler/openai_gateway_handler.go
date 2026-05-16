@@ -208,6 +208,10 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	// Get subscription info (may be nil)
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 
+	if h.tryHandleCodexImageGenerationBridge(c, body, reqModel, requestStart, apiKey, subject, subscription, reqLog) {
+		return
+	}
+
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	routingStart := time.Now()
 
@@ -412,6 +416,217 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		)
 		return
 	}
+}
+
+// ImagesGenerations handles OpenAI Images API endpoint.
+// POST /v1/images/generations
+func (h *OpenAIGatewayHandler) ImagesGenerations(c *gin.Context) {
+	requestStart := time.Now()
+	setOpenAIClientTransportHTTP(c)
+
+	apiKey, ok := middleware2.GetAPIKeyFromContext(c)
+	if !ok {
+		h.errorResponse(c, http.StatusUnauthorized, "authentication_error", "Invalid API key")
+		return
+	}
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		h.errorResponse(c, http.StatusInternalServerError, "api_error", "User context not found")
+		return
+	}
+	reqLog := requestLogger(
+		c,
+		"handler.openai_gateway.images",
+		zap.Int64("user_id", subject.UserID),
+		zap.Int64("api_key_id", apiKey.ID),
+		zap.Any("group_id", apiKey.GroupID),
+	)
+	if !h.ensureImagesDependencies(c) {
+		return
+	}
+	body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
+	if err != nil {
+		if maxErr, ok := extractMaxBytesError(err); ok {
+			h.errorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", buildBodyTooLargeMessage(maxErr.Limit))
+			return
+		}
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to read request body")
+		return
+	}
+	if len(body) == 0 {
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Request body is empty")
+		return
+	}
+	reqModel := strings.TrimSpace(gjson.GetBytes(body, "model").String())
+	if reqModel == "" {
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "model is required")
+		return
+	}
+	setOpsRequestContext(c, reqModel, false, body)
+	setOpsEndpointContext(c, "", int16(service.RequestTypeSync))
+
+	subscription, _ := middleware2.GetSubscriptionFromContext(c)
+	h.forwardOpenAIImagesGenerationBody(c, body, reqModel, requestStart, apiKey, subject, subscription, reqLog, false)
+}
+
+func (h *OpenAIGatewayHandler) tryHandleCodexImageGenerationBridge(
+	c *gin.Context,
+	body []byte,
+	reqModel string,
+	requestStart time.Time,
+	apiKey *service.APIKey,
+	subject middleware2.AuthSubject,
+	subscription *service.UserSubscription,
+	reqLog *zap.Logger,
+) bool {
+	imagesBody, ok, err := service.BuildOpenAICodexImageGenerationRequest(body)
+	if err != nil {
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return true
+	}
+	if !ok {
+		return false
+	}
+	if !h.ensureImagesDependencies(c) {
+		return true
+	}
+	imageModel := strings.TrimSpace(gjson.GetBytes(imagesBody, "model").String())
+	if imageModel == "" {
+		imageModel = reqModel
+	}
+	h.forwardOpenAIImagesGenerationBody(c, body, imageModel, requestStart, apiKey, subject, subscription, reqLog, true)
+	return true
+}
+
+func (h *OpenAIGatewayHandler) forwardOpenAIImagesGenerationBody(
+	c *gin.Context,
+	body []byte,
+	reqModel string,
+	requestStart time.Time,
+	apiKey *service.APIKey,
+	subject middleware2.AuthSubject,
+	subscription *service.UserSubscription,
+	reqLog *zap.Logger,
+	codexBridge bool,
+) {
+	streamStarted := false
+	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
+
+	userReleaseFunc, acquired := h.acquireResponsesUserSlot(c, subject.UserID, subject.Concurrency, false, &streamStarted, reqLog)
+	if !acquired {
+		return
+	}
+	if userReleaseFunc != nil {
+		defer userReleaseFunc()
+	}
+	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription); err != nil {
+		status, code, message := billingErrorDetails(err)
+		h.handleStreamingAwareError(c, status, code, message, false)
+		return
+	}
+
+	failedAccountIDs := make(map[int64]struct{})
+	maxAccountSwitches := h.maxAccountSwitches
+	for switchCount := 0; ; switchCount++ {
+		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithScheduler(
+			c.Request.Context(),
+			apiKey.GroupID,
+			"",
+			"",
+			reqModel,
+			failedAccountIDs,
+			service.OpenAIUpstreamTransportHTTPSSE,
+		)
+		if err != nil || selection == nil || selection.Account == nil {
+			h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available OpenAI API key accounts for image generation", false)
+			return
+		}
+		account := selection.Account
+		if account.Type != service.AccountTypeAPIKey {
+			failedAccountIDs[account.ID] = struct{}{}
+			if switchCount >= maxAccountSwitches {
+				h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available OpenAI API key accounts for image generation", false)
+				return
+			}
+			continue
+		}
+		setOpsSelectedAccount(c, account.ID, account.Platform)
+		reqLog.Debug("openai.images_account_schedule_decision",
+			zap.String("layer", scheduleDecision.Layer),
+			zap.Int("candidate_count", scheduleDecision.CandidateCount),
+			zap.Int64("account_id", account.ID),
+		)
+
+		accountReleaseFunc, acquired := h.acquireResponsesAccountSlot(c, apiKey.GroupID, "", selection, false, &streamStarted, reqLog)
+		if !acquired {
+			return
+		}
+		forwardStart := time.Now()
+		var result *service.OpenAIForwardResult
+		if codexBridge {
+			result, err = h.gatewayService.ForwardCodexImageGeneration(c.Request.Context(), c, account, body)
+		} else {
+			result, err = h.gatewayService.ForwardImagesGenerations(c.Request.Context(), c, account, body)
+		}
+		forwardDurationMs := time.Since(forwardStart).Milliseconds()
+		if accountReleaseFunc != nil {
+			accountReleaseFunc()
+		}
+		service.SetOpsLatencyMs(c, service.OpsResponseLatencyMsKey, forwardDurationMs)
+		if err != nil {
+			var failoverErr *service.UpstreamFailoverError
+			if errors.As(err, &failoverErr) {
+				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, false, nil)
+				failedAccountIDs[account.ID] = struct{}{}
+				if switchCount >= maxAccountSwitches {
+					h.handleFailoverExhausted(c, failoverErr, false)
+					return
+				}
+				h.gatewayService.RecordOpenAIAccountSwitch()
+				continue
+			}
+			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, false, nil)
+			reqLog.Warn("openai.images_forward_failed", zap.Int64("account_id", account.ID), zap.Error(err))
+			return
+		}
+		h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, true, nil)
+		userAgent := c.GetHeader("User-Agent")
+		clientIP := ip.GetClientIP(c)
+		requestPayloadHash := service.HashUsageRequestPayload(body)
+		h.submitUsageRecordTask(func(ctx context.Context) {
+			if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
+				Result:             result,
+				APIKey:             apiKey,
+				User:               apiKey.User,
+				Account:            account,
+				Subscription:       subscription,
+				InboundEndpoint:    GetInboundEndpoint(c),
+				UpstreamEndpoint:   "/v1/images/generations",
+				UserAgent:          userAgent,
+				IPAddress:          clientIP,
+				RequestPayloadHash: requestPayloadHash,
+				APIKeyService:      h.apiKeyService,
+			}); err != nil {
+				reqLog.Error("openai.images_record_usage_failed", zap.Int64("account_id", account.ID), zap.Error(err))
+			}
+		})
+		return
+	}
+}
+
+func (h *OpenAIGatewayHandler) ensureImagesDependencies(c *gin.Context) bool {
+	if h == nil || h.gatewayService == nil || h.billingCacheService == nil || h.concurrencyHelper == nil {
+		if c != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"error": gin.H{
+					"type":    "api_error",
+					"message": "OpenAI images service is not configured",
+				},
+			})
+		}
+		return false
+	}
+	return true
 }
 
 func isOpenAIRemoteCompactPath(c *gin.Context) bool {

@@ -485,6 +485,75 @@ var (
 			},
 		},
 	}
+	// MediaGenerationJobsColumns holds the columns for the "media_generation_jobs" table.
+	MediaGenerationJobsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "public_id", Type: field.TypeString, Unique: true, Size: 80},
+		{Name: "kind", Type: field.TypeString, Size: 40},
+		{Name: "provider", Type: field.TypeString, Size: 40},
+		{Name: "platform", Type: field.TypeString, Size: 40},
+		{Name: "status", Type: field.TypeString, Size: 30},
+		{Name: "upstream_status", Type: field.TypeString, Nullable: true, Size: 80},
+		{Name: "upstream_task_id", Type: field.TypeString, Nullable: true, Size: 160},
+		{Name: "upstream_request_id", Type: field.TypeString, Nullable: true, Size: 160},
+		{Name: "user_id", Type: field.TypeInt64},
+		{Name: "api_key_id", Type: field.TypeInt64},
+		{Name: "group_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "account_id", Type: field.TypeInt64},
+		{Name: "model", Type: field.TypeString, Size: 160},
+		{Name: "request_json", Type: field.TypeJSON, Nullable: true},
+		{Name: "upstream_response_json", Type: field.TypeJSON, Nullable: true},
+		{Name: "result_url", Type: field.TypeString, Nullable: true},
+		{Name: "result_content_type", Type: field.TypeString, Nullable: true, Size: 120},
+		{Name: "expires_at", Type: field.TypeTime, Nullable: true},
+		{Name: "audio_voice", Type: field.TypeString, Nullable: true, Size: 160},
+		{Name: "audio_format", Type: field.TypeString, Nullable: true, Size: 80},
+		{Name: "audio_character_count", Type: field.TypeInt, Default: 0},
+		{Name: "video_duration_seconds", Type: field.TypeInt, Default: 0},
+		{Name: "video_resolution", Type: field.TypeString, Nullable: true, Size: 40},
+		{Name: "video_ratio", Type: field.TypeString, Nullable: true, Size: 40},
+		{Name: "video_count", Type: field.TypeInt, Default: 0},
+		{Name: "error_code", Type: field.TypeString, Nullable: true, Size: 120},
+		{Name: "error_message", Type: field.TypeString, Nullable: true},
+		{Name: "usage_recorded_at", Type: field.TypeTime, Nullable: true},
+		{Name: "submitted_at", Type: field.TypeTime, Nullable: true},
+		{Name: "completed_at", Type: field.TypeTime, Nullable: true},
+	}
+	// MediaGenerationJobsTable holds the schema information for the "media_generation_jobs" table.
+	MediaGenerationJobsTable = &schema.Table{
+		Name:       "media_generation_jobs",
+		Columns:    MediaGenerationJobsColumns,
+		PrimaryKey: []*schema.Column{MediaGenerationJobsColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "mediagenerationjob_public_id",
+				Unique:  true,
+				Columns: []*schema.Column{MediaGenerationJobsColumns[3]},
+			},
+			{
+				Name:    "mediagenerationjob_user_id_created_at",
+				Unique:  false,
+				Columns: []*schema.Column{MediaGenerationJobsColumns[11], MediaGenerationJobsColumns[1]},
+			},
+			{
+				Name:    "mediagenerationjob_api_key_id_created_at",
+				Unique:  false,
+				Columns: []*schema.Column{MediaGenerationJobsColumns[12], MediaGenerationJobsColumns[1]},
+			},
+			{
+				Name:    "mediagenerationjob_account_id_status",
+				Unique:  false,
+				Columns: []*schema.Column{MediaGenerationJobsColumns[14], MediaGenerationJobsColumns[7]},
+			},
+			{
+				Name:    "mediagenerationjob_provider_upstream_task_id",
+				Unique:  false,
+				Columns: []*schema.Column{MediaGenerationJobsColumns[5], MediaGenerationJobsColumns[9]},
+			},
+		},
+	}
 	// PaymentAuditLogsColumns holds the columns for the "payment_audit_logs" table.
 	PaymentAuditLogsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true},
@@ -1321,6 +1390,7 @@ var (
 		ErrorPassthroughRulesTable,
 		GroupsTable,
 		IdempotencyRecordsTable,
+		MediaGenerationJobsTable,
 		PaymentAuditLogsTable,
 		PaymentOrdersTable,
 		PaymentProviderInstancesTable,
@@ -1373,6 +1443,9 @@ func init() {
 	}
 	IdempotencyRecordsTable.Annotation = &entsql.Annotation{
 		Table: "idempotency_records",
+	}
+	MediaGenerationJobsTable.Annotation = &entsql.Annotation{
+		Table: "media_generation_jobs",
 	}
 	PaymentAuditLogsTable.Annotation = &entsql.Annotation{
 		Table: "payment_audit_logs",

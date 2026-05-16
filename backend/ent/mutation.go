@@ -20,6 +20,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/errorpassthroughrule"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/idempotencyrecord"
+	"github.com/Wei-Shaw/sub2api/ent/mediagenerationjob"
 	"github.com/Wei-Shaw/sub2api/ent/paymentauditlog"
 	"github.com/Wei-Shaw/sub2api/ent/paymentorder"
 	"github.com/Wei-Shaw/sub2api/ent/paymentproviderinstance"
@@ -59,6 +60,7 @@ const (
 	TypeErrorPassthroughRule    = "ErrorPassthroughRule"
 	TypeGroup                   = "Group"
 	TypeIdempotencyRecord       = "IdempotencyRecord"
+	TypeMediaGenerationJob      = "MediaGenerationJob"
 	TypePaymentAuditLog         = "PaymentAuditLog"
 	TypePaymentOrder            = "PaymentOrder"
 	TypePaymentProviderInstance = "PaymentProviderInstance"
@@ -12189,6 +12191,2620 @@ func (m *IdempotencyRecordMutation) ClearEdge(name string) error {
 // It returns an error if the edge is not defined in the schema.
 func (m *IdempotencyRecordMutation) ResetEdge(name string) error {
 	return fmt.Errorf("unknown IdempotencyRecord edge %s", name)
+}
+
+// MediaGenerationJobMutation represents an operation that mutates the MediaGenerationJob nodes in the graph.
+type MediaGenerationJobMutation struct {
+	config
+	op                           Op
+	typ                          string
+	id                           *int64
+	created_at                   *time.Time
+	updated_at                   *time.Time
+	public_id                    *string
+	kind                         *string
+	provider                     *string
+	platform                     *string
+	status                       *string
+	upstream_status              *string
+	upstream_task_id             *string
+	upstream_request_id          *string
+	user_id                      *int64
+	adduser_id                   *int64
+	api_key_id                   *int64
+	addapi_key_id                *int64
+	group_id                     *int64
+	addgroup_id                  *int64
+	account_id                   *int64
+	addaccount_id                *int64
+	model                        *string
+	request_json                 *json.RawMessage
+	appendrequest_json           json.RawMessage
+	upstream_response_json       *json.RawMessage
+	appendupstream_response_json json.RawMessage
+	result_url                   *string
+	result_content_type          *string
+	expires_at                   *time.Time
+	audio_voice                  *string
+	audio_format                 *string
+	audio_character_count        *int
+	addaudio_character_count     *int
+	video_duration_seconds       *int
+	addvideo_duration_seconds    *int
+	video_resolution             *string
+	video_ratio                  *string
+	video_count                  *int
+	addvideo_count               *int
+	error_code                   *string
+	error_message                *string
+	usage_recorded_at            *time.Time
+	submitted_at                 *time.Time
+	completed_at                 *time.Time
+	clearedFields                map[string]struct{}
+	done                         bool
+	oldValue                     func(context.Context) (*MediaGenerationJob, error)
+	predicates                   []predicate.MediaGenerationJob
+}
+
+var _ ent.Mutation = (*MediaGenerationJobMutation)(nil)
+
+// mediagenerationjobOption allows management of the mutation configuration using functional options.
+type mediagenerationjobOption func(*MediaGenerationJobMutation)
+
+// newMediaGenerationJobMutation creates new mutation for the MediaGenerationJob entity.
+func newMediaGenerationJobMutation(c config, op Op, opts ...mediagenerationjobOption) *MediaGenerationJobMutation {
+	m := &MediaGenerationJobMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeMediaGenerationJob,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withMediaGenerationJobID sets the ID field of the mutation.
+func withMediaGenerationJobID(id int64) mediagenerationjobOption {
+	return func(m *MediaGenerationJobMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *MediaGenerationJob
+		)
+		m.oldValue = func(ctx context.Context) (*MediaGenerationJob, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().MediaGenerationJob.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withMediaGenerationJob sets the old MediaGenerationJob of the mutation.
+func withMediaGenerationJob(node *MediaGenerationJob) mediagenerationjobOption {
+	return func(m *MediaGenerationJobMutation) {
+		m.oldValue = func(context.Context) (*MediaGenerationJob, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m MediaGenerationJobMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m MediaGenerationJobMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *MediaGenerationJobMutation) ID() (id int64, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *MediaGenerationJobMutation) IDs(ctx context.Context) ([]int64, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int64{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().MediaGenerationJob.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *MediaGenerationJobMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *MediaGenerationJobMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the MediaGenerationJob entity.
+// If the MediaGenerationJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MediaGenerationJobMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *MediaGenerationJobMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (m *MediaGenerationJobMutation) SetUpdatedAt(t time.Time) {
+	m.updated_at = &t
+}
+
+// UpdatedAt returns the value of the "updated_at" field in the mutation.
+func (m *MediaGenerationJobMutation) UpdatedAt() (r time.Time, exists bool) {
+	v := m.updated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpdatedAt returns the old "updated_at" field's value of the MediaGenerationJob entity.
+// If the MediaGenerationJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MediaGenerationJobMutation) OldUpdatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpdatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpdatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpdatedAt: %w", err)
+	}
+	return oldValue.UpdatedAt, nil
+}
+
+// ResetUpdatedAt resets all changes to the "updated_at" field.
+func (m *MediaGenerationJobMutation) ResetUpdatedAt() {
+	m.updated_at = nil
+}
+
+// SetPublicID sets the "public_id" field.
+func (m *MediaGenerationJobMutation) SetPublicID(s string) {
+	m.public_id = &s
+}
+
+// PublicID returns the value of the "public_id" field in the mutation.
+func (m *MediaGenerationJobMutation) PublicID() (r string, exists bool) {
+	v := m.public_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPublicID returns the old "public_id" field's value of the MediaGenerationJob entity.
+// If the MediaGenerationJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MediaGenerationJobMutation) OldPublicID(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPublicID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPublicID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPublicID: %w", err)
+	}
+	return oldValue.PublicID, nil
+}
+
+// ResetPublicID resets all changes to the "public_id" field.
+func (m *MediaGenerationJobMutation) ResetPublicID() {
+	m.public_id = nil
+}
+
+// SetKind sets the "kind" field.
+func (m *MediaGenerationJobMutation) SetKind(s string) {
+	m.kind = &s
+}
+
+// Kind returns the value of the "kind" field in the mutation.
+func (m *MediaGenerationJobMutation) Kind() (r string, exists bool) {
+	v := m.kind
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldKind returns the old "kind" field's value of the MediaGenerationJob entity.
+// If the MediaGenerationJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MediaGenerationJobMutation) OldKind(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldKind is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldKind requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldKind: %w", err)
+	}
+	return oldValue.Kind, nil
+}
+
+// ResetKind resets all changes to the "kind" field.
+func (m *MediaGenerationJobMutation) ResetKind() {
+	m.kind = nil
+}
+
+// SetProvider sets the "provider" field.
+func (m *MediaGenerationJobMutation) SetProvider(s string) {
+	m.provider = &s
+}
+
+// Provider returns the value of the "provider" field in the mutation.
+func (m *MediaGenerationJobMutation) Provider() (r string, exists bool) {
+	v := m.provider
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldProvider returns the old "provider" field's value of the MediaGenerationJob entity.
+// If the MediaGenerationJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MediaGenerationJobMutation) OldProvider(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldProvider is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldProvider requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldProvider: %w", err)
+	}
+	return oldValue.Provider, nil
+}
+
+// ResetProvider resets all changes to the "provider" field.
+func (m *MediaGenerationJobMutation) ResetProvider() {
+	m.provider = nil
+}
+
+// SetPlatform sets the "platform" field.
+func (m *MediaGenerationJobMutation) SetPlatform(s string) {
+	m.platform = &s
+}
+
+// Platform returns the value of the "platform" field in the mutation.
+func (m *MediaGenerationJobMutation) Platform() (r string, exists bool) {
+	v := m.platform
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPlatform returns the old "platform" field's value of the MediaGenerationJob entity.
+// If the MediaGenerationJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MediaGenerationJobMutation) OldPlatform(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPlatform is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPlatform requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPlatform: %w", err)
+	}
+	return oldValue.Platform, nil
+}
+
+// ResetPlatform resets all changes to the "platform" field.
+func (m *MediaGenerationJobMutation) ResetPlatform() {
+	m.platform = nil
+}
+
+// SetStatus sets the "status" field.
+func (m *MediaGenerationJobMutation) SetStatus(s string) {
+	m.status = &s
+}
+
+// Status returns the value of the "status" field in the mutation.
+func (m *MediaGenerationJobMutation) Status() (r string, exists bool) {
+	v := m.status
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldStatus returns the old "status" field's value of the MediaGenerationJob entity.
+// If the MediaGenerationJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MediaGenerationJobMutation) OldStatus(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldStatus is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldStatus requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldStatus: %w", err)
+	}
+	return oldValue.Status, nil
+}
+
+// ResetStatus resets all changes to the "status" field.
+func (m *MediaGenerationJobMutation) ResetStatus() {
+	m.status = nil
+}
+
+// SetUpstreamStatus sets the "upstream_status" field.
+func (m *MediaGenerationJobMutation) SetUpstreamStatus(s string) {
+	m.upstream_status = &s
+}
+
+// UpstreamStatus returns the value of the "upstream_status" field in the mutation.
+func (m *MediaGenerationJobMutation) UpstreamStatus() (r string, exists bool) {
+	v := m.upstream_status
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpstreamStatus returns the old "upstream_status" field's value of the MediaGenerationJob entity.
+// If the MediaGenerationJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MediaGenerationJobMutation) OldUpstreamStatus(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpstreamStatus is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpstreamStatus requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpstreamStatus: %w", err)
+	}
+	return oldValue.UpstreamStatus, nil
+}
+
+// ClearUpstreamStatus clears the value of the "upstream_status" field.
+func (m *MediaGenerationJobMutation) ClearUpstreamStatus() {
+	m.upstream_status = nil
+	m.clearedFields[mediagenerationjob.FieldUpstreamStatus] = struct{}{}
+}
+
+// UpstreamStatusCleared returns if the "upstream_status" field was cleared in this mutation.
+func (m *MediaGenerationJobMutation) UpstreamStatusCleared() bool {
+	_, ok := m.clearedFields[mediagenerationjob.FieldUpstreamStatus]
+	return ok
+}
+
+// ResetUpstreamStatus resets all changes to the "upstream_status" field.
+func (m *MediaGenerationJobMutation) ResetUpstreamStatus() {
+	m.upstream_status = nil
+	delete(m.clearedFields, mediagenerationjob.FieldUpstreamStatus)
+}
+
+// SetUpstreamTaskID sets the "upstream_task_id" field.
+func (m *MediaGenerationJobMutation) SetUpstreamTaskID(s string) {
+	m.upstream_task_id = &s
+}
+
+// UpstreamTaskID returns the value of the "upstream_task_id" field in the mutation.
+func (m *MediaGenerationJobMutation) UpstreamTaskID() (r string, exists bool) {
+	v := m.upstream_task_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpstreamTaskID returns the old "upstream_task_id" field's value of the MediaGenerationJob entity.
+// If the MediaGenerationJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MediaGenerationJobMutation) OldUpstreamTaskID(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpstreamTaskID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpstreamTaskID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpstreamTaskID: %w", err)
+	}
+	return oldValue.UpstreamTaskID, nil
+}
+
+// ClearUpstreamTaskID clears the value of the "upstream_task_id" field.
+func (m *MediaGenerationJobMutation) ClearUpstreamTaskID() {
+	m.upstream_task_id = nil
+	m.clearedFields[mediagenerationjob.FieldUpstreamTaskID] = struct{}{}
+}
+
+// UpstreamTaskIDCleared returns if the "upstream_task_id" field was cleared in this mutation.
+func (m *MediaGenerationJobMutation) UpstreamTaskIDCleared() bool {
+	_, ok := m.clearedFields[mediagenerationjob.FieldUpstreamTaskID]
+	return ok
+}
+
+// ResetUpstreamTaskID resets all changes to the "upstream_task_id" field.
+func (m *MediaGenerationJobMutation) ResetUpstreamTaskID() {
+	m.upstream_task_id = nil
+	delete(m.clearedFields, mediagenerationjob.FieldUpstreamTaskID)
+}
+
+// SetUpstreamRequestID sets the "upstream_request_id" field.
+func (m *MediaGenerationJobMutation) SetUpstreamRequestID(s string) {
+	m.upstream_request_id = &s
+}
+
+// UpstreamRequestID returns the value of the "upstream_request_id" field in the mutation.
+func (m *MediaGenerationJobMutation) UpstreamRequestID() (r string, exists bool) {
+	v := m.upstream_request_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpstreamRequestID returns the old "upstream_request_id" field's value of the MediaGenerationJob entity.
+// If the MediaGenerationJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MediaGenerationJobMutation) OldUpstreamRequestID(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpstreamRequestID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpstreamRequestID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpstreamRequestID: %w", err)
+	}
+	return oldValue.UpstreamRequestID, nil
+}
+
+// ClearUpstreamRequestID clears the value of the "upstream_request_id" field.
+func (m *MediaGenerationJobMutation) ClearUpstreamRequestID() {
+	m.upstream_request_id = nil
+	m.clearedFields[mediagenerationjob.FieldUpstreamRequestID] = struct{}{}
+}
+
+// UpstreamRequestIDCleared returns if the "upstream_request_id" field was cleared in this mutation.
+func (m *MediaGenerationJobMutation) UpstreamRequestIDCleared() bool {
+	_, ok := m.clearedFields[mediagenerationjob.FieldUpstreamRequestID]
+	return ok
+}
+
+// ResetUpstreamRequestID resets all changes to the "upstream_request_id" field.
+func (m *MediaGenerationJobMutation) ResetUpstreamRequestID() {
+	m.upstream_request_id = nil
+	delete(m.clearedFields, mediagenerationjob.FieldUpstreamRequestID)
+}
+
+// SetUserID sets the "user_id" field.
+func (m *MediaGenerationJobMutation) SetUserID(i int64) {
+	m.user_id = &i
+	m.adduser_id = nil
+}
+
+// UserID returns the value of the "user_id" field in the mutation.
+func (m *MediaGenerationJobMutation) UserID() (r int64, exists bool) {
+	v := m.user_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUserID returns the old "user_id" field's value of the MediaGenerationJob entity.
+// If the MediaGenerationJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MediaGenerationJobMutation) OldUserID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUserID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUserID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUserID: %w", err)
+	}
+	return oldValue.UserID, nil
+}
+
+// AddUserID adds i to the "user_id" field.
+func (m *MediaGenerationJobMutation) AddUserID(i int64) {
+	if m.adduser_id != nil {
+		*m.adduser_id += i
+	} else {
+		m.adduser_id = &i
+	}
+}
+
+// AddedUserID returns the value that was added to the "user_id" field in this mutation.
+func (m *MediaGenerationJobMutation) AddedUserID() (r int64, exists bool) {
+	v := m.adduser_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetUserID resets all changes to the "user_id" field.
+func (m *MediaGenerationJobMutation) ResetUserID() {
+	m.user_id = nil
+	m.adduser_id = nil
+}
+
+// SetAPIKeyID sets the "api_key_id" field.
+func (m *MediaGenerationJobMutation) SetAPIKeyID(i int64) {
+	m.api_key_id = &i
+	m.addapi_key_id = nil
+}
+
+// APIKeyID returns the value of the "api_key_id" field in the mutation.
+func (m *MediaGenerationJobMutation) APIKeyID() (r int64, exists bool) {
+	v := m.api_key_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAPIKeyID returns the old "api_key_id" field's value of the MediaGenerationJob entity.
+// If the MediaGenerationJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MediaGenerationJobMutation) OldAPIKeyID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAPIKeyID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAPIKeyID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAPIKeyID: %w", err)
+	}
+	return oldValue.APIKeyID, nil
+}
+
+// AddAPIKeyID adds i to the "api_key_id" field.
+func (m *MediaGenerationJobMutation) AddAPIKeyID(i int64) {
+	if m.addapi_key_id != nil {
+		*m.addapi_key_id += i
+	} else {
+		m.addapi_key_id = &i
+	}
+}
+
+// AddedAPIKeyID returns the value that was added to the "api_key_id" field in this mutation.
+func (m *MediaGenerationJobMutation) AddedAPIKeyID() (r int64, exists bool) {
+	v := m.addapi_key_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetAPIKeyID resets all changes to the "api_key_id" field.
+func (m *MediaGenerationJobMutation) ResetAPIKeyID() {
+	m.api_key_id = nil
+	m.addapi_key_id = nil
+}
+
+// SetGroupID sets the "group_id" field.
+func (m *MediaGenerationJobMutation) SetGroupID(i int64) {
+	m.group_id = &i
+	m.addgroup_id = nil
+}
+
+// GroupID returns the value of the "group_id" field in the mutation.
+func (m *MediaGenerationJobMutation) GroupID() (r int64, exists bool) {
+	v := m.group_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldGroupID returns the old "group_id" field's value of the MediaGenerationJob entity.
+// If the MediaGenerationJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MediaGenerationJobMutation) OldGroupID(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldGroupID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldGroupID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldGroupID: %w", err)
+	}
+	return oldValue.GroupID, nil
+}
+
+// AddGroupID adds i to the "group_id" field.
+func (m *MediaGenerationJobMutation) AddGroupID(i int64) {
+	if m.addgroup_id != nil {
+		*m.addgroup_id += i
+	} else {
+		m.addgroup_id = &i
+	}
+}
+
+// AddedGroupID returns the value that was added to the "group_id" field in this mutation.
+func (m *MediaGenerationJobMutation) AddedGroupID() (r int64, exists bool) {
+	v := m.addgroup_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearGroupID clears the value of the "group_id" field.
+func (m *MediaGenerationJobMutation) ClearGroupID() {
+	m.group_id = nil
+	m.addgroup_id = nil
+	m.clearedFields[mediagenerationjob.FieldGroupID] = struct{}{}
+}
+
+// GroupIDCleared returns if the "group_id" field was cleared in this mutation.
+func (m *MediaGenerationJobMutation) GroupIDCleared() bool {
+	_, ok := m.clearedFields[mediagenerationjob.FieldGroupID]
+	return ok
+}
+
+// ResetGroupID resets all changes to the "group_id" field.
+func (m *MediaGenerationJobMutation) ResetGroupID() {
+	m.group_id = nil
+	m.addgroup_id = nil
+	delete(m.clearedFields, mediagenerationjob.FieldGroupID)
+}
+
+// SetAccountID sets the "account_id" field.
+func (m *MediaGenerationJobMutation) SetAccountID(i int64) {
+	m.account_id = &i
+	m.addaccount_id = nil
+}
+
+// AccountID returns the value of the "account_id" field in the mutation.
+func (m *MediaGenerationJobMutation) AccountID() (r int64, exists bool) {
+	v := m.account_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAccountID returns the old "account_id" field's value of the MediaGenerationJob entity.
+// If the MediaGenerationJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MediaGenerationJobMutation) OldAccountID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAccountID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAccountID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAccountID: %w", err)
+	}
+	return oldValue.AccountID, nil
+}
+
+// AddAccountID adds i to the "account_id" field.
+func (m *MediaGenerationJobMutation) AddAccountID(i int64) {
+	if m.addaccount_id != nil {
+		*m.addaccount_id += i
+	} else {
+		m.addaccount_id = &i
+	}
+}
+
+// AddedAccountID returns the value that was added to the "account_id" field in this mutation.
+func (m *MediaGenerationJobMutation) AddedAccountID() (r int64, exists bool) {
+	v := m.addaccount_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetAccountID resets all changes to the "account_id" field.
+func (m *MediaGenerationJobMutation) ResetAccountID() {
+	m.account_id = nil
+	m.addaccount_id = nil
+}
+
+// SetModel sets the "model" field.
+func (m *MediaGenerationJobMutation) SetModel(s string) {
+	m.model = &s
+}
+
+// Model returns the value of the "model" field in the mutation.
+func (m *MediaGenerationJobMutation) Model() (r string, exists bool) {
+	v := m.model
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldModel returns the old "model" field's value of the MediaGenerationJob entity.
+// If the MediaGenerationJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MediaGenerationJobMutation) OldModel(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldModel is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldModel requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldModel: %w", err)
+	}
+	return oldValue.Model, nil
+}
+
+// ResetModel resets all changes to the "model" field.
+func (m *MediaGenerationJobMutation) ResetModel() {
+	m.model = nil
+}
+
+// SetRequestJSON sets the "request_json" field.
+func (m *MediaGenerationJobMutation) SetRequestJSON(jm json.RawMessage) {
+	m.request_json = &jm
+	m.appendrequest_json = nil
+}
+
+// RequestJSON returns the value of the "request_json" field in the mutation.
+func (m *MediaGenerationJobMutation) RequestJSON() (r json.RawMessage, exists bool) {
+	v := m.request_json
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRequestJSON returns the old "request_json" field's value of the MediaGenerationJob entity.
+// If the MediaGenerationJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MediaGenerationJobMutation) OldRequestJSON(ctx context.Context) (v json.RawMessage, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRequestJSON is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRequestJSON requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRequestJSON: %w", err)
+	}
+	return oldValue.RequestJSON, nil
+}
+
+// AppendRequestJSON adds jm to the "request_json" field.
+func (m *MediaGenerationJobMutation) AppendRequestJSON(jm json.RawMessage) {
+	m.appendrequest_json = append(m.appendrequest_json, jm...)
+}
+
+// AppendedRequestJSON returns the list of values that were appended to the "request_json" field in this mutation.
+func (m *MediaGenerationJobMutation) AppendedRequestJSON() (json.RawMessage, bool) {
+	if len(m.appendrequest_json) == 0 {
+		return nil, false
+	}
+	return m.appendrequest_json, true
+}
+
+// ClearRequestJSON clears the value of the "request_json" field.
+func (m *MediaGenerationJobMutation) ClearRequestJSON() {
+	m.request_json = nil
+	m.appendrequest_json = nil
+	m.clearedFields[mediagenerationjob.FieldRequestJSON] = struct{}{}
+}
+
+// RequestJSONCleared returns if the "request_json" field was cleared in this mutation.
+func (m *MediaGenerationJobMutation) RequestJSONCleared() bool {
+	_, ok := m.clearedFields[mediagenerationjob.FieldRequestJSON]
+	return ok
+}
+
+// ResetRequestJSON resets all changes to the "request_json" field.
+func (m *MediaGenerationJobMutation) ResetRequestJSON() {
+	m.request_json = nil
+	m.appendrequest_json = nil
+	delete(m.clearedFields, mediagenerationjob.FieldRequestJSON)
+}
+
+// SetUpstreamResponseJSON sets the "upstream_response_json" field.
+func (m *MediaGenerationJobMutation) SetUpstreamResponseJSON(jm json.RawMessage) {
+	m.upstream_response_json = &jm
+	m.appendupstream_response_json = nil
+}
+
+// UpstreamResponseJSON returns the value of the "upstream_response_json" field in the mutation.
+func (m *MediaGenerationJobMutation) UpstreamResponseJSON() (r json.RawMessage, exists bool) {
+	v := m.upstream_response_json
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpstreamResponseJSON returns the old "upstream_response_json" field's value of the MediaGenerationJob entity.
+// If the MediaGenerationJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MediaGenerationJobMutation) OldUpstreamResponseJSON(ctx context.Context) (v json.RawMessage, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpstreamResponseJSON is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpstreamResponseJSON requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpstreamResponseJSON: %w", err)
+	}
+	return oldValue.UpstreamResponseJSON, nil
+}
+
+// AppendUpstreamResponseJSON adds jm to the "upstream_response_json" field.
+func (m *MediaGenerationJobMutation) AppendUpstreamResponseJSON(jm json.RawMessage) {
+	m.appendupstream_response_json = append(m.appendupstream_response_json, jm...)
+}
+
+// AppendedUpstreamResponseJSON returns the list of values that were appended to the "upstream_response_json" field in this mutation.
+func (m *MediaGenerationJobMutation) AppendedUpstreamResponseJSON() (json.RawMessage, bool) {
+	if len(m.appendupstream_response_json) == 0 {
+		return nil, false
+	}
+	return m.appendupstream_response_json, true
+}
+
+// ClearUpstreamResponseJSON clears the value of the "upstream_response_json" field.
+func (m *MediaGenerationJobMutation) ClearUpstreamResponseJSON() {
+	m.upstream_response_json = nil
+	m.appendupstream_response_json = nil
+	m.clearedFields[mediagenerationjob.FieldUpstreamResponseJSON] = struct{}{}
+}
+
+// UpstreamResponseJSONCleared returns if the "upstream_response_json" field was cleared in this mutation.
+func (m *MediaGenerationJobMutation) UpstreamResponseJSONCleared() bool {
+	_, ok := m.clearedFields[mediagenerationjob.FieldUpstreamResponseJSON]
+	return ok
+}
+
+// ResetUpstreamResponseJSON resets all changes to the "upstream_response_json" field.
+func (m *MediaGenerationJobMutation) ResetUpstreamResponseJSON() {
+	m.upstream_response_json = nil
+	m.appendupstream_response_json = nil
+	delete(m.clearedFields, mediagenerationjob.FieldUpstreamResponseJSON)
+}
+
+// SetResultURL sets the "result_url" field.
+func (m *MediaGenerationJobMutation) SetResultURL(s string) {
+	m.result_url = &s
+}
+
+// ResultURL returns the value of the "result_url" field in the mutation.
+func (m *MediaGenerationJobMutation) ResultURL() (r string, exists bool) {
+	v := m.result_url
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldResultURL returns the old "result_url" field's value of the MediaGenerationJob entity.
+// If the MediaGenerationJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MediaGenerationJobMutation) OldResultURL(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldResultURL is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldResultURL requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldResultURL: %w", err)
+	}
+	return oldValue.ResultURL, nil
+}
+
+// ClearResultURL clears the value of the "result_url" field.
+func (m *MediaGenerationJobMutation) ClearResultURL() {
+	m.result_url = nil
+	m.clearedFields[mediagenerationjob.FieldResultURL] = struct{}{}
+}
+
+// ResultURLCleared returns if the "result_url" field was cleared in this mutation.
+func (m *MediaGenerationJobMutation) ResultURLCleared() bool {
+	_, ok := m.clearedFields[mediagenerationjob.FieldResultURL]
+	return ok
+}
+
+// ResetResultURL resets all changes to the "result_url" field.
+func (m *MediaGenerationJobMutation) ResetResultURL() {
+	m.result_url = nil
+	delete(m.clearedFields, mediagenerationjob.FieldResultURL)
+}
+
+// SetResultContentType sets the "result_content_type" field.
+func (m *MediaGenerationJobMutation) SetResultContentType(s string) {
+	m.result_content_type = &s
+}
+
+// ResultContentType returns the value of the "result_content_type" field in the mutation.
+func (m *MediaGenerationJobMutation) ResultContentType() (r string, exists bool) {
+	v := m.result_content_type
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldResultContentType returns the old "result_content_type" field's value of the MediaGenerationJob entity.
+// If the MediaGenerationJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MediaGenerationJobMutation) OldResultContentType(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldResultContentType is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldResultContentType requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldResultContentType: %w", err)
+	}
+	return oldValue.ResultContentType, nil
+}
+
+// ClearResultContentType clears the value of the "result_content_type" field.
+func (m *MediaGenerationJobMutation) ClearResultContentType() {
+	m.result_content_type = nil
+	m.clearedFields[mediagenerationjob.FieldResultContentType] = struct{}{}
+}
+
+// ResultContentTypeCleared returns if the "result_content_type" field was cleared in this mutation.
+func (m *MediaGenerationJobMutation) ResultContentTypeCleared() bool {
+	_, ok := m.clearedFields[mediagenerationjob.FieldResultContentType]
+	return ok
+}
+
+// ResetResultContentType resets all changes to the "result_content_type" field.
+func (m *MediaGenerationJobMutation) ResetResultContentType() {
+	m.result_content_type = nil
+	delete(m.clearedFields, mediagenerationjob.FieldResultContentType)
+}
+
+// SetExpiresAt sets the "expires_at" field.
+func (m *MediaGenerationJobMutation) SetExpiresAt(t time.Time) {
+	m.expires_at = &t
+}
+
+// ExpiresAt returns the value of the "expires_at" field in the mutation.
+func (m *MediaGenerationJobMutation) ExpiresAt() (r time.Time, exists bool) {
+	v := m.expires_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldExpiresAt returns the old "expires_at" field's value of the MediaGenerationJob entity.
+// If the MediaGenerationJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MediaGenerationJobMutation) OldExpiresAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldExpiresAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldExpiresAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldExpiresAt: %w", err)
+	}
+	return oldValue.ExpiresAt, nil
+}
+
+// ClearExpiresAt clears the value of the "expires_at" field.
+func (m *MediaGenerationJobMutation) ClearExpiresAt() {
+	m.expires_at = nil
+	m.clearedFields[mediagenerationjob.FieldExpiresAt] = struct{}{}
+}
+
+// ExpiresAtCleared returns if the "expires_at" field was cleared in this mutation.
+func (m *MediaGenerationJobMutation) ExpiresAtCleared() bool {
+	_, ok := m.clearedFields[mediagenerationjob.FieldExpiresAt]
+	return ok
+}
+
+// ResetExpiresAt resets all changes to the "expires_at" field.
+func (m *MediaGenerationJobMutation) ResetExpiresAt() {
+	m.expires_at = nil
+	delete(m.clearedFields, mediagenerationjob.FieldExpiresAt)
+}
+
+// SetAudioVoice sets the "audio_voice" field.
+func (m *MediaGenerationJobMutation) SetAudioVoice(s string) {
+	m.audio_voice = &s
+}
+
+// AudioVoice returns the value of the "audio_voice" field in the mutation.
+func (m *MediaGenerationJobMutation) AudioVoice() (r string, exists bool) {
+	v := m.audio_voice
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAudioVoice returns the old "audio_voice" field's value of the MediaGenerationJob entity.
+// If the MediaGenerationJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MediaGenerationJobMutation) OldAudioVoice(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAudioVoice is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAudioVoice requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAudioVoice: %w", err)
+	}
+	return oldValue.AudioVoice, nil
+}
+
+// ClearAudioVoice clears the value of the "audio_voice" field.
+func (m *MediaGenerationJobMutation) ClearAudioVoice() {
+	m.audio_voice = nil
+	m.clearedFields[mediagenerationjob.FieldAudioVoice] = struct{}{}
+}
+
+// AudioVoiceCleared returns if the "audio_voice" field was cleared in this mutation.
+func (m *MediaGenerationJobMutation) AudioVoiceCleared() bool {
+	_, ok := m.clearedFields[mediagenerationjob.FieldAudioVoice]
+	return ok
+}
+
+// ResetAudioVoice resets all changes to the "audio_voice" field.
+func (m *MediaGenerationJobMutation) ResetAudioVoice() {
+	m.audio_voice = nil
+	delete(m.clearedFields, mediagenerationjob.FieldAudioVoice)
+}
+
+// SetAudioFormat sets the "audio_format" field.
+func (m *MediaGenerationJobMutation) SetAudioFormat(s string) {
+	m.audio_format = &s
+}
+
+// AudioFormat returns the value of the "audio_format" field in the mutation.
+func (m *MediaGenerationJobMutation) AudioFormat() (r string, exists bool) {
+	v := m.audio_format
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAudioFormat returns the old "audio_format" field's value of the MediaGenerationJob entity.
+// If the MediaGenerationJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MediaGenerationJobMutation) OldAudioFormat(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAudioFormat is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAudioFormat requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAudioFormat: %w", err)
+	}
+	return oldValue.AudioFormat, nil
+}
+
+// ClearAudioFormat clears the value of the "audio_format" field.
+func (m *MediaGenerationJobMutation) ClearAudioFormat() {
+	m.audio_format = nil
+	m.clearedFields[mediagenerationjob.FieldAudioFormat] = struct{}{}
+}
+
+// AudioFormatCleared returns if the "audio_format" field was cleared in this mutation.
+func (m *MediaGenerationJobMutation) AudioFormatCleared() bool {
+	_, ok := m.clearedFields[mediagenerationjob.FieldAudioFormat]
+	return ok
+}
+
+// ResetAudioFormat resets all changes to the "audio_format" field.
+func (m *MediaGenerationJobMutation) ResetAudioFormat() {
+	m.audio_format = nil
+	delete(m.clearedFields, mediagenerationjob.FieldAudioFormat)
+}
+
+// SetAudioCharacterCount sets the "audio_character_count" field.
+func (m *MediaGenerationJobMutation) SetAudioCharacterCount(i int) {
+	m.audio_character_count = &i
+	m.addaudio_character_count = nil
+}
+
+// AudioCharacterCount returns the value of the "audio_character_count" field in the mutation.
+func (m *MediaGenerationJobMutation) AudioCharacterCount() (r int, exists bool) {
+	v := m.audio_character_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAudioCharacterCount returns the old "audio_character_count" field's value of the MediaGenerationJob entity.
+// If the MediaGenerationJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MediaGenerationJobMutation) OldAudioCharacterCount(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAudioCharacterCount is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAudioCharacterCount requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAudioCharacterCount: %w", err)
+	}
+	return oldValue.AudioCharacterCount, nil
+}
+
+// AddAudioCharacterCount adds i to the "audio_character_count" field.
+func (m *MediaGenerationJobMutation) AddAudioCharacterCount(i int) {
+	if m.addaudio_character_count != nil {
+		*m.addaudio_character_count += i
+	} else {
+		m.addaudio_character_count = &i
+	}
+}
+
+// AddedAudioCharacterCount returns the value that was added to the "audio_character_count" field in this mutation.
+func (m *MediaGenerationJobMutation) AddedAudioCharacterCount() (r int, exists bool) {
+	v := m.addaudio_character_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetAudioCharacterCount resets all changes to the "audio_character_count" field.
+func (m *MediaGenerationJobMutation) ResetAudioCharacterCount() {
+	m.audio_character_count = nil
+	m.addaudio_character_count = nil
+}
+
+// SetVideoDurationSeconds sets the "video_duration_seconds" field.
+func (m *MediaGenerationJobMutation) SetVideoDurationSeconds(i int) {
+	m.video_duration_seconds = &i
+	m.addvideo_duration_seconds = nil
+}
+
+// VideoDurationSeconds returns the value of the "video_duration_seconds" field in the mutation.
+func (m *MediaGenerationJobMutation) VideoDurationSeconds() (r int, exists bool) {
+	v := m.video_duration_seconds
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldVideoDurationSeconds returns the old "video_duration_seconds" field's value of the MediaGenerationJob entity.
+// If the MediaGenerationJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MediaGenerationJobMutation) OldVideoDurationSeconds(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldVideoDurationSeconds is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldVideoDurationSeconds requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldVideoDurationSeconds: %w", err)
+	}
+	return oldValue.VideoDurationSeconds, nil
+}
+
+// AddVideoDurationSeconds adds i to the "video_duration_seconds" field.
+func (m *MediaGenerationJobMutation) AddVideoDurationSeconds(i int) {
+	if m.addvideo_duration_seconds != nil {
+		*m.addvideo_duration_seconds += i
+	} else {
+		m.addvideo_duration_seconds = &i
+	}
+}
+
+// AddedVideoDurationSeconds returns the value that was added to the "video_duration_seconds" field in this mutation.
+func (m *MediaGenerationJobMutation) AddedVideoDurationSeconds() (r int, exists bool) {
+	v := m.addvideo_duration_seconds
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetVideoDurationSeconds resets all changes to the "video_duration_seconds" field.
+func (m *MediaGenerationJobMutation) ResetVideoDurationSeconds() {
+	m.video_duration_seconds = nil
+	m.addvideo_duration_seconds = nil
+}
+
+// SetVideoResolution sets the "video_resolution" field.
+func (m *MediaGenerationJobMutation) SetVideoResolution(s string) {
+	m.video_resolution = &s
+}
+
+// VideoResolution returns the value of the "video_resolution" field in the mutation.
+func (m *MediaGenerationJobMutation) VideoResolution() (r string, exists bool) {
+	v := m.video_resolution
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldVideoResolution returns the old "video_resolution" field's value of the MediaGenerationJob entity.
+// If the MediaGenerationJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MediaGenerationJobMutation) OldVideoResolution(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldVideoResolution is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldVideoResolution requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldVideoResolution: %w", err)
+	}
+	return oldValue.VideoResolution, nil
+}
+
+// ClearVideoResolution clears the value of the "video_resolution" field.
+func (m *MediaGenerationJobMutation) ClearVideoResolution() {
+	m.video_resolution = nil
+	m.clearedFields[mediagenerationjob.FieldVideoResolution] = struct{}{}
+}
+
+// VideoResolutionCleared returns if the "video_resolution" field was cleared in this mutation.
+func (m *MediaGenerationJobMutation) VideoResolutionCleared() bool {
+	_, ok := m.clearedFields[mediagenerationjob.FieldVideoResolution]
+	return ok
+}
+
+// ResetVideoResolution resets all changes to the "video_resolution" field.
+func (m *MediaGenerationJobMutation) ResetVideoResolution() {
+	m.video_resolution = nil
+	delete(m.clearedFields, mediagenerationjob.FieldVideoResolution)
+}
+
+// SetVideoRatio sets the "video_ratio" field.
+func (m *MediaGenerationJobMutation) SetVideoRatio(s string) {
+	m.video_ratio = &s
+}
+
+// VideoRatio returns the value of the "video_ratio" field in the mutation.
+func (m *MediaGenerationJobMutation) VideoRatio() (r string, exists bool) {
+	v := m.video_ratio
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldVideoRatio returns the old "video_ratio" field's value of the MediaGenerationJob entity.
+// If the MediaGenerationJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MediaGenerationJobMutation) OldVideoRatio(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldVideoRatio is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldVideoRatio requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldVideoRatio: %w", err)
+	}
+	return oldValue.VideoRatio, nil
+}
+
+// ClearVideoRatio clears the value of the "video_ratio" field.
+func (m *MediaGenerationJobMutation) ClearVideoRatio() {
+	m.video_ratio = nil
+	m.clearedFields[mediagenerationjob.FieldVideoRatio] = struct{}{}
+}
+
+// VideoRatioCleared returns if the "video_ratio" field was cleared in this mutation.
+func (m *MediaGenerationJobMutation) VideoRatioCleared() bool {
+	_, ok := m.clearedFields[mediagenerationjob.FieldVideoRatio]
+	return ok
+}
+
+// ResetVideoRatio resets all changes to the "video_ratio" field.
+func (m *MediaGenerationJobMutation) ResetVideoRatio() {
+	m.video_ratio = nil
+	delete(m.clearedFields, mediagenerationjob.FieldVideoRatio)
+}
+
+// SetVideoCount sets the "video_count" field.
+func (m *MediaGenerationJobMutation) SetVideoCount(i int) {
+	m.video_count = &i
+	m.addvideo_count = nil
+}
+
+// VideoCount returns the value of the "video_count" field in the mutation.
+func (m *MediaGenerationJobMutation) VideoCount() (r int, exists bool) {
+	v := m.video_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldVideoCount returns the old "video_count" field's value of the MediaGenerationJob entity.
+// If the MediaGenerationJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MediaGenerationJobMutation) OldVideoCount(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldVideoCount is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldVideoCount requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldVideoCount: %w", err)
+	}
+	return oldValue.VideoCount, nil
+}
+
+// AddVideoCount adds i to the "video_count" field.
+func (m *MediaGenerationJobMutation) AddVideoCount(i int) {
+	if m.addvideo_count != nil {
+		*m.addvideo_count += i
+	} else {
+		m.addvideo_count = &i
+	}
+}
+
+// AddedVideoCount returns the value that was added to the "video_count" field in this mutation.
+func (m *MediaGenerationJobMutation) AddedVideoCount() (r int, exists bool) {
+	v := m.addvideo_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetVideoCount resets all changes to the "video_count" field.
+func (m *MediaGenerationJobMutation) ResetVideoCount() {
+	m.video_count = nil
+	m.addvideo_count = nil
+}
+
+// SetErrorCode sets the "error_code" field.
+func (m *MediaGenerationJobMutation) SetErrorCode(s string) {
+	m.error_code = &s
+}
+
+// ErrorCode returns the value of the "error_code" field in the mutation.
+func (m *MediaGenerationJobMutation) ErrorCode() (r string, exists bool) {
+	v := m.error_code
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldErrorCode returns the old "error_code" field's value of the MediaGenerationJob entity.
+// If the MediaGenerationJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MediaGenerationJobMutation) OldErrorCode(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldErrorCode is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldErrorCode requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldErrorCode: %w", err)
+	}
+	return oldValue.ErrorCode, nil
+}
+
+// ClearErrorCode clears the value of the "error_code" field.
+func (m *MediaGenerationJobMutation) ClearErrorCode() {
+	m.error_code = nil
+	m.clearedFields[mediagenerationjob.FieldErrorCode] = struct{}{}
+}
+
+// ErrorCodeCleared returns if the "error_code" field was cleared in this mutation.
+func (m *MediaGenerationJobMutation) ErrorCodeCleared() bool {
+	_, ok := m.clearedFields[mediagenerationjob.FieldErrorCode]
+	return ok
+}
+
+// ResetErrorCode resets all changes to the "error_code" field.
+func (m *MediaGenerationJobMutation) ResetErrorCode() {
+	m.error_code = nil
+	delete(m.clearedFields, mediagenerationjob.FieldErrorCode)
+}
+
+// SetErrorMessage sets the "error_message" field.
+func (m *MediaGenerationJobMutation) SetErrorMessage(s string) {
+	m.error_message = &s
+}
+
+// ErrorMessage returns the value of the "error_message" field in the mutation.
+func (m *MediaGenerationJobMutation) ErrorMessage() (r string, exists bool) {
+	v := m.error_message
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldErrorMessage returns the old "error_message" field's value of the MediaGenerationJob entity.
+// If the MediaGenerationJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MediaGenerationJobMutation) OldErrorMessage(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldErrorMessage is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldErrorMessage requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldErrorMessage: %w", err)
+	}
+	return oldValue.ErrorMessage, nil
+}
+
+// ClearErrorMessage clears the value of the "error_message" field.
+func (m *MediaGenerationJobMutation) ClearErrorMessage() {
+	m.error_message = nil
+	m.clearedFields[mediagenerationjob.FieldErrorMessage] = struct{}{}
+}
+
+// ErrorMessageCleared returns if the "error_message" field was cleared in this mutation.
+func (m *MediaGenerationJobMutation) ErrorMessageCleared() bool {
+	_, ok := m.clearedFields[mediagenerationjob.FieldErrorMessage]
+	return ok
+}
+
+// ResetErrorMessage resets all changes to the "error_message" field.
+func (m *MediaGenerationJobMutation) ResetErrorMessage() {
+	m.error_message = nil
+	delete(m.clearedFields, mediagenerationjob.FieldErrorMessage)
+}
+
+// SetUsageRecordedAt sets the "usage_recorded_at" field.
+func (m *MediaGenerationJobMutation) SetUsageRecordedAt(t time.Time) {
+	m.usage_recorded_at = &t
+}
+
+// UsageRecordedAt returns the value of the "usage_recorded_at" field in the mutation.
+func (m *MediaGenerationJobMutation) UsageRecordedAt() (r time.Time, exists bool) {
+	v := m.usage_recorded_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUsageRecordedAt returns the old "usage_recorded_at" field's value of the MediaGenerationJob entity.
+// If the MediaGenerationJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MediaGenerationJobMutation) OldUsageRecordedAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUsageRecordedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUsageRecordedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUsageRecordedAt: %w", err)
+	}
+	return oldValue.UsageRecordedAt, nil
+}
+
+// ClearUsageRecordedAt clears the value of the "usage_recorded_at" field.
+func (m *MediaGenerationJobMutation) ClearUsageRecordedAt() {
+	m.usage_recorded_at = nil
+	m.clearedFields[mediagenerationjob.FieldUsageRecordedAt] = struct{}{}
+}
+
+// UsageRecordedAtCleared returns if the "usage_recorded_at" field was cleared in this mutation.
+func (m *MediaGenerationJobMutation) UsageRecordedAtCleared() bool {
+	_, ok := m.clearedFields[mediagenerationjob.FieldUsageRecordedAt]
+	return ok
+}
+
+// ResetUsageRecordedAt resets all changes to the "usage_recorded_at" field.
+func (m *MediaGenerationJobMutation) ResetUsageRecordedAt() {
+	m.usage_recorded_at = nil
+	delete(m.clearedFields, mediagenerationjob.FieldUsageRecordedAt)
+}
+
+// SetSubmittedAt sets the "submitted_at" field.
+func (m *MediaGenerationJobMutation) SetSubmittedAt(t time.Time) {
+	m.submitted_at = &t
+}
+
+// SubmittedAt returns the value of the "submitted_at" field in the mutation.
+func (m *MediaGenerationJobMutation) SubmittedAt() (r time.Time, exists bool) {
+	v := m.submitted_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSubmittedAt returns the old "submitted_at" field's value of the MediaGenerationJob entity.
+// If the MediaGenerationJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MediaGenerationJobMutation) OldSubmittedAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSubmittedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSubmittedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSubmittedAt: %w", err)
+	}
+	return oldValue.SubmittedAt, nil
+}
+
+// ClearSubmittedAt clears the value of the "submitted_at" field.
+func (m *MediaGenerationJobMutation) ClearSubmittedAt() {
+	m.submitted_at = nil
+	m.clearedFields[mediagenerationjob.FieldSubmittedAt] = struct{}{}
+}
+
+// SubmittedAtCleared returns if the "submitted_at" field was cleared in this mutation.
+func (m *MediaGenerationJobMutation) SubmittedAtCleared() bool {
+	_, ok := m.clearedFields[mediagenerationjob.FieldSubmittedAt]
+	return ok
+}
+
+// ResetSubmittedAt resets all changes to the "submitted_at" field.
+func (m *MediaGenerationJobMutation) ResetSubmittedAt() {
+	m.submitted_at = nil
+	delete(m.clearedFields, mediagenerationjob.FieldSubmittedAt)
+}
+
+// SetCompletedAt sets the "completed_at" field.
+func (m *MediaGenerationJobMutation) SetCompletedAt(t time.Time) {
+	m.completed_at = &t
+}
+
+// CompletedAt returns the value of the "completed_at" field in the mutation.
+func (m *MediaGenerationJobMutation) CompletedAt() (r time.Time, exists bool) {
+	v := m.completed_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCompletedAt returns the old "completed_at" field's value of the MediaGenerationJob entity.
+// If the MediaGenerationJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MediaGenerationJobMutation) OldCompletedAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCompletedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCompletedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCompletedAt: %w", err)
+	}
+	return oldValue.CompletedAt, nil
+}
+
+// ClearCompletedAt clears the value of the "completed_at" field.
+func (m *MediaGenerationJobMutation) ClearCompletedAt() {
+	m.completed_at = nil
+	m.clearedFields[mediagenerationjob.FieldCompletedAt] = struct{}{}
+}
+
+// CompletedAtCleared returns if the "completed_at" field was cleared in this mutation.
+func (m *MediaGenerationJobMutation) CompletedAtCleared() bool {
+	_, ok := m.clearedFields[mediagenerationjob.FieldCompletedAt]
+	return ok
+}
+
+// ResetCompletedAt resets all changes to the "completed_at" field.
+func (m *MediaGenerationJobMutation) ResetCompletedAt() {
+	m.completed_at = nil
+	delete(m.clearedFields, mediagenerationjob.FieldCompletedAt)
+}
+
+// Where appends a list predicates to the MediaGenerationJobMutation builder.
+func (m *MediaGenerationJobMutation) Where(ps ...predicate.MediaGenerationJob) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the MediaGenerationJobMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *MediaGenerationJobMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.MediaGenerationJob, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *MediaGenerationJobMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *MediaGenerationJobMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (MediaGenerationJob).
+func (m *MediaGenerationJobMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *MediaGenerationJobMutation) Fields() []string {
+	fields := make([]string, 0, 32)
+	if m.created_at != nil {
+		fields = append(fields, mediagenerationjob.FieldCreatedAt)
+	}
+	if m.updated_at != nil {
+		fields = append(fields, mediagenerationjob.FieldUpdatedAt)
+	}
+	if m.public_id != nil {
+		fields = append(fields, mediagenerationjob.FieldPublicID)
+	}
+	if m.kind != nil {
+		fields = append(fields, mediagenerationjob.FieldKind)
+	}
+	if m.provider != nil {
+		fields = append(fields, mediagenerationjob.FieldProvider)
+	}
+	if m.platform != nil {
+		fields = append(fields, mediagenerationjob.FieldPlatform)
+	}
+	if m.status != nil {
+		fields = append(fields, mediagenerationjob.FieldStatus)
+	}
+	if m.upstream_status != nil {
+		fields = append(fields, mediagenerationjob.FieldUpstreamStatus)
+	}
+	if m.upstream_task_id != nil {
+		fields = append(fields, mediagenerationjob.FieldUpstreamTaskID)
+	}
+	if m.upstream_request_id != nil {
+		fields = append(fields, mediagenerationjob.FieldUpstreamRequestID)
+	}
+	if m.user_id != nil {
+		fields = append(fields, mediagenerationjob.FieldUserID)
+	}
+	if m.api_key_id != nil {
+		fields = append(fields, mediagenerationjob.FieldAPIKeyID)
+	}
+	if m.group_id != nil {
+		fields = append(fields, mediagenerationjob.FieldGroupID)
+	}
+	if m.account_id != nil {
+		fields = append(fields, mediagenerationjob.FieldAccountID)
+	}
+	if m.model != nil {
+		fields = append(fields, mediagenerationjob.FieldModel)
+	}
+	if m.request_json != nil {
+		fields = append(fields, mediagenerationjob.FieldRequestJSON)
+	}
+	if m.upstream_response_json != nil {
+		fields = append(fields, mediagenerationjob.FieldUpstreamResponseJSON)
+	}
+	if m.result_url != nil {
+		fields = append(fields, mediagenerationjob.FieldResultURL)
+	}
+	if m.result_content_type != nil {
+		fields = append(fields, mediagenerationjob.FieldResultContentType)
+	}
+	if m.expires_at != nil {
+		fields = append(fields, mediagenerationjob.FieldExpiresAt)
+	}
+	if m.audio_voice != nil {
+		fields = append(fields, mediagenerationjob.FieldAudioVoice)
+	}
+	if m.audio_format != nil {
+		fields = append(fields, mediagenerationjob.FieldAudioFormat)
+	}
+	if m.audio_character_count != nil {
+		fields = append(fields, mediagenerationjob.FieldAudioCharacterCount)
+	}
+	if m.video_duration_seconds != nil {
+		fields = append(fields, mediagenerationjob.FieldVideoDurationSeconds)
+	}
+	if m.video_resolution != nil {
+		fields = append(fields, mediagenerationjob.FieldVideoResolution)
+	}
+	if m.video_ratio != nil {
+		fields = append(fields, mediagenerationjob.FieldVideoRatio)
+	}
+	if m.video_count != nil {
+		fields = append(fields, mediagenerationjob.FieldVideoCount)
+	}
+	if m.error_code != nil {
+		fields = append(fields, mediagenerationjob.FieldErrorCode)
+	}
+	if m.error_message != nil {
+		fields = append(fields, mediagenerationjob.FieldErrorMessage)
+	}
+	if m.usage_recorded_at != nil {
+		fields = append(fields, mediagenerationjob.FieldUsageRecordedAt)
+	}
+	if m.submitted_at != nil {
+		fields = append(fields, mediagenerationjob.FieldSubmittedAt)
+	}
+	if m.completed_at != nil {
+		fields = append(fields, mediagenerationjob.FieldCompletedAt)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *MediaGenerationJobMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case mediagenerationjob.FieldCreatedAt:
+		return m.CreatedAt()
+	case mediagenerationjob.FieldUpdatedAt:
+		return m.UpdatedAt()
+	case mediagenerationjob.FieldPublicID:
+		return m.PublicID()
+	case mediagenerationjob.FieldKind:
+		return m.Kind()
+	case mediagenerationjob.FieldProvider:
+		return m.Provider()
+	case mediagenerationjob.FieldPlatform:
+		return m.Platform()
+	case mediagenerationjob.FieldStatus:
+		return m.Status()
+	case mediagenerationjob.FieldUpstreamStatus:
+		return m.UpstreamStatus()
+	case mediagenerationjob.FieldUpstreamTaskID:
+		return m.UpstreamTaskID()
+	case mediagenerationjob.FieldUpstreamRequestID:
+		return m.UpstreamRequestID()
+	case mediagenerationjob.FieldUserID:
+		return m.UserID()
+	case mediagenerationjob.FieldAPIKeyID:
+		return m.APIKeyID()
+	case mediagenerationjob.FieldGroupID:
+		return m.GroupID()
+	case mediagenerationjob.FieldAccountID:
+		return m.AccountID()
+	case mediagenerationjob.FieldModel:
+		return m.Model()
+	case mediagenerationjob.FieldRequestJSON:
+		return m.RequestJSON()
+	case mediagenerationjob.FieldUpstreamResponseJSON:
+		return m.UpstreamResponseJSON()
+	case mediagenerationjob.FieldResultURL:
+		return m.ResultURL()
+	case mediagenerationjob.FieldResultContentType:
+		return m.ResultContentType()
+	case mediagenerationjob.FieldExpiresAt:
+		return m.ExpiresAt()
+	case mediagenerationjob.FieldAudioVoice:
+		return m.AudioVoice()
+	case mediagenerationjob.FieldAudioFormat:
+		return m.AudioFormat()
+	case mediagenerationjob.FieldAudioCharacterCount:
+		return m.AudioCharacterCount()
+	case mediagenerationjob.FieldVideoDurationSeconds:
+		return m.VideoDurationSeconds()
+	case mediagenerationjob.FieldVideoResolution:
+		return m.VideoResolution()
+	case mediagenerationjob.FieldVideoRatio:
+		return m.VideoRatio()
+	case mediagenerationjob.FieldVideoCount:
+		return m.VideoCount()
+	case mediagenerationjob.FieldErrorCode:
+		return m.ErrorCode()
+	case mediagenerationjob.FieldErrorMessage:
+		return m.ErrorMessage()
+	case mediagenerationjob.FieldUsageRecordedAt:
+		return m.UsageRecordedAt()
+	case mediagenerationjob.FieldSubmittedAt:
+		return m.SubmittedAt()
+	case mediagenerationjob.FieldCompletedAt:
+		return m.CompletedAt()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *MediaGenerationJobMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case mediagenerationjob.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case mediagenerationjob.FieldUpdatedAt:
+		return m.OldUpdatedAt(ctx)
+	case mediagenerationjob.FieldPublicID:
+		return m.OldPublicID(ctx)
+	case mediagenerationjob.FieldKind:
+		return m.OldKind(ctx)
+	case mediagenerationjob.FieldProvider:
+		return m.OldProvider(ctx)
+	case mediagenerationjob.FieldPlatform:
+		return m.OldPlatform(ctx)
+	case mediagenerationjob.FieldStatus:
+		return m.OldStatus(ctx)
+	case mediagenerationjob.FieldUpstreamStatus:
+		return m.OldUpstreamStatus(ctx)
+	case mediagenerationjob.FieldUpstreamTaskID:
+		return m.OldUpstreamTaskID(ctx)
+	case mediagenerationjob.FieldUpstreamRequestID:
+		return m.OldUpstreamRequestID(ctx)
+	case mediagenerationjob.FieldUserID:
+		return m.OldUserID(ctx)
+	case mediagenerationjob.FieldAPIKeyID:
+		return m.OldAPIKeyID(ctx)
+	case mediagenerationjob.FieldGroupID:
+		return m.OldGroupID(ctx)
+	case mediagenerationjob.FieldAccountID:
+		return m.OldAccountID(ctx)
+	case mediagenerationjob.FieldModel:
+		return m.OldModel(ctx)
+	case mediagenerationjob.FieldRequestJSON:
+		return m.OldRequestJSON(ctx)
+	case mediagenerationjob.FieldUpstreamResponseJSON:
+		return m.OldUpstreamResponseJSON(ctx)
+	case mediagenerationjob.FieldResultURL:
+		return m.OldResultURL(ctx)
+	case mediagenerationjob.FieldResultContentType:
+		return m.OldResultContentType(ctx)
+	case mediagenerationjob.FieldExpiresAt:
+		return m.OldExpiresAt(ctx)
+	case mediagenerationjob.FieldAudioVoice:
+		return m.OldAudioVoice(ctx)
+	case mediagenerationjob.FieldAudioFormat:
+		return m.OldAudioFormat(ctx)
+	case mediagenerationjob.FieldAudioCharacterCount:
+		return m.OldAudioCharacterCount(ctx)
+	case mediagenerationjob.FieldVideoDurationSeconds:
+		return m.OldVideoDurationSeconds(ctx)
+	case mediagenerationjob.FieldVideoResolution:
+		return m.OldVideoResolution(ctx)
+	case mediagenerationjob.FieldVideoRatio:
+		return m.OldVideoRatio(ctx)
+	case mediagenerationjob.FieldVideoCount:
+		return m.OldVideoCount(ctx)
+	case mediagenerationjob.FieldErrorCode:
+		return m.OldErrorCode(ctx)
+	case mediagenerationjob.FieldErrorMessage:
+		return m.OldErrorMessage(ctx)
+	case mediagenerationjob.FieldUsageRecordedAt:
+		return m.OldUsageRecordedAt(ctx)
+	case mediagenerationjob.FieldSubmittedAt:
+		return m.OldSubmittedAt(ctx)
+	case mediagenerationjob.FieldCompletedAt:
+		return m.OldCompletedAt(ctx)
+	}
+	return nil, fmt.Errorf("unknown MediaGenerationJob field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *MediaGenerationJobMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case mediagenerationjob.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case mediagenerationjob.FieldUpdatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpdatedAt(v)
+		return nil
+	case mediagenerationjob.FieldPublicID:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPublicID(v)
+		return nil
+	case mediagenerationjob.FieldKind:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetKind(v)
+		return nil
+	case mediagenerationjob.FieldProvider:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetProvider(v)
+		return nil
+	case mediagenerationjob.FieldPlatform:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPlatform(v)
+		return nil
+	case mediagenerationjob.FieldStatus:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetStatus(v)
+		return nil
+	case mediagenerationjob.FieldUpstreamStatus:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpstreamStatus(v)
+		return nil
+	case mediagenerationjob.FieldUpstreamTaskID:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpstreamTaskID(v)
+		return nil
+	case mediagenerationjob.FieldUpstreamRequestID:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpstreamRequestID(v)
+		return nil
+	case mediagenerationjob.FieldUserID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUserID(v)
+		return nil
+	case mediagenerationjob.FieldAPIKeyID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAPIKeyID(v)
+		return nil
+	case mediagenerationjob.FieldGroupID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetGroupID(v)
+		return nil
+	case mediagenerationjob.FieldAccountID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAccountID(v)
+		return nil
+	case mediagenerationjob.FieldModel:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetModel(v)
+		return nil
+	case mediagenerationjob.FieldRequestJSON:
+		v, ok := value.(json.RawMessage)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRequestJSON(v)
+		return nil
+	case mediagenerationjob.FieldUpstreamResponseJSON:
+		v, ok := value.(json.RawMessage)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpstreamResponseJSON(v)
+		return nil
+	case mediagenerationjob.FieldResultURL:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetResultURL(v)
+		return nil
+	case mediagenerationjob.FieldResultContentType:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetResultContentType(v)
+		return nil
+	case mediagenerationjob.FieldExpiresAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetExpiresAt(v)
+		return nil
+	case mediagenerationjob.FieldAudioVoice:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAudioVoice(v)
+		return nil
+	case mediagenerationjob.FieldAudioFormat:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAudioFormat(v)
+		return nil
+	case mediagenerationjob.FieldAudioCharacterCount:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAudioCharacterCount(v)
+		return nil
+	case mediagenerationjob.FieldVideoDurationSeconds:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetVideoDurationSeconds(v)
+		return nil
+	case mediagenerationjob.FieldVideoResolution:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetVideoResolution(v)
+		return nil
+	case mediagenerationjob.FieldVideoRatio:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetVideoRatio(v)
+		return nil
+	case mediagenerationjob.FieldVideoCount:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetVideoCount(v)
+		return nil
+	case mediagenerationjob.FieldErrorCode:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetErrorCode(v)
+		return nil
+	case mediagenerationjob.FieldErrorMessage:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetErrorMessage(v)
+		return nil
+	case mediagenerationjob.FieldUsageRecordedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUsageRecordedAt(v)
+		return nil
+	case mediagenerationjob.FieldSubmittedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSubmittedAt(v)
+		return nil
+	case mediagenerationjob.FieldCompletedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCompletedAt(v)
+		return nil
+	}
+	return fmt.Errorf("unknown MediaGenerationJob field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *MediaGenerationJobMutation) AddedFields() []string {
+	var fields []string
+	if m.adduser_id != nil {
+		fields = append(fields, mediagenerationjob.FieldUserID)
+	}
+	if m.addapi_key_id != nil {
+		fields = append(fields, mediagenerationjob.FieldAPIKeyID)
+	}
+	if m.addgroup_id != nil {
+		fields = append(fields, mediagenerationjob.FieldGroupID)
+	}
+	if m.addaccount_id != nil {
+		fields = append(fields, mediagenerationjob.FieldAccountID)
+	}
+	if m.addaudio_character_count != nil {
+		fields = append(fields, mediagenerationjob.FieldAudioCharacterCount)
+	}
+	if m.addvideo_duration_seconds != nil {
+		fields = append(fields, mediagenerationjob.FieldVideoDurationSeconds)
+	}
+	if m.addvideo_count != nil {
+		fields = append(fields, mediagenerationjob.FieldVideoCount)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *MediaGenerationJobMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case mediagenerationjob.FieldUserID:
+		return m.AddedUserID()
+	case mediagenerationjob.FieldAPIKeyID:
+		return m.AddedAPIKeyID()
+	case mediagenerationjob.FieldGroupID:
+		return m.AddedGroupID()
+	case mediagenerationjob.FieldAccountID:
+		return m.AddedAccountID()
+	case mediagenerationjob.FieldAudioCharacterCount:
+		return m.AddedAudioCharacterCount()
+	case mediagenerationjob.FieldVideoDurationSeconds:
+		return m.AddedVideoDurationSeconds()
+	case mediagenerationjob.FieldVideoCount:
+		return m.AddedVideoCount()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *MediaGenerationJobMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case mediagenerationjob.FieldUserID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddUserID(v)
+		return nil
+	case mediagenerationjob.FieldAPIKeyID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddAPIKeyID(v)
+		return nil
+	case mediagenerationjob.FieldGroupID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddGroupID(v)
+		return nil
+	case mediagenerationjob.FieldAccountID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddAccountID(v)
+		return nil
+	case mediagenerationjob.FieldAudioCharacterCount:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddAudioCharacterCount(v)
+		return nil
+	case mediagenerationjob.FieldVideoDurationSeconds:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddVideoDurationSeconds(v)
+		return nil
+	case mediagenerationjob.FieldVideoCount:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddVideoCount(v)
+		return nil
+	}
+	return fmt.Errorf("unknown MediaGenerationJob numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *MediaGenerationJobMutation) ClearedFields() []string {
+	var fields []string
+	if m.FieldCleared(mediagenerationjob.FieldUpstreamStatus) {
+		fields = append(fields, mediagenerationjob.FieldUpstreamStatus)
+	}
+	if m.FieldCleared(mediagenerationjob.FieldUpstreamTaskID) {
+		fields = append(fields, mediagenerationjob.FieldUpstreamTaskID)
+	}
+	if m.FieldCleared(mediagenerationjob.FieldUpstreamRequestID) {
+		fields = append(fields, mediagenerationjob.FieldUpstreamRequestID)
+	}
+	if m.FieldCleared(mediagenerationjob.FieldGroupID) {
+		fields = append(fields, mediagenerationjob.FieldGroupID)
+	}
+	if m.FieldCleared(mediagenerationjob.FieldRequestJSON) {
+		fields = append(fields, mediagenerationjob.FieldRequestJSON)
+	}
+	if m.FieldCleared(mediagenerationjob.FieldUpstreamResponseJSON) {
+		fields = append(fields, mediagenerationjob.FieldUpstreamResponseJSON)
+	}
+	if m.FieldCleared(mediagenerationjob.FieldResultURL) {
+		fields = append(fields, mediagenerationjob.FieldResultURL)
+	}
+	if m.FieldCleared(mediagenerationjob.FieldResultContentType) {
+		fields = append(fields, mediagenerationjob.FieldResultContentType)
+	}
+	if m.FieldCleared(mediagenerationjob.FieldExpiresAt) {
+		fields = append(fields, mediagenerationjob.FieldExpiresAt)
+	}
+	if m.FieldCleared(mediagenerationjob.FieldAudioVoice) {
+		fields = append(fields, mediagenerationjob.FieldAudioVoice)
+	}
+	if m.FieldCleared(mediagenerationjob.FieldAudioFormat) {
+		fields = append(fields, mediagenerationjob.FieldAudioFormat)
+	}
+	if m.FieldCleared(mediagenerationjob.FieldVideoResolution) {
+		fields = append(fields, mediagenerationjob.FieldVideoResolution)
+	}
+	if m.FieldCleared(mediagenerationjob.FieldVideoRatio) {
+		fields = append(fields, mediagenerationjob.FieldVideoRatio)
+	}
+	if m.FieldCleared(mediagenerationjob.FieldErrorCode) {
+		fields = append(fields, mediagenerationjob.FieldErrorCode)
+	}
+	if m.FieldCleared(mediagenerationjob.FieldErrorMessage) {
+		fields = append(fields, mediagenerationjob.FieldErrorMessage)
+	}
+	if m.FieldCleared(mediagenerationjob.FieldUsageRecordedAt) {
+		fields = append(fields, mediagenerationjob.FieldUsageRecordedAt)
+	}
+	if m.FieldCleared(mediagenerationjob.FieldSubmittedAt) {
+		fields = append(fields, mediagenerationjob.FieldSubmittedAt)
+	}
+	if m.FieldCleared(mediagenerationjob.FieldCompletedAt) {
+		fields = append(fields, mediagenerationjob.FieldCompletedAt)
+	}
+	return fields
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *MediaGenerationJobMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *MediaGenerationJobMutation) ClearField(name string) error {
+	switch name {
+	case mediagenerationjob.FieldUpstreamStatus:
+		m.ClearUpstreamStatus()
+		return nil
+	case mediagenerationjob.FieldUpstreamTaskID:
+		m.ClearUpstreamTaskID()
+		return nil
+	case mediagenerationjob.FieldUpstreamRequestID:
+		m.ClearUpstreamRequestID()
+		return nil
+	case mediagenerationjob.FieldGroupID:
+		m.ClearGroupID()
+		return nil
+	case mediagenerationjob.FieldRequestJSON:
+		m.ClearRequestJSON()
+		return nil
+	case mediagenerationjob.FieldUpstreamResponseJSON:
+		m.ClearUpstreamResponseJSON()
+		return nil
+	case mediagenerationjob.FieldResultURL:
+		m.ClearResultURL()
+		return nil
+	case mediagenerationjob.FieldResultContentType:
+		m.ClearResultContentType()
+		return nil
+	case mediagenerationjob.FieldExpiresAt:
+		m.ClearExpiresAt()
+		return nil
+	case mediagenerationjob.FieldAudioVoice:
+		m.ClearAudioVoice()
+		return nil
+	case mediagenerationjob.FieldAudioFormat:
+		m.ClearAudioFormat()
+		return nil
+	case mediagenerationjob.FieldVideoResolution:
+		m.ClearVideoResolution()
+		return nil
+	case mediagenerationjob.FieldVideoRatio:
+		m.ClearVideoRatio()
+		return nil
+	case mediagenerationjob.FieldErrorCode:
+		m.ClearErrorCode()
+		return nil
+	case mediagenerationjob.FieldErrorMessage:
+		m.ClearErrorMessage()
+		return nil
+	case mediagenerationjob.FieldUsageRecordedAt:
+		m.ClearUsageRecordedAt()
+		return nil
+	case mediagenerationjob.FieldSubmittedAt:
+		m.ClearSubmittedAt()
+		return nil
+	case mediagenerationjob.FieldCompletedAt:
+		m.ClearCompletedAt()
+		return nil
+	}
+	return fmt.Errorf("unknown MediaGenerationJob nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *MediaGenerationJobMutation) ResetField(name string) error {
+	switch name {
+	case mediagenerationjob.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case mediagenerationjob.FieldUpdatedAt:
+		m.ResetUpdatedAt()
+		return nil
+	case mediagenerationjob.FieldPublicID:
+		m.ResetPublicID()
+		return nil
+	case mediagenerationjob.FieldKind:
+		m.ResetKind()
+		return nil
+	case mediagenerationjob.FieldProvider:
+		m.ResetProvider()
+		return nil
+	case mediagenerationjob.FieldPlatform:
+		m.ResetPlatform()
+		return nil
+	case mediagenerationjob.FieldStatus:
+		m.ResetStatus()
+		return nil
+	case mediagenerationjob.FieldUpstreamStatus:
+		m.ResetUpstreamStatus()
+		return nil
+	case mediagenerationjob.FieldUpstreamTaskID:
+		m.ResetUpstreamTaskID()
+		return nil
+	case mediagenerationjob.FieldUpstreamRequestID:
+		m.ResetUpstreamRequestID()
+		return nil
+	case mediagenerationjob.FieldUserID:
+		m.ResetUserID()
+		return nil
+	case mediagenerationjob.FieldAPIKeyID:
+		m.ResetAPIKeyID()
+		return nil
+	case mediagenerationjob.FieldGroupID:
+		m.ResetGroupID()
+		return nil
+	case mediagenerationjob.FieldAccountID:
+		m.ResetAccountID()
+		return nil
+	case mediagenerationjob.FieldModel:
+		m.ResetModel()
+		return nil
+	case mediagenerationjob.FieldRequestJSON:
+		m.ResetRequestJSON()
+		return nil
+	case mediagenerationjob.FieldUpstreamResponseJSON:
+		m.ResetUpstreamResponseJSON()
+		return nil
+	case mediagenerationjob.FieldResultURL:
+		m.ResetResultURL()
+		return nil
+	case mediagenerationjob.FieldResultContentType:
+		m.ResetResultContentType()
+		return nil
+	case mediagenerationjob.FieldExpiresAt:
+		m.ResetExpiresAt()
+		return nil
+	case mediagenerationjob.FieldAudioVoice:
+		m.ResetAudioVoice()
+		return nil
+	case mediagenerationjob.FieldAudioFormat:
+		m.ResetAudioFormat()
+		return nil
+	case mediagenerationjob.FieldAudioCharacterCount:
+		m.ResetAudioCharacterCount()
+		return nil
+	case mediagenerationjob.FieldVideoDurationSeconds:
+		m.ResetVideoDurationSeconds()
+		return nil
+	case mediagenerationjob.FieldVideoResolution:
+		m.ResetVideoResolution()
+		return nil
+	case mediagenerationjob.FieldVideoRatio:
+		m.ResetVideoRatio()
+		return nil
+	case mediagenerationjob.FieldVideoCount:
+		m.ResetVideoCount()
+		return nil
+	case mediagenerationjob.FieldErrorCode:
+		m.ResetErrorCode()
+		return nil
+	case mediagenerationjob.FieldErrorMessage:
+		m.ResetErrorMessage()
+		return nil
+	case mediagenerationjob.FieldUsageRecordedAt:
+		m.ResetUsageRecordedAt()
+		return nil
+	case mediagenerationjob.FieldSubmittedAt:
+		m.ResetSubmittedAt()
+		return nil
+	case mediagenerationjob.FieldCompletedAt:
+		m.ResetCompletedAt()
+		return nil
+	}
+	return fmt.Errorf("unknown MediaGenerationJob field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *MediaGenerationJobMutation) AddedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *MediaGenerationJobMutation) AddedIDs(name string) []ent.Value {
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *MediaGenerationJobMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *MediaGenerationJobMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *MediaGenerationJobMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *MediaGenerationJobMutation) EdgeCleared(name string) bool {
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *MediaGenerationJobMutation) ClearEdge(name string) error {
+	return fmt.Errorf("unknown MediaGenerationJob unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *MediaGenerationJobMutation) ResetEdge(name string) error {
+	return fmt.Errorf("unknown MediaGenerationJob edge %s", name)
 }
 
 // PaymentAuditLogMutation represents an operation that mutates the PaymentAuditLog nodes in the graph.

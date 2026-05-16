@@ -88,6 +88,24 @@ func RegisterGatewayRoutes(
 			}
 			h.Gateway.ChatCompletions(c)
 		})
+		gateway.POST("/images/generations", func(c *gin.Context) {
+			if platform := getGroupPlatform(c); platform == "" || platform == service.PlatformOpenAI {
+				h.OpenAIGateway.ImagesGenerations(c)
+				return
+			}
+			c.JSON(http.StatusNotFound, gin.H{
+				"type": "error",
+				"error": gin.H{
+					"type":    "not_found_error",
+					"message": "Images generation is not supported for this platform",
+				},
+			})
+		})
+		gateway.POST("/audio/speech", h.MediaGeneration.AudioSpeech)
+		gateway.POST("/audio/speech/jobs", h.MediaGeneration.CreateAudioSpeechJob)
+		gateway.GET("/audio/speech/jobs/:id", h.MediaGeneration.GetAudioSpeechJob)
+		gateway.POST("/videos/generations", h.MediaGeneration.CreateVideoGeneration)
+		gateway.GET("/videos/generations/:id", h.MediaGeneration.GetVideoGeneration)
 	}
 
 	// Gemini 原生 API 兼容层（Gemini SDK/CLI 直连）
@@ -124,6 +142,24 @@ func RegisterGatewayRoutes(
 		}
 		h.Gateway.ChatCompletions(c)
 	})
+	r.POST("/images/generations", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, func(c *gin.Context) {
+		if platform := getGroupPlatform(c); platform == "" || platform == service.PlatformOpenAI {
+			h.OpenAIGateway.ImagesGenerations(c)
+			return
+		}
+		c.JSON(http.StatusNotFound, gin.H{
+			"type": "error",
+			"error": gin.H{
+				"type":    "not_found_error",
+				"message": "Images generation is not supported for this platform",
+			},
+		})
+	})
+	r.POST("/audio/speech", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, h.MediaGeneration.AudioSpeech)
+	r.POST("/audio/speech/jobs", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, h.MediaGeneration.CreateAudioSpeechJob)
+	r.GET("/audio/speech/jobs/:id", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, h.MediaGeneration.GetAudioSpeechJob)
+	r.POST("/videos/generations", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, h.MediaGeneration.CreateVideoGeneration)
+	r.GET("/videos/generations/:id", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, h.MediaGeneration.GetVideoGeneration)
 
 	// Antigravity 模型列表
 	r.GET("/antigravity/models", gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, h.Gateway.AntigravityModels)

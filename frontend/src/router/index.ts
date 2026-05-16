@@ -120,6 +120,24 @@ const routes: RouteRecordRaw[] = [
       title: 'Key Usage',
     }
   },
+  {
+    path: '/docs',
+    name: 'DocsIndex',
+    component: () => import('@/views/docs/DocsView.vue'),
+    meta: {
+      requiresAuth: false,
+      title: 'Documentation',
+    }
+  },
+  {
+    path: '/docs/:slug',
+    name: 'DocsDetail',
+    component: () => import('@/views/docs/DocsView.vue'),
+    meta: {
+      requiresAuth: false,
+      title: 'Documentation',
+    }
+  },
 
   // ==================== User Routes ====================
   {
@@ -506,7 +524,7 @@ let authInitialized = false
 const navigationLoading = useNavigationLoadingState()
 // 延迟初始化预加载，传入 router 实例
 let routePrefetch: ReturnType<typeof useRoutePrefetch> | null = null
-const BACKEND_MODE_ALLOWED_PATHS = ['/login', '/key-usage', '/setup']
+const BACKEND_MODE_ALLOWED_PATHS = ['/login', '/key-usage', '/setup', '/docs']
 
 router.beforeEach((to, _from, next) => {
   // 开始导航加载状态
