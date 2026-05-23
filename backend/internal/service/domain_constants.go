@@ -264,6 +264,9 @@ const (
 	SettingKeyAccountQuotaNotifyEnabled = "account_quota_notify_enabled" // 全局开关
 	SettingKeyAccountQuotaNotifyEmails  = "account_quota_notify_emails"  // 管理员通知邮箱列表（JSON 数组）
 
+	// Gateway Failover Notification
+	SettingKeyGatewayFailoverNotifyAdminEmail = "gateway_failover_notify_admin_email" // API Key/Bedrock failover 管理员通知邮箱
+
 	// Web Search Emulation
 	SettingKeyWebSearchEmulationConfig = "web_search_emulation_config" // JSON 配置
 )

@@ -227,6 +227,7 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 
 	var finalResp *apicompat.AnthropicResponse
 	var usage ClaudeUsage
+	oauthToolNamesReverseMap := getClaudeOAuthToolNamesReverseMap(c)
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -247,6 +248,7 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 		if err := json.Unmarshal([]byte(payload), &event); err != nil {
 			continue
 		}
+		restoreClaudeOAuthToolNamesInAnthropicStreamEvent(&event, oauthToolNamesReverseMap)
 
 		// message_start carries the initial response structure and cache usage
 		if event.Type == "message_start" && event.Message != nil {
@@ -357,6 +359,7 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 	var usage ClaudeUsage
 	var firstTokenMs *int
 	firstChunk := true
+	oauthToolNamesReverseMap := getClaudeOAuthToolNamesReverseMap(c)
 
 	scanner := bufio.NewScanner(resp.Body)
 	maxLineSize := defaultMaxLineSize
@@ -438,6 +441,7 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 		if err := json.Unmarshal([]byte(payload), &event); err != nil {
 			continue
 		}
+		restoreClaudeOAuthToolNamesInAnthropicStreamEvent(&event, oauthToolNamesReverseMap)
 
 		if processAnthropicEvent(&event) {
 			return resultWithUsage(), nil

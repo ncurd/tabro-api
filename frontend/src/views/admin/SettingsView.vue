@@ -2810,6 +2810,23 @@
             </div>
           </div>
         </div>
+
+        <!-- Gateway Failover Notification -->
+        <div class="card">
+          <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+            <h3 class="text-base font-medium text-gray-900 dark:text-white">
+              {{ t('admin.settings.failoverNotify.title') }}
+            </h3>
+            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              {{ t('admin.settings.failoverNotify.description') }}
+            </p>
+          </div>
+          <div class="px-6 py-6">
+            <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.settings.failoverNotify.adminEmail') }}</label>
+            <input v-model="form.gateway_failover_notify_admin_email" type="email" class="input" :placeholder="t('admin.settings.failoverNotify.emailPlaceholder')" />
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.failoverNotify.emailHint') }}</p>
+          </div>
+        </div>
         </div><!-- /Tab: Email -->
 
         <!-- Tab: Backup -->
@@ -3112,7 +3129,8 @@ const form = reactive<SettingsForm>({
   balance_low_notify_threshold: 0,
   balance_low_notify_recharge_url: '',
   account_quota_notify_enabled: false,
-  account_quota_notify_emails: [] as NotifyEmailEntry[]
+  account_quota_notify_emails: [] as NotifyEmailEntry[],
+  gateway_failover_notify_admin_email: ''
 })
 
 // Proxies for web search emulation ProxySelector
@@ -3742,6 +3760,7 @@ async function saveSettings() {
       balance_low_notify_recharge_url: (form.balance_low_notify_recharge_url = form.balance_low_notify_recharge_url || currentOrigin),
       account_quota_notify_enabled: form.account_quota_notify_enabled,
       account_quota_notify_emails: (form.account_quota_notify_emails || []).filter((e) => e.email.trim() !== ''),
+      gateway_failover_notify_admin_email: (form.gateway_failover_notify_admin_email || '').trim(),
     }
 
     const updated = await adminAPI.settings.updateSettings(payload)

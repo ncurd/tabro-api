@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/andybalholm/brotli"
+	"github.com/klauspost/compress/zstd"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/proxyurl"
@@ -878,6 +879,7 @@ func decompressResponseBody(resp *http.Response) {
 	}
 
 	var reader io.Reader
+	var decoderCloser io.Closer
 	switch ce {
 	case "gzip":
 		gr, err := gzip.NewReader(resp.Body)
@@ -885,19 +887,56 @@ func decompressResponseBody(resp *http.Response) {
 			return // 解压失败，保持原样
 		}
 		reader = gr
+		decoderCloser = gr
 	case "br":
 		reader = brotli.NewReader(resp.Body)
+	case "zstd":
+		zr, err := zstd.NewReader(resp.Body)
+		if err != nil {
+			return // 解压失败，保持原样
+		}
+		reader = zr
+		decoderCloser = zstdDecoderCloser{decoder: zr}
 	case "deflate":
-		reader = flate.NewReader(resp.Body)
+		fr := flate.NewReader(resp.Body)
+		reader = fr
+		decoderCloser = fr
 	default:
 		return
 	}
 
 	originalBody := resp.Body
-	resp.Body = &decompressedBody{reader: reader, closer: originalBody}
+	closer := io.Closer(originalBody)
+	if decoderCloser != nil {
+		closer = joinedCloser{first: decoderCloser, second: originalBody}
+	}
+	resp.Body = &decompressedBody{reader: reader, closer: closer}
 	resp.Header.Del("Content-Encoding")
 	resp.Header.Del("Content-Length") // 解压后长度不确定
 	resp.ContentLength = -1
+}
+
+type joinedCloser struct {
+	first  io.Closer
+	second io.Closer
+}
+
+type zstdDecoderCloser struct {
+	decoder *zstd.Decoder
+}
+
+func (c zstdDecoderCloser) Close() error {
+	c.decoder.Close()
+	return nil
+}
+
+func (c joinedCloser) Close() error {
+	firstErr := c.first.Close()
+	secondErr := c.second.Close()
+	if firstErr != nil {
+		return firstErr
+	}
+	return secondErr
 }
 
 // decompressedBody 组合解压 reader 和原始 body 的 close。

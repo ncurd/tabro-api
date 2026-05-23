@@ -120,6 +120,9 @@ type SystemSettings struct {
 	// Account quota notification
 	AccountQuotaNotifyEnabled bool
 	AccountQuotaNotifyEmails  []NotifyEmailEntry
+
+	// Gateway failover notification
+	GatewayFailoverNotifyAdminEmail string
 }
 
 type DefaultSubscriptionSetting struct {

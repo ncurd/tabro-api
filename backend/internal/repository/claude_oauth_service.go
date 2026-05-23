@@ -2,11 +2,13 @@ package repository
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -30,6 +32,76 @@ type claudeOAuthService struct {
 	baseURL       string
 	tokenURL      string
 	clientFactory func(proxyURL string) (*req.Client, error)
+}
+
+const (
+	claudeOAuthRefreshMinBackoff = 5 * time.Second
+	claudeOAuthRefreshMaxBackoff = 5 * time.Minute
+)
+
+var (
+	claudeOAuthRefreshMu    sync.Mutex
+	claudeOAuthRefreshBlock = make(map[string]time.Time)
+)
+
+func claudeOAuthRefreshBlockedUntil(refreshToken string) time.Time {
+	claudeOAuthRefreshMu.Lock()
+	defer claudeOAuthRefreshMu.Unlock()
+	return claudeOAuthRefreshBlock[claudeOAuthRefreshBlockKey(refreshToken)]
+}
+
+func setClaudeOAuthRefreshBlockedUntil(refreshToken string, until time.Time) {
+	claudeOAuthRefreshMu.Lock()
+	defer claudeOAuthRefreshMu.Unlock()
+	claudeOAuthRefreshBlock[claudeOAuthRefreshBlockKey(refreshToken)] = until
+}
+
+func clearClaudeOAuthRefreshBlockedUntil(refreshToken string) {
+	claudeOAuthRefreshMu.Lock()
+	defer claudeOAuthRefreshMu.Unlock()
+	delete(claudeOAuthRefreshBlock, claudeOAuthRefreshBlockKey(refreshToken))
+}
+
+func claudeOAuthRefreshBlockKey(refreshToken string) string {
+	sum := sha256.Sum256([]byte(refreshToken))
+	return fmt.Sprintf("%x", sum[:])
+}
+
+func clampClaudeOAuthRefreshBackoff(d time.Duration) time.Duration {
+	if d < claudeOAuthRefreshMinBackoff {
+		return claudeOAuthRefreshMinBackoff
+	}
+	if d > claudeOAuthRefreshMaxBackoff {
+		return claudeOAuthRefreshMaxBackoff
+	}
+	return d
+}
+
+func parseClaudeOAuthRetryAfter(resp *req.Response) time.Duration {
+	if resp == nil {
+		return claudeOAuthRefreshMinBackoff
+	}
+	if raw := strings.TrimSpace(resp.Header.Get("Retry-After")); raw != "" {
+		if seconds, err := time.ParseDuration(raw + "s"); err == nil {
+			return clampClaudeOAuthRefreshBackoff(seconds)
+		}
+		if when, err := http.ParseTime(raw); err == nil {
+			return clampClaudeOAuthRefreshBackoff(time.Until(when))
+		}
+	}
+	if raw := strings.TrimSpace(resp.Header.Get("Retry-After-Ms")); raw != "" {
+		if ms, err := time.ParseDuration(raw + "ms"); err == nil {
+			return clampClaudeOAuthRefreshBackoff(ms)
+		}
+	}
+	return claudeOAuthRefreshMinBackoff
+}
+
+func setClaudeTokenRequestHeaders(r *req.Request) *req.Request {
+	return r.
+		SetHeader("Accept", "application/json").
+		SetHeader("Content-Type", "application/json").
+		SetHeader("User-Agent", "")
 }
 
 func (s *claudeOAuthService) GetOrganizationUUID(ctx context.Context, sessionKey, proxyURL string) (string, error) {
@@ -208,11 +280,8 @@ func (s *claudeOAuthService) ExchangeCodeForToken(ctx context.Context, code, cod
 
 	var tokenResp oauth.TokenResponse
 
-	resp, err := client.R().
-		SetContext(ctx).
-		SetHeader("Accept", "application/json, text/plain, */*").
-		SetHeader("Content-Type", "application/json").
-		SetHeader("User-Agent", "axios/1.13.6").
+	resp, err := setClaudeTokenRequestHeaders(client.R().
+		SetContext(ctx)).
 		SetBody(reqBody).
 		SetSuccessResult(&tokenResp).
 		Post(s.tokenURL)
@@ -233,6 +302,10 @@ func (s *claudeOAuthService) ExchangeCodeForToken(ctx context.Context, code, cod
 }
 
 func (s *claudeOAuthService) RefreshToken(ctx context.Context, refreshToken, proxyURL string) (*oauth.TokenResponse, error) {
+	if blockedUntil := claudeOAuthRefreshBlockedUntil(refreshToken); blockedUntil.After(time.Now()) {
+		return nil, fmt.Errorf("token refresh temporarily blocked until %s", blockedUntil.Format(time.RFC3339))
+	}
+
 	client, err := s.clientFactory(proxyURL)
 	if err != nil {
 		return nil, fmt.Errorf("create HTTP client: %w", err)
@@ -246,11 +319,8 @@ func (s *claudeOAuthService) RefreshToken(ctx context.Context, refreshToken, pro
 
 	var tokenResp oauth.TokenResponse
 
-	resp, err := client.R().
-		SetContext(ctx).
-		SetHeader("Accept", "application/json, text/plain, */*").
-		SetHeader("Content-Type", "application/json").
-		SetHeader("User-Agent", "axios/1.13.6").
+	resp, err := setClaudeTokenRequestHeaders(client.R().
+		SetContext(ctx)).
 		SetBody(reqBody).
 		SetSuccessResult(&tokenResp).
 		Post(s.tokenURL)
@@ -260,9 +330,14 @@ func (s *claudeOAuthService) RefreshToken(ctx context.Context, refreshToken, pro
 	}
 
 	if !resp.IsSuccessState() {
+		if resp.StatusCode == http.StatusTooManyRequests {
+			retryAfter := parseClaudeOAuthRetryAfter(resp)
+			setClaudeOAuthRefreshBlockedUntil(refreshToken, time.Now().Add(retryAfter))
+		}
 		return nil, fmt.Errorf("token refresh failed: status %d, body: %s", resp.StatusCode, resp.String())
 	}
 
+	clearClaudeOAuthRefreshBlockedUntil(refreshToken)
 	return &tokenResp, nil
 }
 

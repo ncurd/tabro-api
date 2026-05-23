@@ -4690,6 +4690,13 @@ export default {
 				addEmail: "Ajouter E-mail",
 				emailPlaceholder: "Saisir E-mail address"
 			},
+			failoverNotify: {
+				title: "Gateway Failover Notification",
+				description: "Send an email when an API key or Bedrock route is temporarily removed after an upstream failure",
+				adminEmail: "Admin Email",
+				emailPlaceholder: "admin@example.com",
+				emailHint: "Leave empty to disable failover notifications"
+			},
 			smtp: {
 				title: "SMTP Paramètres",
 				description: "Configurer E-mail sending pour Code de vérifications",

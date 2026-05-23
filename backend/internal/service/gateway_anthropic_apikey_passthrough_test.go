@@ -22,10 +22,12 @@ import (
 )
 
 type anthropicHTTPUpstreamRecorder struct {
-	lastReq  *http.Request
-	lastBody []byte
-	resp     *http.Response
-	err      error
+	lastReq     *http.Request
+	lastBody    []byte
+	calls       int
+	resp        *http.Response
+	respFactory func() *http.Response
+	err         error
 }
 
 func newAnthropicAPIKeyAccountForTest() *Account {
@@ -48,6 +50,7 @@ func newAnthropicAPIKeyAccountForTest() *Account {
 }
 
 func (u *anthropicHTTPUpstreamRecorder) Do(req *http.Request, proxyURL string, accountID int64, accountConcurrency int) (*http.Response, error) {
+	u.calls++
 	u.lastReq = req
 	if req != nil && req.Body != nil {
 		b, _ := io.ReadAll(req.Body)
@@ -57,6 +60,9 @@ func (u *anthropicHTTPUpstreamRecorder) Do(req *http.Request, proxyURL string, a
 	}
 	if u.err != nil {
 		return nil, u.err
+	}
+	if u.respFactory != nil {
+		return u.respFactory(), nil
 	}
 	return u.resp, nil
 }
@@ -95,6 +101,22 @@ func (w *failWriteResponseWriter) Write(data []byte) (int, error) {
 
 func (w *failWriteResponseWriter) WriteString(_ string) (int, error) {
 	return 0, errors.New("client disconnected")
+}
+
+type anthropicTempUnschedRepo struct {
+	AccountRepository
+	calls  int
+	id     int64
+	until  time.Time
+	reason string
+}
+
+func (r *anthropicTempUnschedRepo) SetTempUnschedulable(ctx context.Context, id int64, until time.Time, reason string) error {
+	r.calls++
+	r.id = id
+	r.until = until
+	r.reason = reason
+	return nil
 }
 
 func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardStreamPreservesBodyAndAuthReplacement(t *testing.T) {
@@ -264,6 +286,97 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardCountTokensPreservesBo
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.JSONEq(t, upstreamRespBody, rec.Body.String())
 	require.Empty(t, rec.Header().Get("Set-Cookie"))
+}
+
+func TestGatewayService_AnthropicAPIKeyPassthrough_RequestErrorTriggersFailover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":[{"type":"text","text":"hello"}]}]}`)
+	parsed := &ParsedRequest{
+		Body:   body,
+		Model:  "claude-sonnet-4-20250514",
+		Stream: false,
+	}
+
+	upstream := &anthropicHTTPUpstreamRecorder{
+		err: errors.New("dial tcp 127.0.0.1:15721: connect: connection refused"),
+	}
+	repo := &anthropicTempUnschedRepo{}
+	svc := &GatewayService{
+		cfg: &config.Config{
+			Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize},
+		},
+		httpUpstream:     upstream,
+		rateLimitService: NewRateLimitService(repo, nil, &config.Config{}, nil, nil),
+	}
+
+	account := newAnthropicAPIKeyAccountForTest()
+	result, err := svc.Forward(context.Background(), c, account, parsed)
+
+	require.Nil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr, "request-level upstream failures must let the handler switch accounts")
+	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+	require.JSONEq(t, `{"type":"error","error":{"type":"upstream_error","message":"Upstream request failed"}}`, string(failoverErr.ResponseBody))
+	require.False(t, c.Writer.Written(), "service must not write a client response before failover is exhausted")
+	require.Equal(t, maxRetryAttempts, upstream.calls)
+	require.Equal(t, 1, repo.calls, "repeated request-level failures should temporarily remove the bad API key route")
+	require.Equal(t, account.ID, repo.id)
+	require.Contains(t, repo.reason, "dial tcp")
+}
+
+func TestGatewayService_AnthropicAPIKeyPassthrough_Failover5xxTempUnschedulesAccount(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":[{"type":"text","text":"hello"}]}]}`)
+	parsed := &ParsedRequest{
+		Body:   body,
+		Model:  "claude-sonnet-4-20250514",
+		Stream: false,
+	}
+
+	upstream := &anthropicHTTPUpstreamRecorder{
+		respFactory: func() *http.Response {
+			return &http.Response{
+				StatusCode: http.StatusBadGateway,
+				Header: http.Header{
+					"Content-Type": []string{"application/json"},
+					"x-request-id": []string{"rid-upstream-502"},
+				},
+				Body: io.NopCloser(strings.NewReader(`{"error":{"message":"Upstream request failed","type":"api_error"}}`)),
+			}
+		},
+	}
+	repo := &anthropicTempUnschedRepo{}
+	svc := &GatewayService{
+		cfg: &config.Config{
+			Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize},
+		},
+		httpUpstream:     upstream,
+		rateLimitService: NewRateLimitService(repo, nil, &config.Config{}, nil, nil),
+	}
+	account := newAnthropicAPIKeyAccountForTest()
+
+	result, err := svc.Forward(context.Background(), c, account, parsed)
+
+	require.Nil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+	require.Equal(t, 1, upstream.calls)
+	require.Equal(t, 1, repo.calls, "transient 5xx failover should temporarily remove the bad API key route")
+	require.Equal(t, account.ID, repo.id)
+	require.True(t, repo.until.After(time.Now()), "temp unschedule deadline should be in the future")
+	require.Contains(t, repo.reason, "502")
+	require.Contains(t, repo.reason, "Upstream request failed")
 }
 
 // TestGatewayService_AnthropicAPIKeyPassthrough_ModelMappingEdgeCases 覆盖透传模式下模型映射的各种边界情况
@@ -689,7 +802,7 @@ func TestGatewayService_AnthropicOAuth_NotAffectedByAPIKeyPassthroughToggle(t *t
 	require.Contains(t, getHeaderRaw(req.Header, "anthropic-beta"), claude.BetaOAuth, "OAuth 链路仍应按原逻辑补齐 oauth beta")
 }
 
-func TestGatewayService_AnthropicOAuth_ForwardPreservesBillingHeaderSystemBlock(t *testing.T) {
+func TestGatewayService_AnthropicOAuth_ForwardUsesCLIProxySystemBlocks(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	tests := []struct {
@@ -762,15 +875,20 @@ func TestGatewayService_AnthropicOAuth_ForwardPreservesBillingHeaderSystemBlock(
 			system := gjson.GetBytes(upstream.lastBody, "system")
 			require.True(t, system.Exists())
 			require.True(t, system.IsArray(), "system should be an array")
-			require.Equal(t, claudeCodeSystemPrompt, system.Array()[0].Get("text").String())
-			require.Equal(t, "ephemeral", system.Array()[0].Get("cache_control.type").String())
+			require.Len(t, system.Array(), 3)
+			require.Regexp(t, `^x-anthropic-billing-header: cc_version=2\.1\.63\.[0-9a-f]{3}; cc_entrypoint=cli; cch=[0-9a-f]{5};$`, system.Array()[0].Get("text").String())
+			require.Equal(t, claudeCodeSystemPrompt, system.Array()[1].Get("text").String())
+			require.Contains(t, system.Array()[2].Get("text").String(), "# System")
+			require.False(t, system.Array()[1].Get("cache_control").Exists())
 
-			// 原始 system prompt 应迁移至 messages 中
+			// 原始 system prompt 应按 CLIProxy 逻辑降为中性 system-reminder。
 			messages := gjson.GetBytes(upstream.lastBody, "messages")
 			require.True(t, messages.IsArray())
 			firstMsg := messages.Array()[0]
 			require.Equal(t, "user", firstMsg.Get("role").String())
-			require.Contains(t, firstMsg.Get("content.0.text").String(), "x-anthropic-billing-header keep")
+			require.Contains(t, firstMsg.Get("content.0.text").String(), "<system-reminder>")
+			require.Contains(t, firstMsg.Get("content.0.text").String(), "Use the available tools when needed to help with software engineering tasks.")
+			require.NotContains(t, firstMsg.Get("content.0.text").String(), "x-anthropic-billing-header keep")
 		})
 	}
 }
@@ -929,9 +1047,11 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardDirect_UpstreamRequest
 
 	result, err := svc.forwardAnthropicAPIKeyPassthrough(context.Background(), c, account, []byte(`{"model":"x"}`), "x", "x", false, time.Now())
 	require.Nil(t, result)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "upstream request failed")
-	require.Equal(t, http.StatusBadGateway, rec.Code)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+	require.False(t, c.Writer.Written())
+	require.Equal(t, maxRetryAttempts, upstream.calls)
 	rawBody, ok := c.Get(OpsUpstreamRequestBodyKey)
 	require.True(t, ok)
 	_, ok = rawBody.([]byte)

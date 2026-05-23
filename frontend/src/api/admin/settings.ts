@@ -146,6 +146,7 @@ export interface SystemSettings {
   balance_low_notify_recharge_url: string
   account_quota_notify_enabled: boolean
   account_quota_notify_emails: NotifyEmailEntry[]
+  gateway_failover_notify_admin_email: string
 }
 
 export interface UpdateSettingsRequest {
@@ -255,6 +256,7 @@ export interface UpdateSettingsRequest {
   balance_low_notify_recharge_url?: string
   account_quota_notify_enabled?: boolean
   account_quota_notify_emails?: NotifyEmailEntry[]
+  gateway_failover_notify_admin_email?: string
 }
 
 /**

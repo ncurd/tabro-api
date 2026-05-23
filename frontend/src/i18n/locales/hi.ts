@@ -4690,6 +4690,13 @@ export default {
 				addEmail: "ईमेल जोड़ें",
 				emailPlaceholder: "ईमेल address दर्ज करें"
 			},
+			failoverNotify: {
+				title: "Gateway Failover Notification",
+				description: "Send an email when an API key or Bedrock route is temporarily removed after an upstream failure",
+				adminEmail: "Admin Email",
+				emailPlaceholder: "admin@example.com",
+				emailHint: "Leave empty to disable failover notifications"
+			},
 			smtp: {
 				title: "SMTP सेटिंग्स",
 				description: "ईमेल sending के लिए सत्यापन कोडs कॉन्फ़िगर करें",

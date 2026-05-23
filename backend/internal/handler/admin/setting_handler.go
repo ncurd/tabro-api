@@ -203,6 +203,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		BalanceLowNotifyRechargeURL:          settings.BalanceLowNotifyRechargeURL,
 		AccountQuotaNotifyEnabled:            settings.AccountQuotaNotifyEnabled,
 		AccountQuotaNotifyEmails:             dto.NotifyEmailEntriesFromService(settings.AccountQuotaNotifyEmails),
+		GatewayFailoverNotifyAdminEmail:      settings.GatewayFailoverNotifyAdminEmail,
 		PaymentEnabled:                       paymentCfg.Enabled,
 		PaymentMinAmount:                     paymentCfg.MinAmount,
 		PaymentMaxAmount:                     paymentCfg.MaxAmount,
@@ -338,11 +339,12 @@ type UpdateSettingsRequest struct {
 	EnableCCHSigning             *bool `json:"enable_cch_signing"`
 
 	// Balance low notification
-	BalanceLowNotifyEnabled     *bool                   `json:"balance_low_notify_enabled"`
-	BalanceLowNotifyThreshold   *float64                `json:"balance_low_notify_threshold"`
-	BalanceLowNotifyRechargeURL *string                 `json:"balance_low_notify_recharge_url"`
-	AccountQuotaNotifyEnabled   *bool                   `json:"account_quota_notify_enabled"`
-	AccountQuotaNotifyEmails    *[]dto.NotifyEmailEntry `json:"account_quota_notify_emails"`
+	BalanceLowNotifyEnabled         *bool                   `json:"balance_low_notify_enabled"`
+	BalanceLowNotifyThreshold       *float64                `json:"balance_low_notify_threshold"`
+	BalanceLowNotifyRechargeURL     *string                 `json:"balance_low_notify_recharge_url"`
+	AccountQuotaNotifyEnabled       *bool                   `json:"account_quota_notify_enabled"`
+	AccountQuotaNotifyEmails        *[]dto.NotifyEmailEntry `json:"account_quota_notify_emails"`
+	GatewayFailoverNotifyAdminEmail *string                 `json:"gateway_failover_notify_admin_email"`
 
 	// Payment configuration (integrated into settings, full replace)
 	PaymentEnabled                   *bool    `json:"payment_enabled"`
@@ -969,6 +971,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.AccountQuotaNotifyEmails
 		}(),
+		GatewayFailoverNotifyAdminEmail: func() string {
+			if req.GatewayFailoverNotifyAdminEmail != nil {
+				return strings.TrimSpace(*req.GatewayFailoverNotifyAdminEmail)
+			}
+			return previousSettings.GatewayFailoverNotifyAdminEmail
+		}(),
 	}
 
 	if err := h.settingService.UpdateSettings(c.Request.Context(), settings); err != nil {
@@ -1124,6 +1132,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		BalanceLowNotifyRechargeURL:          updatedSettings.BalanceLowNotifyRechargeURL,
 		AccountQuotaNotifyEnabled:            updatedSettings.AccountQuotaNotifyEnabled,
 		AccountQuotaNotifyEmails:             dto.NotifyEmailEntriesFromService(updatedSettings.AccountQuotaNotifyEmails),
+		GatewayFailoverNotifyAdminEmail:      updatedSettings.GatewayFailoverNotifyAdminEmail,
 		PaymentEnabled:                       updatedPaymentCfg.Enabled,
 		PaymentMinAmount:                     updatedPaymentCfg.MinAmount,
 		PaymentMaxAmount:                     updatedPaymentCfg.MaxAmount,
@@ -1441,6 +1450,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if !equalNotifyEmailEntries(before.AccountQuotaNotifyEmails, after.AccountQuotaNotifyEmails) {
 		changed = append(changed, "account_quota_notify_emails")
+	}
+	if before.GatewayFailoverNotifyAdminEmail != after.GatewayFailoverNotifyAdminEmail {
+		changed = append(changed, "gateway_failover_notify_admin_email")
 	}
 	return changed
 }

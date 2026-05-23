@@ -2,7 +2,14 @@ package service
 
 import (
 	"context"
+	"hash/fnv"
+	"strconv"
 	"time"
+)
+
+const (
+	claudeBackgroundRefreshMinWindow = time.Hour
+	claudeBackgroundRefreshMaxWindow = 3 * time.Hour
 )
 
 // TokenRefresher 定义平台特定的token刷新策略接口
@@ -29,6 +36,25 @@ func NewClaudeTokenRefresher(oauthService *OAuthService) *ClaudeTokenRefresher {
 	return &ClaudeTokenRefresher{
 		oauthService: oauthService,
 	}
+}
+
+func claudeBackgroundRefreshWindow(account *Account) time.Duration {
+	if account == nil {
+		return claudeBackgroundRefreshMinWindow
+	}
+
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(strconv.FormatInt(account.ID, 10)))
+	_, _ = h.Write([]byte(":"))
+	if refreshToken := account.GetCredential("refresh_token"); refreshToken != "" {
+		_, _ = h.Write([]byte(refreshToken))
+	} else if accessToken := account.GetCredential("access_token"); accessToken != "" {
+		_, _ = h.Write([]byte(accessToken))
+	}
+
+	spanMinutes := int((claudeBackgroundRefreshMaxWindow - claudeBackgroundRefreshMinWindow) / time.Minute)
+	offsetMinutes := int(h.Sum32() % uint32(spanMinutes+1))
+	return claudeBackgroundRefreshMinWindow + time.Duration(offsetMinutes)*time.Minute
 }
 
 // CacheKey 返回用于分布式锁的缓存键

@@ -1,6 +1,8 @@
 package service
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"regexp"
 	"strings"
@@ -14,9 +16,9 @@ import (
 // the trailing message-derived suffix (e.g. ".c02") if present.
 var ccVersionInBillingRe = regexp.MustCompile(`cc_version=\d+\.\d+\.\d+`)
 
-// cchPlaceholderRe matches the cch=00000 placeholder in billing header text,
+// cchValueRe matches the 5-hex cch value in billing header text,
 // scoped to x-anthropic-billing-header to avoid touching user content.
-var cchPlaceholderRe = regexp.MustCompile(`(x-anthropic-billing-header:[^"]*?\bcch=)(00000)(;)`)
+var cchValueRe = regexp.MustCompile(`\bcch=([0-9a-f]{5});`)
 
 const cchSeed uint64 = 0x6E52736AC806831E
 
@@ -55,14 +57,69 @@ func syncBillingHeaderVersion(body []byte, userAgent string) []byte {
 }
 
 // signBillingHeaderCCH computes the xxHash64-based CCH signature for the request
-// body and replaces the cch=00000 placeholder with the computed 5-hex-char hash.
-// The body must contain the placeholder when this function is called.
+// body and replaces the billing header cch value with the computed 5-hex hash.
 func signBillingHeaderCCH(body []byte) []byte {
-	if !cchPlaceholderRe.Match(body) {
+	billingHeader := gjson.GetBytes(body, "system.0.text").String()
+	if !strings.HasPrefix(billingHeader, "x-anthropic-billing-header:") {
 		return body
 	}
-	cch := fmt.Sprintf("%05x", xxHash64Seeded(body, cchSeed)&0xFFFFF)
-	return cchPlaceholderRe.ReplaceAll(body, []byte("${1}"+cch+"${3}"))
+	if !cchValueRe.MatchString(billingHeader) {
+		return body
+	}
+
+	unsignedBillingHeader := cchValueRe.ReplaceAllString(billingHeader, "cch=00000;")
+	unsignedBody, err := sjson.SetBytes(body, "system.0.text", unsignedBillingHeader)
+	if err != nil {
+		return body
+	}
+
+	cch := fmt.Sprintf("%05x", xxHash64Seeded(unsignedBody, cchSeed)&0xFFFFF)
+	signedBillingHeader := cchValueRe.ReplaceAllString(unsignedBillingHeader, "cch="+cch+";")
+	signedBody, err := sjson.SetBytes(unsignedBody, "system.0.text", signedBillingHeader)
+	if err != nil {
+		return unsignedBody
+	}
+	return signedBody
+}
+
+const claudeBillingFingerprintSalt = "59cf53e54c78"
+
+func claudeBillingVersionFromUA(userAgent string) string {
+	if version := ExtractCLIVersion(userAgent); version != "" {
+		return version
+	}
+	return "2.1.63"
+}
+
+func computeClaudeBillingFingerprint(messageText, version string) string {
+	indices := [3]int{4, 7, 20}
+	runes := []rune(messageText)
+	var sb strings.Builder
+	for _, idx := range indices {
+		if idx < len(runes) {
+			sb.WriteRune(runes[idx])
+		} else {
+			sb.WriteRune('0')
+		}
+	}
+	input := claudeBillingFingerprintSalt + sb.String() + version
+	h := sha256.Sum256([]byte(input))
+	return hex.EncodeToString(h[:])[:3]
+}
+
+func generateClaudeBillingHeader(version, messageText, entrypoint, workload string) string {
+	if strings.TrimSpace(version) == "" {
+		version = "2.1.63"
+	}
+	if strings.TrimSpace(entrypoint) == "" {
+		entrypoint = "cli"
+	}
+	buildHash := computeClaudeBillingFingerprint(messageText, version)
+	workloadPart := ""
+	if strings.TrimSpace(workload) != "" {
+		workloadPart = fmt.Sprintf(" cc_workload=%s;", strings.TrimSpace(workload))
+	}
+	return fmt.Sprintf("x-anthropic-billing-header: cc_version=%s.%s; cc_entrypoint=%s; cch=00000;%s", version, buildHash, entrypoint, workloadPart)
 }
 
 // xxHash64Seeded computes xxHash64 of data with a custom seed.

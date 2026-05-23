@@ -635,6 +635,7 @@ func (s *SettingService) UpdateSettings(ctx context.Context, settings *SystemSet
 	updates[SettingKeyBalanceLowNotifyRechargeURL] = settings.BalanceLowNotifyRechargeURL
 	updates[SettingKeyAccountQuotaNotifyEnabled] = strconv.FormatBool(settings.AccountQuotaNotifyEnabled)
 	updates[SettingKeyAccountQuotaNotifyEmails] = MarshalNotifyEmails(settings.AccountQuotaNotifyEmails)
+	updates[SettingKeyGatewayFailoverNotifyAdminEmail] = strings.TrimSpace(settings.GatewayFailoverNotifyAdminEmail)
 
 	err = s.settingRepo.SetMultiple(ctx, updates)
 	if err == nil {
@@ -956,6 +957,7 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeySMTPUseTLS:                       "false",
 		SettingKeySMTPSecurity:                     SMTPSecurityNone,
 		SettingKeySMTPAuthProtocol:                 SMTPAuthProtocolAuto,
+		SettingKeyGatewayFailoverNotifyAdminEmail:  "",
 		// Model fallback defaults
 		SettingKeyEnableModelFallback:      "false",
 		SettingKeyFallbackModelAnthropic:   "claude-3-5-sonnet-20241022",
@@ -1285,6 +1287,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	if result.AccountQuotaNotifyEmails == nil {
 		result.AccountQuotaNotifyEmails = []NotifyEmailEntry{}
 	}
+	result.GatewayFailoverNotifyAdminEmail = strings.TrimSpace(settings[SettingKeyGatewayFailoverNotifyAdminEmail])
 
 	return result
 }

@@ -181,8 +181,10 @@ func (s *TokenRefreshService) processRefresh() {
 
 			oauthAccounts++
 
+			accountRefreshWindow := s.refreshWindowForAccount(account, refreshWindow)
+
 			// 检查是否需要刷新
-			if !refresher.NeedsRefresh(account, refreshWindow) {
+			if !refresher.NeedsRefresh(account, accountRefreshWindow) {
 				break // 不需要刷新，跳过
 			}
 
@@ -195,7 +197,7 @@ func (s *TokenRefreshService) processRefresh() {
 			}
 
 			// 执行刷新
-			if err := s.refreshWithRetry(ctx, account, refresher, executor, refreshWindow); err != nil {
+			if err := s.refreshWithRetry(ctx, account, refresher, executor, accountRefreshWindow); err != nil {
 				if errors.Is(err, errRefreshSkipped) {
 					skipped++
 				} else {
@@ -240,6 +242,18 @@ func (s *TokenRefreshService) processRefresh() {
 // 使用ListActive确保刷新所有活跃账号的token（包括临时禁用的）
 func (s *TokenRefreshService) listActiveAccounts(ctx context.Context) ([]Account, error) {
 	return s.accountRepo.ListActive(ctx)
+}
+
+func (s *TokenRefreshService) refreshWindowForAccount(account *Account, fallback time.Duration) time.Duration {
+	if account == nil || account.Platform != PlatformAnthropic || account.Type != AccountTypeOAuth {
+		return fallback
+	}
+
+	window := claudeBackgroundRefreshWindow(account)
+	if fallback > window {
+		return fallback
+	}
+	return window
 }
 
 // refreshWithRetry 带重试的刷新

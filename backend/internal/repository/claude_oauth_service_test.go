@@ -27,6 +27,8 @@ type requestCapture struct {
 	body        []byte
 	bodyJSON    map[string]any
 	contentType string
+	accept      string
+	userAgent   string
 }
 
 func newTestReqClient(rt http.RoundTripper) *req.Client {
@@ -218,6 +220,8 @@ func (s *ClaudeOAuthServiceSuite) TestExchangeCodeForToken() {
 			validate: func(captured requestCapture) {
 				require.Equal(s.T(), http.MethodPost, captured.method, "expected POST")
 				require.True(s.T(), strings.HasPrefix(captured.contentType, "application/json"), "unexpected content-type")
+				require.Equal(s.T(), "application/json", captured.accept)
+				require.Empty(s.T(), captured.userAgent)
 				require.Equal(s.T(), "AUTH", captured.bodyJSON["code"])
 				require.Equal(s.T(), "STATE2", captured.bodyJSON["state"])
 				require.Equal(s.T(), oauth.ClientID, captured.bodyJSON["client_id"])
@@ -267,6 +271,8 @@ func (s *ClaudeOAuthServiceSuite) TestExchangeCodeForToken() {
 			rt := newInProcessTransport(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				captured.method = r.Method
 				captured.contentType = r.Header.Get("Content-Type")
+				captured.accept = r.Header.Get("Accept")
+				captured.userAgent = r.Header.Get("User-Agent")
 				captured.body, _ = io.ReadAll(r.Body)
 				_ = json.Unmarshal(captured.body, &captured.bodyJSON)
 				tt.handler(w, r)
@@ -321,6 +327,8 @@ func (s *ClaudeOAuthServiceSuite) TestRefreshToken() {
 			},
 			validate: func(captured requestCapture) {
 				require.Equal(s.T(), http.MethodPost, captured.method, "expected POST")
+				require.Equal(s.T(), "application/json", captured.accept)
+				require.Empty(s.T(), captured.userAgent)
 				// 验证使用 JSON 格式（不是 form 格式）
 				require.True(s.T(), strings.HasPrefix(captured.contentType, "application/json"),
 					"expected JSON content-type, got: %s", captured.contentType)
@@ -363,6 +371,8 @@ func (s *ClaudeOAuthServiceSuite) TestRefreshToken() {
 			rt := newInProcessTransport(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				captured.method = r.Method
 				captured.contentType = r.Header.Get("Content-Type")
+				captured.accept = r.Header.Get("Accept")
+				captured.userAgent = r.Header.Get("User-Agent")
 				captured.body, _ = io.ReadAll(r.Body)
 				_ = json.Unmarshal(captured.body, &captured.bodyJSON)
 				tt.handler(w, r)
@@ -389,6 +399,34 @@ func (s *ClaudeOAuthServiceSuite) TestRefreshToken() {
 			}
 		})
 	}
+}
+
+func (s *ClaudeOAuthServiceSuite) TestDefaultTokenURLMatchesCLIProxyAnthropicEndpoint() {
+	client, ok := NewClaudeOAuthClient().(*claudeOAuthService)
+	require.True(s.T(), ok, "type assertion failed")
+	require.Equal(s.T(), "https://api.anthropic.com/v1/oauth/token", client.tokenURL)
+}
+
+func (s *ClaudeOAuthServiceSuite) TestRefreshToken429RetryAfterBlocksRepeatedUpstreamCall() {
+	attempts := 0
+	rt := newInProcessTransport(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		w.Header().Set("Retry-After-Ms", "60000")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"error":"rate_limited"}`))
+	}), nil)
+
+	client, ok := NewClaudeOAuthClient().(*claudeOAuthService)
+	require.True(s.T(), ok, "type assertion failed")
+	client.tokenURL = "http://in-process/token"
+	client.clientFactory = func(string) (*req.Client, error) { return newTestReqClient(rt), nil }
+
+	_, err := client.RefreshToken(context.Background(), "rt-block-retry-after", "")
+	require.Error(s.T(), err)
+
+	_, err = client.RefreshToken(context.Background(), "rt-block-retry-after", "")
+	require.Error(s.T(), err)
+	require.Equal(s.T(), 1, attempts, "second refresh should be blocked locally")
 }
 
 func TestClaudeOAuthServiceSuite(t *testing.T) {

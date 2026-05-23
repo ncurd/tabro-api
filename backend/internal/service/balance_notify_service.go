@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html"
 	"log/slog"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -37,15 +38,20 @@ type AccountQuotaReader interface {
 	GetByID(ctx context.Context, id int64) (*Account, error)
 }
 
+// NotificationEmailSender sends notification emails.
+type NotificationEmailSender interface {
+	SendEmail(ctx context.Context, to, subject, body string) error
+}
+
 // BalanceNotifyService handles balance and quota threshold notifications.
 type BalanceNotifyService struct {
-	emailService *EmailService
+	emailService NotificationEmailSender
 	settingRepo  SettingRepository
 	accountRepo  AccountQuotaReader
 }
 
 // NewBalanceNotifyService creates a new BalanceNotifyService.
-func NewBalanceNotifyService(emailService *EmailService, settingRepo SettingRepository, accountRepo AccountQuotaReader) *BalanceNotifyService {
+func NewBalanceNotifyService(emailService NotificationEmailSender, settingRepo SettingRepository, accountRepo AccountQuotaReader) *BalanceNotifyService {
 	return &BalanceNotifyService{
 		emailService: emailService,
 		settingRepo:  settingRepo,
@@ -199,6 +205,40 @@ func (s *BalanceNotifyService) CheckAccountQuotaAfterIncrement(ctx context.Conte
 	s.checkQuotaDimCrossings(account, dims, cost, adminEmails, siteName)
 }
 
+// NotifyTransientUpstreamFailure notifies the configured admin email when a route
+// is temporarily removed from scheduling after an upstream transport/5xx failure.
+func (s *BalanceNotifyService) NotifyTransientUpstreamFailure(ctx context.Context, account *Account, statusCode int, message string, cooldown time.Duration) {
+	if s == nil || s.emailService == nil || s.settingRepo == nil || account == nil {
+		return
+	}
+	adminEmail := s.getGatewayFailoverNotifyAdminEmail(ctx)
+	if adminEmail == "" {
+		return
+	}
+	siteName := s.getSiteName(ctx)
+	accountName := account.Name
+	if accountName == "" {
+		accountName = fmt.Sprintf("account-%d", account.ID)
+	}
+	message = strings.TrimSpace(sanitizeUpstreamErrorMessage(message))
+	if message == "" {
+		message = http.StatusText(statusCode)
+	}
+	if message == "" {
+		message = "transient upstream failure"
+	}
+	message = truncateString(message, 2048)
+
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("panic in gateway failover notification", "recover", r)
+			}
+		}()
+		s.sendGatewayFailoverEmail(adminEmail, account, accountName, statusCode, message, cooldown, siteName)
+	}()
+}
+
 // fetchFreshAccount loads the latest account from DB; falls back to the snapshot on error.
 func (s *BalanceNotifyService) fetchFreshAccount(ctx context.Context, snapshot *Account) *Account {
 	if s.accountRepo == nil {
@@ -284,6 +324,14 @@ func (s *BalanceNotifyService) getAccountQuotaNotifyEmails(ctx context.Context) 
 	}
 
 	return filterVerifiedEmails(entries)
+}
+
+func (s *BalanceNotifyService) getGatewayFailoverNotifyAdminEmail(ctx context.Context) string {
+	raw, err := s.settingRepo.GetValue(ctx, SettingKeyGatewayFailoverNotifyAdminEmail)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(raw)
 }
 
 // getSiteName reads site name from settings with fallback.
@@ -374,9 +422,42 @@ func (s *BalanceNotifyService) sendQuotaAlertEmails(adminEmails []string, accoun
 	s.sendEmails(adminEmails, subject, body, "account", accountName, "dimension", dim.name)
 }
 
+// sendGatewayFailoverEmail sends an upstream failover notification to the configured admin email.
+func (s *BalanceNotifyService) sendGatewayFailoverEmail(adminEmail string, account *Account, accountName string, statusCode int, message string, cooldown time.Duration, siteName string) {
+	subject := fmt.Sprintf("[%s] Failover Alert - %s", sanitizeEmailHeader(siteName), sanitizeEmailHeader(accountName))
+	body := s.buildGatewayFailoverEmailBody(
+		account.ID,
+		html.EscapeString(accountName),
+		html.EscapeString(account.Platform),
+		html.EscapeString(account.Type),
+		statusCode,
+		html.EscapeString(message),
+		html.EscapeString(formatDurationForEmail(cooldown)),
+		html.EscapeString(siteName),
+	)
+	s.sendEmails([]string{adminEmail}, subject, body,
+		"account_id", account.ID,
+		"account", accountName,
+		"status_code", statusCode,
+	)
+}
+
 // sanitizeEmailHeader removes CR/LF characters to prevent SMTP header injection.
 func sanitizeEmailHeader(s string) string {
 	return strings.NewReplacer("\r", "", "\n", "").Replace(s)
+}
+
+func formatDurationForEmail(d time.Duration) string {
+	if d <= 0 {
+		return "unknown"
+	}
+	if d%time.Hour == 0 {
+		return fmt.Sprintf("%d hour(s)", int(d/time.Hour))
+	}
+	if d%time.Minute == 0 {
+		return fmt.Sprintf("%d minute(s)", int(d/time.Minute))
+	}
+	return d.String()
 }
 
 // balanceLowEmailTemplate is the HTML template for balance low notifications.
@@ -460,6 +541,46 @@ const quotaAlertEmailTemplate = `<!DOCTYPE html>
 </body>
 </html>`
 
+const gatewayFailoverEmailTemplate = `<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #f5f5f5; margin: 0; padding: 20px; }
+        .container { max-width: 600px; margin: 0 auto; background-color: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .header { background: linear-gradient(135deg, #ef4444 0%%, #b91c1c 100%%); color: white; padding: 30px; text-align: center; }
+        .header h1 { margin: 0; font-size: 24px; }
+        .content { padding: 40px 30px; }
+        .metric { display: flex; justify-content: space-between; gap: 16px; padding: 12px 0; border-bottom: 1px solid #eee; }
+        .metric-label { color: #666; white-space: nowrap; }
+        .metric-value { font-weight: bold; color: #333; text-align: right; overflow-wrap: anywhere; }
+        .message { margin-top: 18px; padding: 14px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; color: #334155; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+        .info { color: #666; font-size: 14px; line-height: 1.6; margin-top: 20px; text-align: center; }
+        .footer { background-color: #f8f9fa; padding: 20px; text-align: center; color: #999; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header"><h1>%s</h1></div>
+        <div class="content">
+            <p style="font-size: 18px; color: #333; text-align: center;">上游 Failover 告警 / Gateway Failover Alert</p>
+            <div class="metric"><span class="metric-label">账号 ID / Account ID</span><span class="metric-value">#%d</span></div>
+            <div class="metric"><span class="metric-label">账号 / Account</span><span class="metric-value">%s</span></div>
+            <div class="metric"><span class="metric-label">平台 / Platform</span><span class="metric-value">%s</span></div>
+            <div class="metric"><span class="metric-label">类型 / Type</span><span class="metric-value">%s</span></div>
+            <div class="metric"><span class="metric-label">状态码 / Status</span><span class="metric-value">%d</span></div>
+            <div class="metric"><span class="metric-label">临时摘除 / Cooldown</span><span class="metric-value">%s</span></div>
+            <div class="message">%s</div>
+            <div class="info">
+                <p>该途径已被临时移出调度，网关会尝试其他可用账号或路径。</p>
+                <p>The route was temporarily removed from scheduling and gateway failover will try other available paths.</p>
+            </div>
+        </div>
+        <div class="footer"><p>此邮件由系统自动发送，请勿回复。</p></div>
+    </div>
+</body>
+</html>`
+
 // buildBalanceLowEmailBody builds HTML email for balance low notification.
 func (s *BalanceNotifyService) buildBalanceLowEmailBody(userName string, balance, threshold float64, siteName, rechargeURL string) string {
 	rechargeBlock := ""
@@ -476,4 +597,8 @@ func (s *BalanceNotifyService) buildQuotaAlertEmailBody(accountID int64, account
 		limitStr = "无限制 / Unlimited"
 	}
 	return fmt.Sprintf(quotaAlertEmailTemplate, siteName, accountID, accountName, platform, dimLabel, used, limitStr, remaining, thresholdDisplay)
+}
+
+func (s *BalanceNotifyService) buildGatewayFailoverEmailBody(accountID int64, accountName, platform, accountType string, statusCode int, message, cooldown, siteName string) string {
+	return fmt.Sprintf(gatewayFailoverEmailTemplate, siteName, accountID, accountName, platform, accountType, statusCode, cooldown, message)
 }

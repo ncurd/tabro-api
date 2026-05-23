@@ -104,6 +104,15 @@ func setHeaderRaw(h http.Header, key, value string) {
 	h[key] = []string{value}
 }
 
+func delHeaderRaw(h http.Header, key string) {
+	h.Del(key)
+	if wk := resolveWireCasing(key); wk != key {
+		delete(h, wk)
+	}
+	delete(h, key)
+	delete(h, strings.ToLower(key))
+}
+
 // addHeaderRaw appends a header value bypassing Go's canonical-case normalization.
 func addHeaderRaw(h http.Header, key, value string) {
 	h[key] = append(h[key], value)

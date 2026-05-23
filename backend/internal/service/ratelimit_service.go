@@ -50,7 +50,12 @@ type geminiUsageTotalsBatchProvider interface {
 	GetGeminiUsageTotalsBatch(ctx context.Context, accountIDs []int64, startTime, endTime time.Time) (map[int64]GeminiUsageTotals, error)
 }
 
-const geminiPrecheckCacheTTL = time.Minute
+const (
+	geminiPrecheckCacheTTL             = time.Minute
+	transientUpstreamFailureCooldown   = time.Minute
+	transientUpstreamFailureRuleIndex  = -1
+	transientUpstreamFailureMatchLabel = "transient_upstream_failure"
+)
 
 // NewRateLimitService 创建RateLimitService实例
 func NewRateLimitService(accountRepo AccountRepository, usageRepo UsageLogRepository, cfg *config.Config, geminiQuotaService *GeminiQuotaService, tempUnschedCache TempUnschedCache) *RateLimitService {
@@ -62,6 +67,62 @@ func NewRateLimitService(accountRepo AccountRepository, usageRepo UsageLogReposi
 		tempUnschedCache:   tempUnschedCache,
 		usageCache:         make(map[int64]*geminiUsageCacheEntry),
 	}
+}
+
+// TempUnscheduleTransientUpstreamFailure temporarily removes an API-key route
+// after a transient upstream transport/5xx failure so the dispatcher can try
+// other accounts instead of repeatedly selecting the same broken path.
+func (s *RateLimitService) TempUnscheduleTransientUpstreamFailure(ctx context.Context, account *Account, statusCode int, message string) bool {
+	if s == nil || s.accountRepo == nil || account == nil {
+		return false
+	}
+	if !account.IsAPIKeyOrBedrock() {
+		return false
+	}
+	if account.IsPoolMode() || account.IsCustomErrorCodesEnabled() {
+		return false
+	}
+
+	message = strings.TrimSpace(sanitizeUpstreamErrorMessage(message))
+	if message == "" {
+		message = http.StatusText(statusCode)
+	}
+	if message == "" {
+		message = "transient upstream failure"
+	}
+
+	now := time.Now()
+	until := now.Add(transientUpstreamFailureCooldown)
+	state := &TempUnschedState{
+		UntilUnix:       until.Unix(),
+		TriggeredAtUnix: now.Unix(),
+		StatusCode:      statusCode,
+		MatchedKeyword:  transientUpstreamFailureMatchLabel,
+		RuleIndex:       transientUpstreamFailureRuleIndex,
+		ErrorMessage:    truncateTempUnschedMessage([]byte(message), tempUnschedMessageMaxBytes),
+	}
+
+	reason := ""
+	if raw, err := json.Marshal(state); err == nil {
+		reason = string(raw)
+	}
+	if reason == "" {
+		reason = state.ErrorMessage
+	}
+
+	if err := s.accountRepo.SetTempUnschedulable(ctx, account.ID, until, reason); err != nil {
+		slog.Warn("transient_upstream_failure_temp_unsched_failed", "account_id", account.ID, "status_code", statusCode, "error", err)
+		return false
+	}
+
+	if s.tempUnschedCache != nil {
+		if err := s.tempUnschedCache.SetTempUnsched(ctx, account.ID, state); err != nil {
+			slog.Warn("transient_upstream_failure_temp_unsched_cache_failed", "account_id", account.ID, "error", err)
+		}
+	}
+
+	slog.Warn("transient_upstream_failure_temp_unschedulable", "account_id", account.ID, "until", until, "status_code", statusCode)
+	return true
 }
 
 // SetTimeoutCounterCache 设置超时计数器缓存（可选依赖）

@@ -10,16 +10,22 @@ const (
 	BetaInterleavedThinking      = "interleaved-thinking-2025-05-14"
 	BetaFineGrainedToolStreaming = "fine-grained-tool-streaming-2025-05-14"
 	BetaTokenCounting            = "token-counting-2024-11-01"
+	BetaContextManagement        = "context-management-2025-06-27"
+	BetaPromptCachingScope       = "prompt-caching-scope-2026-01-05"
+	BetaStructuredOutputs        = "structured-outputs-2025-12-15"
 	BetaContext1M                = "context-1m-2025-08-07"
 	BetaFastMode                 = "fast-mode-2026-02-01"
+	BetaRedactThinking           = "redact-thinking-2026-02-12"
+	BetaTokenEfficientTools      = "token-efficient-tools-2026-03-28"
 )
 
 // DroppedBetas 是转发时需要从 anthropic-beta header 中移除的 beta token 列表。
 // 这些 token 是客户端特有的，不应透传给上游 API。
 var DroppedBetas = []string{}
 
-// DefaultBetaHeader Claude Code 客户端默认的 anthropic-beta header
-const DefaultBetaHeader = BetaClaudeCode + "," + BetaOAuth + "," + BetaInterleavedThinking + "," + BetaFineGrainedToolStreaming
+// DefaultBetaHeader Claude Code 客户端默认的 anthropic-beta header.
+// Keep this aligned with CLIProxyAPI 2's Claude OAuth request shape.
+const DefaultBetaHeader = BetaClaudeCode + "," + BetaOAuth + "," + BetaInterleavedThinking + "," + BetaContextManagement + "," + BetaPromptCachingScope + "," + BetaStructuredOutputs + "," + BetaFastMode + "," + BetaRedactThinking + "," + BetaTokenEfficientTools
 
 // MessageBetaHeaderNoTools /v1/messages 在无工具时的 beta header
 //
@@ -33,7 +39,7 @@ const MessageBetaHeaderNoTools = BetaClaudeCode + "," + BetaOAuth + "," + BetaIn
 const MessageBetaHeaderWithTools = BetaClaudeCode + "," + BetaOAuth + "," + BetaInterleavedThinking
 
 // CountTokensBetaHeader count_tokens 请求使用的 anthropic-beta header
-const CountTokensBetaHeader = BetaClaudeCode + "," + BetaOAuth + "," + BetaInterleavedThinking + "," + BetaTokenCounting
+const CountTokensBetaHeader = DefaultBetaHeader + "," + BetaTokenCounting
 
 // HaikuBetaHeader Haiku 模型使用的 anthropic-beta header（不需要 claude-code beta）
 const HaikuBetaHeader = BetaOAuth + "," + BetaInterleavedThinking
@@ -46,19 +52,16 @@ const APIKeyHaikuBetaHeader = BetaInterleavedThinking
 
 // DefaultHeaders 是 Claude Code 客户端默认请求头。
 var DefaultHeaders = map[string]string{
-	// Keep these in sync with recent Claude CLI traffic to reduce the chance
-	// that Claude Code-scoped OAuth credentials are rejected as "non-CLI" usage.
-	"User-Agent":                                "claude-cli/2.1.22 (external, cli)",
-	"X-Stainless-Lang":                          "js",
-	"X-Stainless-Package-Version":               "0.70.0",
-	"X-Stainless-OS":                            "Linux",
-	"X-Stainless-Arch":                          "arm64",
-	"X-Stainless-Runtime":                       "node",
-	"X-Stainless-Runtime-Version":               "v24.13.0",
-	"X-Stainless-Retry-Count":                   "0",
-	"X-Stainless-Timeout":                       "600",
-	"X-App":                                     "cli",
-	"Anthropic-Dangerous-Direct-Browser-Access": "true",
+	"User-Agent":                  "claude-cli/2.1.63 (external, cli)",
+	"X-Stainless-Lang":            "js",
+	"X-Stainless-Package-Version": "0.74.0",
+	"X-Stainless-OS":              "MacOS",
+	"X-Stainless-Arch":            "arm64",
+	"X-Stainless-Runtime":         "node",
+	"X-Stainless-Runtime-Version": "v24.3.0",
+	"X-Stainless-Retry-Count":     "0",
+	"X-Stainless-Timeout":         "600",
+	"X-App":                       "cli",
 }
 
 // Model 表示一个 Claude 模型

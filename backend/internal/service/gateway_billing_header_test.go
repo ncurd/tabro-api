@@ -87,7 +87,9 @@ func TestSignBillingHeaderCCH(t *testing.T) {
 	t.Run("no placeholder - body unchanged", func(t *testing.T) {
 		body := []byte(`{"system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.63; cc_entrypoint=cli; cch=abcde;"}],"messages":[]}`)
 		result := signBillingHeaderCCH(body)
-		assert.Equal(t, string(body), string(result))
+		assert.NotEqual(t, string(body), string(result))
+		assert.NotContains(t, string(result), "cch=abcde")
+		assert.Regexp(t, `cch=[0-9a-f]{5};`, gjson.GetBytes(result, "system.0.text").String())
 	})
 
 	t.Run("no billing header - body unchanged", func(t *testing.T) {

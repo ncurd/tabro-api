@@ -179,6 +179,53 @@ func TestClaudeTokenRefresher_NeedsRefresh_OutsideWindow(t *testing.T) {
 	}
 }
 
+func TestClaudeBackgroundRefreshWindow_IsStableBetweenOneAndThreeHours(t *testing.T) {
+	account := &Account{
+		ID:       12345,
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"refresh_token": "rt-window-stability",
+		},
+	}
+
+	first := claudeBackgroundRefreshWindow(account)
+	second := claudeBackgroundRefreshWindow(account)
+
+	require.Equal(t, first, second)
+	require.GreaterOrEqual(t, first, time.Hour)
+	require.LessOrEqual(t, first, 3*time.Hour)
+}
+
+func TestTokenRefreshService_ClaudeUsesAggressiveBackgroundRefreshWindow(t *testing.T) {
+	service := &TokenRefreshService{}
+	account := &Account{
+		ID:          99,
+		Platform:    PlatformAnthropic,
+		Type:        AccountTypeOAuth,
+		Credentials: map[string]any{},
+	}
+
+	window := service.refreshWindowForAccount(account, 30*time.Minute)
+
+	require.GreaterOrEqual(t, window, time.Hour)
+	require.LessOrEqual(t, window, 3*time.Hour)
+}
+
+func TestTokenRefreshService_ClaudeBackgroundWindowKeepsLargerConfiguredWindow(t *testing.T) {
+	service := &TokenRefreshService{}
+	account := &Account{
+		ID:          99,
+		Platform:    PlatformAnthropic,
+		Type:        AccountTypeOAuth,
+		Credentials: map[string]any{},
+	}
+
+	window := service.refreshWindowForAccount(account, 4*time.Hour)
+
+	require.Equal(t, 4*time.Hour, window)
+}
+
 func TestClaudeTokenRefresher_CanRefresh(t *testing.T) {
 	refresher := &ClaudeTokenRefresher{}
 

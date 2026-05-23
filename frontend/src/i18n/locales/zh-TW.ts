@@ -4940,6 +4940,13 @@ export default {
         "emailsHint": "留空則不發送通知",
         "addEmail": "添加郵箱",
         "emailPlaceholder": "輸入郵箱地址"
+      },
+      "failoverNotify": {
+        "title": "網關 Failover 通知",
+        "description": "API Key 或 Bedrock 路徑因上游失敗被臨時摘除時發送郵件",
+        "adminEmail": "管理員郵箱",
+        "emailPlaceholder": "admin@example.com",
+        "emailHint": "留空則不發送 failover 通知"
       }
     },
     "errorPassthrough": {
