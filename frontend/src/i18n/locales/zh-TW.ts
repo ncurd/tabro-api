@@ -4945,7 +4945,7 @@ export default {
         "title": "網關 Failover 通知",
         "description": "API Key 或 Bedrock 路徑因上游失敗被臨時摘除時發送郵件",
         "adminEmail": "管理員郵箱",
-        "emailPlaceholder": "admin@example.com",
+        "emailPlaceholder": "admin{'@'}example.com",
         "emailHint": "留空則不發送 failover 通知"
       }
     },

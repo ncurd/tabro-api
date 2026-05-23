@@ -4847,7 +4847,7 @@ export default {
         title: '网关 Failover 通知',
         description: 'API Key 或 Bedrock 路径因上游失败被临时摘除时发送邮件',
         adminEmail: '管理员邮箱',
-        emailPlaceholder: 'admin@example.com',
+        emailPlaceholder: "admin{'@'}example.com",
         emailHint: '留空则不发送 failover 通知',
       },
       smtp: {

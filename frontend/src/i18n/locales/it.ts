@@ -4694,7 +4694,7 @@ export default {
 				title: "Gateway Failover Notification",
 				description: "Send an email when an API key or Bedrock route is temporarily removed after an upstream failure",
 				adminEmail: "Admin Email",
-				emailPlaceholder: "admin@example.com",
+				emailPlaceholder: "admin{'@'}example.com",
 				emailHint: "Leave empty to disable failover notifications"
 			},
 			smtp: {
