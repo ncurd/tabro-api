@@ -166,8 +166,8 @@ export default {
 		queryFailedRetry: "क्वेरी विफल हुई, कृपया बाद में फिर से प्रयास करें"
 	},
 	setup: {
-		title: "Sub2API Setup",
-		description: "अपनी Sub2API इंस्टेंस कॉन्फ़िगर करें",
+		title: "Tabro Setup",
+		description: "अपनी Tabro इंस्टेंस कॉन्फ़िगर करें",
 		database: {
 			title: "डेटाबेस कॉन्फ़िगरेशन",
 			description: "अपने PostgreSQL डेटाबेस से कनेक्ट करें",
@@ -2414,7 +2414,7 @@ export default {
 			modelCount: "{count} मॉडल",
 			poolMode: "Pool Mode",
 			poolModeHint: "when upstream is an खाता pool; errors won't mark local खाता स्थिति सक्षम करें",
-			poolModeInfo: "When सक्षम, upstream 429/403/401 errors will auto-फिर प्रयास करें बिना marking the खाता as rate-limited या errored. Suitable के लिए upstream pointing को another sub2api instance.",
+			poolModeInfo: "When सक्षम, upstream 429/403/401 errors will auto-फिर प्रयास करें बिना marking the खाता as rate-limited या errored. Suitable के लिए upstream pointing को another Tabro instance.",
 			poolModeRetryCount: "Same-खाता Retries",
 			poolModeRetryCountHint: "Only applies में pool mode. Use 0 को अक्षम करें में-place फिर प्रयास करें. डिफ़ॉल्ट {default}, maximum {max}.",
 			customErrorCodes: "कस्टम त्रुटि कोड",
@@ -4328,7 +4328,7 @@ export default {
 			},
 			linuxdo: {
 				title: "LinuxDo कनेक्ट करें Login",
-				description: "LinuxDo कनेक्ट करें OAuth के लिए Sub2API end-उपयोगकर्ता login कॉन्फ़िगर करें",
+				description: "LinuxDo कनेक्ट करें OAuth के लिए Tabro end-उपयोगकर्ता login कॉन्फ़िगर करें",
 				enable: "LinuxDo Login सक्षम करें",
 				enableHint: "Show LinuxDo login पर the login/register pages",
 				clientId: "क्लाइंट आईडी",
@@ -4477,7 +4477,7 @@ export default {
 				backendMode: "Backend Mode",
 				backendModeDescription: "Disables उपयोगकर्ता registration, public site, और self-service features. Only admin can log में और manage the प्लेटफ़ॉर्म.",
 				siteName: "Site नाम",
-				siteNamePlaceholder: "Sub2API",
+				siteNamePlaceholder: "Tabro",
 				siteNameHint: "Displayed में emails और पृष्ठ titles",
 				siteSubtitle: "Site Subtitle",
 				siteSubtitlePlaceholder: "सब्सक्रिप्शन से API Conversion प्लेटफ़ॉर्म",
@@ -4716,7 +4716,7 @@ export default {
 				fromEmail: "से ईमेल",
 				fromEmailPlaceholder: "noreply{'@'}example.com",
 				fromName: "से नाम",
-				fromNamePlaceholder: "Sub2API",
+				fromNamePlaceholder: "Tabro",
 				useTls: "TLS का उपयोग करें",
 				useTlsHint: "TLS encryption के लिए SMTP कनेक्शन सक्षम करें"
 			},
@@ -5181,14 +5181,14 @@ export default {
 		},
 		admin: {
 			welcome: {
-				title: "👋 Welcome को Sub2API",
-				description: "<div style=\"line-height: 1.8;\"><p style=\"margin-bottom: 16px;\">Sub2API is a powerful AI service gateway प्लेटफ़ॉर्म वह helps you easily manage और distribute AI services.</p><p style=\"margin-bottom: 12px;\"><b>🎯 Core Features:</b></p><ul style=\"margin-left: 20px; margin-bottom: 16px;\"><li>📦 <b>समूह प्रबंधन</b> - बनाएँ service tiers (VIP, Free Trial, etc.)</li><li>🔗 <b>Account Pool</b> - कनेक्ट करें multiple upstream AI service खाते</li><li>🔑 <b>Key Distribution</b> - उत्पन्न करें independent API कुंजियाँ के लिए उपयोगकर्ता</li><li>💰 <b>Billing Control</b> - Flexible rate और कोटा management</li></ul><p style=\"color: #10b981; font-weight: 600;\">Let's complete the initial setup में 3 मिनट →</p></div>",
+				title: "👋 Welcome को Tabro",
+				description: "<div style=\"line-height: 1.8;\"><p style=\"margin-bottom: 16px;\">Tabro is a powerful AI service gateway प्लेटफ़ॉर्म वह helps you easily manage और distribute AI services.</p><p style=\"margin-bottom: 12px;\"><b>🎯 Core Features:</b></p><ul style=\"margin-left: 20px; margin-bottom: 16px;\"><li>📦 <b>समूह प्रबंधन</b> - बनाएँ service tiers (VIP, Free Trial, etc.)</li><li>🔗 <b>Account Pool</b> - कनेक्ट करें multiple upstream AI service खाते</li><li>🔑 <b>Key Distribution</b> - उत्पन्न करें independent API कुंजियाँ के लिए उपयोगकर्ता</li><li>💰 <b>Billing Control</b> - Flexible rate और कोटा management</li></ul><p style=\"color: #10b981; font-weight: 600;\">Let's complete the initial setup में 3 मिनट →</p></div>",
 				nextBtn: "Start Setup 🚀",
 				prevBtn: "Skip"
 			},
 			groupManage: {
 				title: "📦 Step 1: समूह प्रबंधन",
-				description: "<div style=\"line-height: 1.7;\"><p style=\"margin-bottom: 12px;\"><b>What is a समूह?</b></p><p style=\"margin-bottom: 12px;\">समूह are the core concept का Sub2API, like a \"service package\":</p><ul style=\"margin-left: 20px; margin-bottom: 12px; font-size: 13px;\"><li>🎯 Each समूह can contain multiple upstream खाते</li><li>💰 Each समूह has independent billing multiplier</li><li>👥 Can be set as public या exclusive</li></ul><p style=\"margin-top: 12px; padding: 8px 12px; background: #f0fdf4; border-left: 3px solid #10b981; border-radius: 4px; font-size: 13px;\"><b>💡 Example:</b> You can बनाएँ \"VIP Premium\" (high rate) और \"Free Trial\" (low rate) समूह</p><p style=\"margin-top: 16px; color: #10b981; font-weight: 600;\">👉 Click \"समूह प्रबंधन\" पर the left sidebar</p></div>"
+				description: "<div style=\"line-height: 1.7;\"><p style=\"margin-bottom: 12px;\"><b>What is a समूह?</b></p><p style=\"margin-bottom: 12px;\">समूह are the core concept का Tabro, like a \"service package\":</p><ul style=\"margin-left: 20px; margin-bottom: 12px; font-size: 13px;\"><li>🎯 Each समूह can contain multiple upstream खाते</li><li>💰 Each समूह has independent billing multiplier</li><li>👥 Can be set as public या exclusive</li></ul><p style=\"margin-top: 12px; padding: 8px 12px; background: #f0fdf4; border-left: 3px solid #10b981; border-radius: 4px; font-size: 13px;\"><b>💡 Example:</b> You can बनाएँ \"VIP Premium\" (high rate) और \"Free Trial\" (low rate) समूह</p><p style=\"margin-top: 16px; color: #10b981; font-weight: 600;\">👉 Click \"समूह प्रबंधन\" पर the left sidebar</p></div>"
 			},
 			createGroup: {
 				title: "➕ बनाएँ New समूह",
@@ -5280,8 +5280,8 @@ export default {
 		},
 		user: {
 			welcome: {
-				title: "👋 Welcome को Sub2API",
-				description: "<div style=\"line-height: 1.8;\"><p style=\"margin-bottom: 16px;\">Hello! Welcome को the Sub2API AI service प्लेटफ़ॉर्म.</p><p style=\"margin-bottom: 12px;\"><b>🎯 Quick Start:</b></p><ul style=\"margin-left: 20px; margin-bottom: 16px;\"><li>🔑 बनाएँ API कुंजी</li><li>📋 कॉपी करें कुंजी को your application</li><li>🚀 Start using AI services</li></ul><p style=\"color: #10b981; font-weight: 600;\">Just 1 मिनट, let's get started →</p></div>",
+				title: "👋 Welcome को Tabro",
+				description: "<div style=\"line-height: 1.8;\"><p style=\"margin-bottom: 16px;\">Hello! Welcome को the Tabro AI service प्लेटफ़ॉर्म.</p><p style=\"margin-bottom: 12px;\"><b>🎯 Quick Start:</b></p><ul style=\"margin-left: 20px; margin-bottom: 16px;\"><li>🔑 बनाएँ API कुंजी</li><li>📋 कॉपी करें कुंजी को your application</li><li>🚀 Start using AI services</li></ul><p style=\"color: #10b981; font-weight: 600;\">Just 1 मिनट, let's get started →</p></div>",
 				nextBtn: "Start 🚀",
 				prevBtn: "Skip"
 			},

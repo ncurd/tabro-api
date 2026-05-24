@@ -166,8 +166,8 @@ export default {
 		queryFailedRetry: "A consulta falhou, tente novamente mais tarde"
 	},
 	setup: {
-		title: "Sub2API Setup",
-		description: "Configure sua instância do Sub2API",
+		title: "Tabro Setup",
+		description: "Configure sua instância do Tabro",
 		database: {
 			title: "Configuração do banco de dados",
 			description: "Conecte-se ao seu banco PostgreSQL",
@@ -2414,7 +2414,7 @@ export default {
 			modelCount: "{count} Modelos",
 			poolMode: "Pool Mode",
 			poolModeHint: "Ativar when upstream is an Conta pool; errors won't mark local Conta Status",
-			poolModeInfo: "When Ativado, upstream 429/403/401 errors will auto-Tentar novamente sem marking the Conta as rate-limited ou errored. Suitable para upstream pointing para another sub2api instance.",
+			poolModeInfo: "When Ativado, upstream 429/403/401 errors will auto-Tentar novamente sem marking the Conta as rate-limited ou errored. Suitable para upstream pointing para another Tabro instance.",
 			poolModeRetryCount: "Same-Conta Retries",
 			poolModeRetryCountHint: "Only applies em pool mode. Use 0 para Desativar em-place Tentar novamente. Padrão {default}, maximum {max}.",
 			customErrorCodes: "Personalizado Erro Códigos",
@@ -4328,7 +4328,7 @@ export default {
 			},
 			linuxdo: {
 				title: "LinuxDo Conectar Login",
-				description: "Configurar LinuxDo Conectar OAuth para Sub2API end-Usuário login",
+				description: "Configurar LinuxDo Conectar OAuth para Tabro end-Usuário login",
 				enable: "Ativar LinuxDo Login",
 				enableHint: "Show LinuxDo login em the login/register pages",
 				clientId: "ID do cliente",
@@ -4477,7 +4477,7 @@ export default {
 				backendMode: "Backend Mode",
 				backendModeDescription: "Disables Usuário registration, public site, e self-service features. Only admin can log em e manage the Plataforma.",
 				siteName: "Site Nome",
-				siteNamePlaceholder: "Sub2API",
+				siteNamePlaceholder: "Tabro",
 				siteNameHint: "Displayed em emails e Página titles",
 				siteSubtitle: "Site Subtitle",
 				siteSubtitlePlaceholder: "Assinatura para API Conversion Plataforma",
@@ -4716,7 +4716,7 @@ export default {
 				fromEmail: "De E-mail",
 				fromEmailPlaceholder: "noreply{'@'}example.com",
 				fromName: "De Nome",
-				fromNamePlaceholder: "Sub2API",
+				fromNamePlaceholder: "Tabro",
 				useTls: "Usar TLS",
 				useTlsHint: "Ativar TLS encryption para SMTP Conexão"
 			},
@@ -5181,14 +5181,14 @@ export default {
 		},
 		admin: {
 			welcome: {
-				title: "👋 Welcome para Sub2API",
-				description: "<div style=\"line-height: 1.8;\"><p style=\"margin-bottom: 16px;\">Sub2API is a powerful AI service gateway Plataforma esse helps you easily manage e distribute AI services.</p><p style=\"margin-bottom: 12px;\"><b>🎯 Core Features:</b></p><ul style=\"margin-left: 20px; margin-bottom: 16px;\"><li>📦 <b>Gerenciamento de grupos</b> - Criar service tiers (VIP, Free Trial, etc.)</li><li>🔗 <b>Account Pool</b> - Conectar multiple upstream AI service Contas</li><li>🔑 <b>Key Distribution</b> - Gerar independent Chaves de API para Usuários</li><li>💰 <b>Billing Control</b> - Flexible rate e Cota management</li></ul><p style=\"color: #10b981; font-weight: 600;\">Let's complete the initial setup em 3 minutos →</p></div>",
+				title: "👋 Welcome para Tabro",
+				description: "<div style=\"line-height: 1.8;\"><p style=\"margin-bottom: 16px;\">Tabro is a powerful AI service gateway Plataforma esse helps you easily manage e distribute AI services.</p><p style=\"margin-bottom: 12px;\"><b>🎯 Core Features:</b></p><ul style=\"margin-left: 20px; margin-bottom: 16px;\"><li>📦 <b>Gerenciamento de grupos</b> - Criar service tiers (VIP, Free Trial, etc.)</li><li>🔗 <b>Account Pool</b> - Conectar multiple upstream AI service Contas</li><li>🔑 <b>Key Distribution</b> - Gerar independent Chaves de API para Usuários</li><li>💰 <b>Billing Control</b> - Flexible rate e Cota management</li></ul><p style=\"color: #10b981; font-weight: 600;\">Let's complete the initial setup em 3 minutos →</p></div>",
 				nextBtn: "Start Setup 🚀",
 				prevBtn: "Skip"
 			},
 			groupManage: {
 				title: "📦 Step 1: Gerenciamento de grupos",
-				description: "<div style=\"line-height: 1.7;\"><p style=\"margin-bottom: 12px;\"><b>What is a Grupo?</b></p><p style=\"margin-bottom: 12px;\">Grupos are the core concept de Sub2API, like a \"service package\":</p><ul style=\"margin-left: 20px; margin-bottom: 12px; font-size: 13px;\"><li>🎯 Each Grupo can contain multiple upstream Contas</li><li>💰 Each Grupo has independent billing multiplier</li><li>👥 Can be set as public ou exclusive</li></ul><p style=\"margin-top: 12px; padding: 8px 12px; background: #f0fdf4; border-left: 3px solid #10b981; border-radius: 4px; font-size: 13px;\"><b>💡 Example:</b> You can Criar \"VIP Premium\" (high rate) e \"Free Trial\" (low rate) Grupos</p><p style=\"margin-top: 16px; color: #10b981; font-weight: 600;\">👉 Click \"Gerenciamento de grupos\" em the left sidebar</p></div>"
+				description: "<div style=\"line-height: 1.7;\"><p style=\"margin-bottom: 12px;\"><b>What is a Grupo?</b></p><p style=\"margin-bottom: 12px;\">Grupos are the core concept de Tabro, like a \"service package\":</p><ul style=\"margin-left: 20px; margin-bottom: 12px; font-size: 13px;\"><li>🎯 Each Grupo can contain multiple upstream Contas</li><li>💰 Each Grupo has independent billing multiplier</li><li>👥 Can be set as public ou exclusive</li></ul><p style=\"margin-top: 12px; padding: 8px 12px; background: #f0fdf4; border-left: 3px solid #10b981; border-radius: 4px; font-size: 13px;\"><b>💡 Example:</b> You can Criar \"VIP Premium\" (high rate) e \"Free Trial\" (low rate) Grupos</p><p style=\"margin-top: 16px; color: #10b981; font-weight: 600;\">👉 Click \"Gerenciamento de grupos\" em the left sidebar</p></div>"
 			},
 			createGroup: {
 				title: "➕ Criar New Grupo",
@@ -5280,8 +5280,8 @@ export default {
 		},
 		user: {
 			welcome: {
-				title: "👋 Welcome para Sub2API",
-				description: "<div style=\"line-height: 1.8;\"><p style=\"margin-bottom: 16px;\">Hello! Welcome para the Sub2API AI service Plataforma.</p><p style=\"margin-bottom: 12px;\"><b>🎯 Quick Start:</b></p><ul style=\"margin-left: 20px; margin-bottom: 16px;\"><li>🔑 Criar Chave de API</li><li>📋 Copiar Chave para your application</li><li>🚀 Start using AI services</li></ul><p style=\"color: #10b981; font-weight: 600;\">Just 1 minuto, let's get started →</p></div>",
+				title: "👋 Welcome para Tabro",
+				description: "<div style=\"line-height: 1.8;\"><p style=\"margin-bottom: 16px;\">Hello! Welcome para the Tabro AI service Plataforma.</p><p style=\"margin-bottom: 12px;\"><b>🎯 Quick Start:</b></p><ul style=\"margin-left: 20px; margin-bottom: 16px;\"><li>🔑 Criar Chave de API</li><li>📋 Copiar Chave para your application</li><li>🚀 Start using AI services</li></ul><p style=\"color: #10b981; font-weight: 600;\">Just 1 minuto, let's get started →</p></div>",
 				nextBtn: "Start 🚀",
 				prevBtn: "Skip"
 			},

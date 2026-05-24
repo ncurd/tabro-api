@@ -1,6 +1,10 @@
 package service
 
-import "testing"
+import (
+	"testing"
+
+	dbent "github.com/Wei-Shaw/sub2api/ent"
+)
 
 func TestBuildPaymentCallbackURLsForStripe(t *testing.T) {
 	t.Parallel()
@@ -55,5 +59,20 @@ func TestGuessRequestOriginUsesHTTPForLocalhost(t *testing.T) {
 	got := guessRequestOrigin("localhost:5173")
 	if got != "http://localhost:5173" {
 		t.Fatalf("guessRequestOrigin() = %q", got)
+	}
+}
+
+func TestBuildPaymentSubjectUsesTabroDefaults(t *testing.T) {
+	t.Parallel()
+
+	service := &PaymentService{}
+
+	if got := service.buildPaymentSubject(nil, 100, &PaymentConfig{}, "CNY"); got != "Tabro 100.00 CNY" {
+		t.Fatalf("top-up subject = %q", got)
+	}
+
+	plan := &dbent.SubscriptionPlan{Name: "Pro"}
+	if got := service.buildPaymentSubject(plan, 0, &PaymentConfig{}, "USD"); got != "Tabro Subscription Pro" {
+		t.Fatalf("subscription subject = %q", got)
 	}
 }

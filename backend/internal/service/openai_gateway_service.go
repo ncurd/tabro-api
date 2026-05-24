@@ -3916,6 +3916,7 @@ func (s *OpenAIGatewayService) parseSSEUsageBytes(data []byte, usage *OpenAIUsag
 	usage.InputTokens = int(gjson.GetBytes(data, "response.usage.input_tokens").Int())
 	usage.OutputTokens = int(gjson.GetBytes(data, "response.usage.output_tokens").Int())
 	usage.CacheReadInputTokens = int(gjson.GetBytes(data, "response.usage.input_tokens_details.cached_tokens").Int())
+	usage.ImageOutputTokens = int(gjson.GetBytes(data, "response.usage.output_tokens_details.image_tokens").Int())
 }
 
 func extractOpenAIUsageFromJSONBytes(body []byte) (OpenAIUsage, bool) {
@@ -3927,11 +3928,13 @@ func extractOpenAIUsageFromJSONBytes(body []byte) (OpenAIUsage, bool) {
 		"usage.input_tokens",
 		"usage.output_tokens",
 		"usage.input_tokens_details.cached_tokens",
+		"usage.output_tokens_details.image_tokens",
 	)
 	return OpenAIUsage{
 		InputTokens:          int(values[0].Int()),
 		OutputTokens:         int(values[1].Int()),
 		CacheReadInputTokens: int(values[2].Int()),
+		ImageOutputTokens:    int(values[3].Int()),
 	}, true
 }
 
@@ -4282,6 +4285,9 @@ func (s *OpenAIGatewayService) ForwardCodexImageGeneration(ctx context.Context, 
 func (s *OpenAIGatewayService) forwardImagesGenerations(ctx context.Context, c *gin.Context, account *Account, body []byte, writeOriginal bool) ([]byte, *OpenAIForwardResult, error) {
 	if account == nil {
 		return nil, nil, errors.New("account is nil")
+	}
+	if account.Type == AccountTypeOAuth {
+		return s.forwardImagesGenerationsOAuth(ctx, c, account, body, writeOriginal)
 	}
 	if account.Type != AccountTypeAPIKey {
 		return nil, nil, fmt.Errorf("images generation requires OpenAI API key account")

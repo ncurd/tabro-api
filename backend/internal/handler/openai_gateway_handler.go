@@ -538,14 +538,14 @@ func (h *OpenAIGatewayHandler) forwardOpenAIImagesGenerationBody(
 			service.OpenAIUpstreamTransportHTTPSSE,
 		)
 		if err != nil || selection == nil || selection.Account == nil {
-			h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available OpenAI API key accounts for image generation", false)
+			h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available compatible OpenAI accounts for image generation", false)
 			return
 		}
 		account := selection.Account
-		if account.Type != service.AccountTypeAPIKey {
+		if account.Type != service.AccountTypeAPIKey && account.Type != service.AccountTypeOAuth {
 			failedAccountIDs[account.ID] = struct{}{}
 			if switchCount >= maxAccountSwitches {
-				h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available OpenAI API key accounts for image generation", false)
+				h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available compatible OpenAI accounts for image generation", false)
 				return
 			}
 			continue

@@ -166,8 +166,8 @@ export default {
 		queryFailedRetry: "Truy vấn thất bại, vui lòng thử lại sau"
 	},
 	setup: {
-		title: "Sub2API Setup",
-		description: "Cấu hình phiên bản Sub2API của bạn",
+		title: "Tabro Setup",
+		description: "Cấu hình phiên bản Tabro của bạn",
 		database: {
 			title: "Cấu hình cơ sở dữ liệu",
 			description: "Kết nối với cơ sở dữ liệu PostgreSQL của bạn",
@@ -2414,7 +2414,7 @@ export default {
 			modelCount: "{count} Mô hình",
 			poolMode: "Pool Mode",
 			poolModeHint: "Bật when upstream is an Tài khoản pool; errors won't mark local Tài khoản Trạng thái",
-			poolModeInfo: "When Đã bật, upstream 429/403/401 errors will auto-Thử lại không có marking the Tài khoản as rate-limited hoặc errored. Suitable cho upstream pointing đến another sub2api instance.",
+			poolModeInfo: "When Đã bật, upstream 429/403/401 errors will auto-Thử lại không có marking the Tài khoản as rate-limited hoặc errored. Suitable cho upstream pointing đến another Tabro instance.",
 			poolModeRetryCount: "Same-Tài khoản Retries",
 			poolModeRetryCountHint: "Only applies trong pool mode. Use 0 đến Tắt trong-place Thử lại. Mặc định {default}, maximum {max}.",
 			customErrorCodes: "Tùy chỉnh Lỗi Mã",
@@ -4328,7 +4328,7 @@ export default {
 			},
 			linuxdo: {
 				title: "LinuxDo Kết nối Login",
-				description: "Cấu hình LinuxDo Kết nối OAuth cho Sub2API end-Người dùng login",
+				description: "Cấu hình LinuxDo Kết nối OAuth cho Tabro end-Người dùng login",
 				enable: "Bật LinuxDo Login",
 				enableHint: "Show LinuxDo login trên the login/register pages",
 				clientId: "ID khách hàng",
@@ -4477,7 +4477,7 @@ export default {
 				backendMode: "Backend Mode",
 				backendModeDescription: "Disables Người dùng registration, public site, và self-service features. Only admin can log trong và manage the Nền tảng.",
 				siteName: "Site Tên",
-				siteNamePlaceholder: "Sub2API",
+				siteNamePlaceholder: "Tabro",
 				siteNameHint: "Displayed trong emails và Trang titles",
 				siteSubtitle: "Site Subtitle",
 				siteSubtitlePlaceholder: "Đăng ký sang API Conversion Nền tảng",
@@ -4716,7 +4716,7 @@ export default {
 				fromEmail: "Từ Email",
 				fromEmailPlaceholder: "noreply{'@'}example.com",
 				fromName: "Từ Tên",
-				fromNamePlaceholder: "Sub2API",
+				fromNamePlaceholder: "Tabro",
 				useTls: "Sử dụng TLS",
 				useTlsHint: "Bật TLS encryption cho SMTP Kết nối"
 			},
@@ -5181,14 +5181,14 @@ export default {
 		},
 		admin: {
 			welcome: {
-				title: "👋 Welcome đến Sub2API",
-				description: "<div style=\"line-height: 1.8;\"><p style=\"margin-bottom: 16px;\">Sub2API is a powerful AI service gateway Nền tảng đó helps you easily manage và distribute AI services.</p><p style=\"margin-bottom: 12px;\"><b>🎯 Core Features:</b></p><ul style=\"margin-left: 20px; margin-bottom: 16px;\"><li>📦 <b>Quản lý nhóm</b> - Tạo service tiers (VIP, Free Trial, etc.)</li><li>🔗 <b>Account Pool</b> - Kết nối multiple upstream AI service Tài khoản</li><li>🔑 <b>Key Distribution</b> - Tạo independent Khóa API cho Người dùng</li><li>💰 <b>Billing Control</b> - Flexible rate và Hạn ngạch management</li></ul><p style=\"color: #10b981; font-weight: 600;\">Let's complete the initial setup trong 3 phút →</p></div>",
+				title: "👋 Welcome đến Tabro",
+				description: "<div style=\"line-height: 1.8;\"><p style=\"margin-bottom: 16px;\">Tabro is a powerful AI service gateway Nền tảng đó helps you easily manage và distribute AI services.</p><p style=\"margin-bottom: 12px;\"><b>🎯 Core Features:</b></p><ul style=\"margin-left: 20px; margin-bottom: 16px;\"><li>📦 <b>Quản lý nhóm</b> - Tạo service tiers (VIP, Free Trial, etc.)</li><li>🔗 <b>Account Pool</b> - Kết nối multiple upstream AI service Tài khoản</li><li>🔑 <b>Key Distribution</b> - Tạo independent Khóa API cho Người dùng</li><li>💰 <b>Billing Control</b> - Flexible rate và Hạn ngạch management</li></ul><p style=\"color: #10b981; font-weight: 600;\">Let's complete the initial setup trong 3 phút →</p></div>",
 				nextBtn: "Start Setup 🚀",
 				prevBtn: "Skip"
 			},
 			groupManage: {
 				title: "📦 Step 1: Quản lý nhóm",
-				description: "<div style=\"line-height: 1.7;\"><p style=\"margin-bottom: 12px;\"><b>What is a Nhóm?</b></p><p style=\"margin-bottom: 12px;\">Nhóm are the core concept của Sub2API, like a \"service package\":</p><ul style=\"margin-left: 20px; margin-bottom: 12px; font-size: 13px;\"><li>🎯 Each Nhóm can contain multiple upstream Tài khoản</li><li>💰 Each Nhóm has independent billing multiplier</li><li>👥 Can be set as public hoặc exclusive</li></ul><p style=\"margin-top: 12px; padding: 8px 12px; background: #f0fdf4; border-left: 3px solid #10b981; border-radius: 4px; font-size: 13px;\"><b>💡 Example:</b> You can Tạo \"VIP Premium\" (high rate) và \"Free Trial\" (low rate) Nhóm</p><p style=\"margin-top: 16px; color: #10b981; font-weight: 600;\">👉 Click \"Quản lý nhóm\" trên the left sidebar</p></div>"
+				description: "<div style=\"line-height: 1.7;\"><p style=\"margin-bottom: 12px;\"><b>What is a Nhóm?</b></p><p style=\"margin-bottom: 12px;\">Nhóm are the core concept của Tabro, like a \"service package\":</p><ul style=\"margin-left: 20px; margin-bottom: 12px; font-size: 13px;\"><li>🎯 Each Nhóm can contain multiple upstream Tài khoản</li><li>💰 Each Nhóm has independent billing multiplier</li><li>👥 Can be set as public hoặc exclusive</li></ul><p style=\"margin-top: 12px; padding: 8px 12px; background: #f0fdf4; border-left: 3px solid #10b981; border-radius: 4px; font-size: 13px;\"><b>💡 Example:</b> You can Tạo \"VIP Premium\" (high rate) và \"Free Trial\" (low rate) Nhóm</p><p style=\"margin-top: 16px; color: #10b981; font-weight: 600;\">👉 Click \"Quản lý nhóm\" trên the left sidebar</p></div>"
 			},
 			createGroup: {
 				title: "➕ Tạo New Nhóm",
@@ -5280,8 +5280,8 @@ export default {
 		},
 		user: {
 			welcome: {
-				title: "👋 Welcome đến Sub2API",
-				description: "<div style=\"line-height: 1.8;\"><p style=\"margin-bottom: 16px;\">Hello! Welcome đến the Sub2API AI service Nền tảng.</p><p style=\"margin-bottom: 12px;\"><b>🎯 Quick Start:</b></p><ul style=\"margin-left: 20px; margin-bottom: 16px;\"><li>🔑 Tạo Khóa API</li><li>📋 Sao chép Khóa đến your application</li><li>🚀 Start using AI services</li></ul><p style=\"color: #10b981; font-weight: 600;\">Just 1 phút, let's get started →</p></div>",
+				title: "👋 Welcome đến Tabro",
+				description: "<div style=\"line-height: 1.8;\"><p style=\"margin-bottom: 16px;\">Hello! Welcome đến the Tabro AI service Nền tảng.</p><p style=\"margin-bottom: 12px;\"><b>🎯 Quick Start:</b></p><ul style=\"margin-left: 20px; margin-bottom: 16px;\"><li>🔑 Tạo Khóa API</li><li>📋 Sao chép Khóa đến your application</li><li>🚀 Start using AI services</li></ul><p style=\"color: #10b981; font-weight: 600;\">Just 1 phút, let's get started →</p></div>",
 				nextBtn: "Start 🚀",
 				prevBtn: "Skip"
 			},

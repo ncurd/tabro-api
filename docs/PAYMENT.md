@@ -1,6 +1,6 @@
 # Payment System Configuration Guide
 
-Sub2API has a built-in payment system that enables user self-service top-up without deploying a separate payment service.
+Tabro has a built-in payment system that enables user self-service top-up without deploying a separate payment service.
 
 ---
 
@@ -196,7 +196,7 @@ When adding a provider, the system auto-generates callback URLs from your site d
    - `checkout.session.async_payment_failed`
 6. Copy the generated Webhook Secret (`whsec_...`) to your provider configuration
 
-> Migration note: Sub2API keeps temporary compatibility with legacy `payment_intent.*` webhook events during rollout, but the recommended steady-state configuration is Checkout-based and the endpoint API version should still be upgraded in Stripe Dashboard.
+> Migration note: Tabro keeps temporary compatibility with legacy `payment_intent.*` webhook events during rollout, but the recommended steady-state configuration is Checkout-based and the endpoint API version should still be upgraded in Stripe Dashboard.
 
 ### Important Notes
 
@@ -264,17 +264,17 @@ If you previously used [Sub2ApiPay](https://github.com/touwaeriol/sub2apipay) as
 
 | Aspect | Sub2ApiPay | Built-in Payment |
 |--------|-----------|-----------------|
-| Deployment | Separate service (Next.js + PostgreSQL) | Built into Sub2API, no extra deployment |
+| Deployment | Separate service (Next.js + PostgreSQL) | Built into Tabro, no extra deployment |
 | Payment Methods | EasyPay, Alipay, WeChat, Stripe | Same |
-| Configuration | Environment variables + separate admin UI | Unified in Sub2API admin dashboard |
+| Configuration | Environment variables + separate admin UI | Unified in Tabro admin dashboard |
 | Top-up Integration | Via Admin API callback | Internal processing, more reliable |
 | Subscription Plans | Supported | Not yet (planned) |
-| Order Management | Separate admin interface | Integrated in Sub2API admin dashboard |
+| Order Management | Separate admin interface | Integrated in Tabro admin dashboard |
 
 ### Migration Steps
 
-1. Enable payment in Sub2API admin dashboard and configure providers (use the same payment credentials)
-2. Update webhook callback URLs to Sub2API's callback endpoints
+1. Enable payment in Tabro admin dashboard and configure providers (use the same payment credentials)
+2. Update webhook callback URLs to Tabro's callback endpoints
 3. Verify that new orders are processed correctly via built-in payment
 4. Decommission the Sub2ApiPay service
 

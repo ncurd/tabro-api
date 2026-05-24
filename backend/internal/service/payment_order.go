@@ -259,7 +259,7 @@ func (s *PaymentService) buildPaymentSubject(plan *dbent.SubscriptionPlan, limit
 		if plan.ProductName != "" {
 			return plan.ProductName
 		}
-		return "Sub2API Subscription " + plan.Name
+		return "Tabro Subscription " + plan.Name
 	}
 	amountStr := strconv.FormatFloat(limitAmount, 'f', 2, 64)
 	pf := strings.TrimSpace(cfg.ProductNamePrefix)
@@ -271,7 +271,7 @@ func (s *PaymentService) buildPaymentSubject(plan *dbent.SubscriptionPlan, limit
 	if currency == "" {
 		currency = defaultPaymentCurrency
 	}
-	return "Sub2API " + amountStr + " " + currency
+	return "Tabro " + amountStr + " " + currency
 }
 
 func buildPaymentCallbackURLs(req CreateOrderRequest, providerKey, outTradeNo string, orderID int64) (string, string, string) {

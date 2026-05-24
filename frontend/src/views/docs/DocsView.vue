@@ -5,7 +5,7 @@
         <router-link to="/home" class="flex items-center gap-3">
           <img src="/logo.png" alt="Logo" class="h-9 w-9 rounded-lg object-contain" />
           <div>
-            <div class="text-sm font-semibold text-gray-900 dark:text-white">Sub2API Docs</div>
+            <div class="text-sm font-semibold text-gray-900 dark:text-white">Tabro Docs</div>
             <div class="text-xs text-gray-500 dark:text-dark-400">Gateway API Reference</div>
           </div>
         </router-link>

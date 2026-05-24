@@ -1163,6 +1163,18 @@ func TestGatewayService_isModelSupportedByAccount(t *testing.T) {
 			model:    "gemini-2.5-pro",
 			expected: true,
 		},
+		{
+			name: "OpenAI OAuth图片模型-有映射配置-仍支持Codex图片桥接",
+			account: &Account{
+				Platform: PlatformOpenAI,
+				Type:     AccountTypeOAuth,
+				Credentials: map[string]any{
+					"model_mapping": map[string]any{"gpt-5.4": "gpt-5.4"},
+				},
+			},
+			model:    "gpt-image-2",
+			expected: true,
+		},
 	}
 
 	for _, tt := range tests {

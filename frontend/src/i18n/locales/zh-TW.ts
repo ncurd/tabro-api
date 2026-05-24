@@ -167,8 +167,8 @@ export default {
     "queryFailedRetry": "查詢失敗，請稍後重試"
   },
   "setup": {
-    "title": "Sub2API 安裝嚮導",
-    "description": "配置您的 Sub2API 實例",
+    "title": "Tabro 安裝嚮導",
+    "description": "配置您的 Tabro 實例",
     "database": {
       "title": "數據庫配置",
       "description": "連接到您的 PostgreSQL 數據庫",
@@ -2479,7 +2479,7 @@ export default {
       "modelCount": "{count} 個模型",
       "poolMode": "池模式",
       "poolModeHint": "上游爲賬號池時啓用，錯誤不標記本地賬號狀態",
-      "poolModeInfo": "啓用後，上游 429/403/401 錯誤將自動重試而不標記賬號限流或錯誤，適用於上游指向另一個 sub2api 實例的場景。",
+      "poolModeInfo": "啓用後，上游 429/403/401 錯誤將自動重試而不標記賬號限流或錯誤，適用於上游指向另一個 Tabro 實例的場景。",
       "poolModeRetryCount": "同賬號重試次數",
       "poolModeRetryCountHint": "僅在池模式下生效。0 表示不原地重試；默認 {default}，最大 {max}。",
       "customErrorCodes": "自定義錯誤碼",
@@ -4329,7 +4329,7 @@ export default {
       },
       "linuxdo": {
         "title": "LinuxDo Connect 登錄",
-        "description": "配置 LinuxDo Connect OAuth，用於 Sub2API 用戶登錄",
+        "description": "配置 LinuxDo Connect OAuth，用於 Tabro 用戶登錄",
         "enable": "啓用 LinuxDo 登錄",
         "enableHint": "在登錄/註冊頁面顯示 LinuxDo 登錄入口",
         "clientId": "Client ID",
@@ -4445,7 +4445,7 @@ export default {
         "backendModeDescription": "禁用用戶註冊、公開頁面和自助服務功能。僅管理員可以登錄和管理平臺。",
         "siteName": "站點名稱",
         "siteNameHint": "顯示在郵件和頁面標題中",
-        "siteNamePlaceholder": "Sub2API",
+        "siteNamePlaceholder": "Tabro",
         "siteSubtitle": "站點副標題",
         "siteSubtitleHint": "顯示在登錄和註冊頁面",
         "siteSubtitlePlaceholder": "訂閱轉 API 轉換平臺",
@@ -4656,7 +4656,7 @@ export default {
         "fromEmail": "發件人郵箱",
         "fromEmailPlaceholder": "noreply{'@'}example.com",
         "fromName": "發件人名稱",
-        "fromNamePlaceholder": "Sub2API",
+        "fromNamePlaceholder": "Tabro",
         "useTls": "使用 TLS",
         "useTlsHint": "爲 SMTP 連接啓用 TLS 加密"
       },
@@ -5182,14 +5182,14 @@ export default {
     },
     "admin": {
       "welcome": {
-        "title": "👋 歡迎使用 Sub2API",
-        "description": "<div style=\"line-height: 1.8;\"><p style=\"margin-bottom: 16px;\">Sub2API 是一個強大的 AI 服務中轉平臺，讓您輕鬆管理和分發 AI 服務。</p><p style=\"margin-bottom: 12px;\"><b>🎯 核心功能：</b></p><ul style=\"margin-left: 20px; margin-bottom: 16px;\"><li>📦 <b>分組管理</b> - 創建不同的服務套餐（VIP、免費試用等）</li><li>🔗 <b>賬號池</b> - 連接多個上游 AI 服務商賬號</li><li>🔑 <b>密鑰分發</b> - 爲用戶生成獨立的 API Key</li><li>💰 <b>計費管理</b> - 靈活的費率和配額控制</li></ul><p style=\"color: #10b981; font-weight: 600;\">接下來，我們將用 3 分鐘帶您完成首次配置 →</p></div>",
+        "title": "👋 歡迎使用 Tabro",
+        "description": "<div style=\"line-height: 1.8;\"><p style=\"margin-bottom: 16px;\">Tabro 是一個強大的 AI 服務中轉平臺，讓您輕鬆管理和分發 AI 服務。</p><p style=\"margin-bottom: 12px;\"><b>🎯 核心功能：</b></p><ul style=\"margin-left: 20px; margin-bottom: 16px;\"><li>📦 <b>分組管理</b> - 創建不同的服務套餐（VIP、免費試用等）</li><li>🔗 <b>賬號池</b> - 連接多個上游 AI 服務商賬號</li><li>🔑 <b>密鑰分發</b> - 爲用戶生成獨立的 API Key</li><li>💰 <b>計費管理</b> - 靈活的費率和配額控制</li></ul><p style=\"color: #10b981; font-weight: 600;\">接下來，我們將用 3 分鐘帶您完成首次配置 →</p></div>",
         "nextBtn": "開始配置 🚀",
         "prevBtn": "跳過"
       },
       "groupManage": {
         "title": "📦 第一步：分組管理",
-        "description": "<div style=\"line-height: 1.7;\"><p style=\"margin-bottom: 12px;\"><b>什麼是分組？</b></p><p style=\"margin-bottom: 12px;\">分組是 Sub2API 的核心概念，它就像一個\"服務套餐\"：</p><ul style=\"margin-left: 20px; margin-bottom: 12px; font-size: 13px;\"><li>🎯 每個分組可以包含多個上游賬號</li><li>💰 每個分組有獨立的計費倍率</li><li>👥 可以設置爲公開或專屬分組</li></ul><p style=\"margin-top: 12px; padding: 8px 12px; background: #f0fdf4; border-left: 3px solid #10b981; border-radius: 4px; font-size: 13px;\"><b>💡 示例：</b>您可以創建\"VIP專線\"（高倍率）和\"免費試用\"（低倍率）兩個分組</p><p style=\"margin-top: 16px; color: #10b981; font-weight: 600;\">👉 點擊左側的\"分組管理\"開始</p></div>"
+        "description": "<div style=\"line-height: 1.7;\"><p style=\"margin-bottom: 12px;\"><b>什麼是分組？</b></p><p style=\"margin-bottom: 12px;\">分組是 Tabro 的核心概念，它就像一個\"服務套餐\"：</p><ul style=\"margin-left: 20px; margin-bottom: 12px; font-size: 13px;\"><li>🎯 每個分組可以包含多個上游賬號</li><li>💰 每個分組有獨立的計費倍率</li><li>👥 可以設置爲公開或專屬分組</li></ul><p style=\"margin-top: 12px; padding: 8px 12px; background: #f0fdf4; border-left: 3px solid #10b981; border-radius: 4px; font-size: 13px;\"><b>💡 示例：</b>您可以創建\"VIP專線\"（高倍率）和\"免費試用\"（低倍率）兩個分組</p><p style=\"margin-top: 16px; color: #10b981; font-weight: 600;\">👉 點擊左側的\"分組管理\"開始</p></div>"
       },
       "createGroup": {
         "title": "➕ 創建新分組",
@@ -5281,8 +5281,8 @@ export default {
     },
     "user": {
       "welcome": {
-        "title": "👋 歡迎使用 Sub2API",
-        "description": "<div style=\"line-height: 1.8;\"><p style=\"margin-bottom: 16px;\">您好！歡迎來到 Sub2API AI 服務平臺。</p><p style=\"margin-bottom: 12px;\"><b>🎯 快速開始：</b></p><ul style=\"margin-left: 20px; margin-bottom: 16px;\"><li>🔑 創建 API 密鑰</li><li>📋 複製密鑰到您的應用</li><li>🚀 開始使用 AI 服務</li></ul><p style=\"color: #10b981; font-weight: 600;\">只需 1 分鐘，讓我們開始吧 →</p></div>",
+        "title": "👋 歡迎使用 Tabro",
+        "description": "<div style=\"line-height: 1.8;\"><p style=\"margin-bottom: 16px;\">您好！歡迎來到 Tabro AI 服務平臺。</p><p style=\"margin-bottom: 12px;\"><b>🎯 快速開始：</b></p><ul style=\"margin-left: 20px; margin-bottom: 16px;\"><li>🔑 創建 API 密鑰</li><li>📋 複製密鑰到您的應用</li><li>🚀 開始使用 AI 服務</li></ul><p style=\"color: #10b981; font-weight: 600;\">只需 1 分鐘，讓我們開始吧 →</p></div>",
         "nextBtn": "開始 🚀",
         "prevBtn": "跳過"
       },
