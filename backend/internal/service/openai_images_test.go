@@ -72,6 +72,58 @@ func TestOpenAIGatewayServiceForwardImagesGenerations_ForwardsToImagesEndpoint(t
 	require.Equal(t, "1K", result.ImageSize)
 }
 
+func TestOpenAIGatewayServiceForwardImagesGenerations_StreamsAPIKeySSE(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := []byte(`{"model":"gpt-image-1","prompt":"draw","stream":true,"partial_images":1,"size":"1024x1024"}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstreamBody := strings.Join([]string{
+		`data: {"type":"image_generation.partial_image","b64_json":"partial","partial_image_index":0,"size":"1024x1024","quality":"high","background":"opaque","output_format":"png"}`,
+		``,
+		`data: {"type":"image_generation.completed","b64_json":"final","size":"1024x1024","quality":"high","background":"opaque","output_format":"png","usage":{"input_tokens":2,"output_tokens":7,"total_tokens":9}}`,
+		``,
+		`data: [DONE]`,
+		``,
+	}, "\n")
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "X-Request-Id": []string{"req_img_stream"}},
+		Body:       io.NopCloser(strings.NewReader(upstreamBody)),
+	}}
+	svc := &OpenAIGatewayService{
+		httpUpstream: upstream,
+		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false, AllowInsecureHTTP: true}}},
+	}
+	account := &Account{
+		ID:          42,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Credentials: map[string]any{"api_key": "sk-test"},
+	}
+
+	result, err := svc.ForwardImagesGenerations(context.Background(), c, account, body)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "text/event-stream", upstream.lastReq.Header.Get("Accept"))
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.True(t, strings.HasPrefix(rec.Body.String(), ":\n\n"))
+	require.Contains(t, rec.Body.String(), `"type":"image_generation.partial_image"`)
+	require.Contains(t, rec.Body.String(), `"type":"image_generation.completed"`)
+	require.Contains(t, rec.Body.String(), `data: [DONE]`)
+	require.True(t, result.Stream)
+	require.Equal(t, "req_img_stream", result.RequestID)
+	require.Equal(t, "gpt-image-1", result.Model)
+	require.Equal(t, 1, result.ImageCount)
+	require.Equal(t, "1K", result.ImageSize)
+	require.Equal(t, 2, result.Usage.InputTokens)
+	require.Equal(t, 7, result.Usage.OutputTokens)
+	require.Equal(t, 7, result.Usage.ImageOutputTokens)
+}
+
 func TestOpenAIGatewayServiceForwardImagesGenerations_FailoverStatusDoesNotWriteResponse(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	body := []byte(`{"model":"gpt-image-2","prompt":"draw"}`)
@@ -154,6 +206,66 @@ func TestOpenAIGatewayServiceForwardImagesGenerations_OAuthUsesCodexResponsesIma
 	require.Equal(t, "aW1hZ2UtMg==", gjson.Get(rec.Body.String(), "data.1.b64_json").String())
 	require.Equal(t, "gpt-image-2", result.Model)
 	require.Equal(t, 2, result.ImageCount)
+	require.Equal(t, "1K", result.ImageSize)
+	require.Equal(t, 11, result.Usage.InputTokens)
+	require.Equal(t, 22, result.Usage.OutputTokens)
+	require.Equal(t, 7, result.Usage.ImageOutputTokens)
+}
+
+func TestOpenAIGatewayServiceForwardImagesGenerations_OAuthStreamsImagesSSE(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := []byte(`{"model":"gpt-image-2","prompt":"draw a cat","stream":true,"partial_images":1,"size":"1024x1024","quality":"high","output_format":"png"}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type": []string{"text/event-stream"},
+			"X-Request-Id": []string{"req_oauth_img_stream"},
+		},
+		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+			`data: {"type":"response.image_generation_call.partial_image","partial_image_index":0,"partial_image_b64":"partial-b64","size":"1024x1024","quality":"high","output_format":"png"}`,
+			``,
+			`data: {"type":"response.output_item.done","item":{"type":"image_generation_call","result":"final-b64","revised_prompt":"draw a cat","output_format":"png"}}`,
+			``,
+			`data: {"type":"response.completed","response":{"created_at":1710000000,"usage":{"input_tokens":11,"output_tokens":22,"input_tokens_details":{"cached_tokens":3},"output_tokens_details":{"image_tokens":7}}}}`,
+			``,
+			`data: [DONE]`,
+			``,
+		}, "\n"))),
+	}}
+	svc := &OpenAIGatewayService{
+		httpUpstream: upstream,
+		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false, AllowInsecureHTTP: true}}},
+	}
+	account := &Account{
+		ID:          43,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Credentials: map[string]any{"access_token": "oauth-token", "chatgpt_account_id": "acct_123"},
+	}
+
+	result, err := svc.ForwardImagesGenerations(context.Background(), c, account, body)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, chatgptCodexURL, upstream.lastReq.URL.String())
+	require.True(t, gjson.GetBytes(upstream.lastBody, "stream").Bool())
+	require.Equal(t, int64(1), gjson.GetBytes(upstream.lastBody, "tools.0.partial_images").Int())
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.True(t, strings.HasPrefix(rec.Body.String(), ":\n\n"))
+	require.Contains(t, rec.Body.String(), `"type":"image_generation.partial_image"`)
+	require.Contains(t, rec.Body.String(), `"b64_json":"partial-b64"`)
+	require.Contains(t, rec.Body.String(), `"type":"image_generation.completed"`)
+	require.Contains(t, rec.Body.String(), `"b64_json":"final-b64"`)
+	require.Contains(t, rec.Body.String(), `"output_tokens":7`)
+	require.Contains(t, rec.Body.String(), `data: [DONE]`)
+	require.True(t, result.Stream)
+	require.Equal(t, "gpt-image-2", result.Model)
+	require.Equal(t, 1, result.ImageCount)
 	require.Equal(t, "1K", result.ImageSize)
 	require.Equal(t, 11, result.Usage.InputTokens)
 	require.Equal(t, 22, result.Usage.OutputTokens)

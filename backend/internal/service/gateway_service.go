@@ -118,7 +118,8 @@ func openAIStreamEventIsTerminal(data string) bool {
 	if trimmed == "[DONE]" {
 		return true
 	}
-	return isOpenAIResponseTerminalEventType(gjson.Get(trimmed, "type").String())
+	eventType := gjson.Get(trimmed, "type").String()
+	return isOpenAIResponseTerminalEventType(eventType) || isOpenAIImageTerminalEventType(eventType)
 }
 
 func anthropicStreamEventIsTerminal(eventName, data string) bool {

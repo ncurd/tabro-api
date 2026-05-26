@@ -46,3 +46,8 @@ func ServeEmbeddedFrontend() gin.HandlerFunc {
 func HasEmbeddedFrontend() bool {
 	return false
 }
+
+// ExtractDistTo is a no-op when frontend is not embedded.
+func ExtractDistTo(targetDir string) error {
+	return nil
+}

@@ -10,3 +10,12 @@ func isOpenAIResponseTerminalEventType(eventType string) bool {
 		return false
 	}
 }
+
+func isOpenAIImageTerminalEventType(eventType string) bool {
+	switch strings.TrimSpace(eventType) {
+	case "image_generation.completed", "image_edit.completed":
+		return true
+	default:
+		return false
+	}
+}

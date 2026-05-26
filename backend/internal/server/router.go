@@ -3,6 +3,9 @@ package server
 import (
 	"context"
 	"log"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -63,6 +66,16 @@ func SetupRouter(
 
 	// Serve embedded frontend with settings injection if available
 	if web.HasEmbeddedFrontend() {
+		// Mirror the embedded dist to a directory on disk so an external reverse
+		// proxy (nginx) can serve static assets directly. Defaults to "<bin>/dist"
+		// next to the executable; set FRONTEND_EXTRACT_PATH to override, or to
+		// "none" / "off" to disable.
+		if dir := resolveFrontendExtractPath(); dir != "" {
+			if err := web.ExtractDistTo(dir); err != nil {
+				log.Printf("Warning: failed to extract frontend dist to %s: %v", dir, err)
+			}
+		}
+
 		frontendServer, err := web.NewFrontendServer(settingService)
 		if err != nil {
 			log.Printf("Warning: Failed to create frontend server with settings injection: %v, using legacy mode", err)
@@ -84,6 +97,38 @@ func SetupRouter(
 	registerRoutes(r, handlers, jwtAuth, adminAuth, apiKeyAuth, apiKeyService, subscriptionService, opsService, settingService, cfg, redisClient)
 
 	return r
+}
+
+// resolveFrontendExtractPath returns the directory where the embedded frontend
+// dist should be mirrored on disk for an external reverse proxy.
+//
+// Resolution order:
+//  1. FRONTEND_EXTRACT_PATH env var, if set
+//     - values "none", "off", "false", "0", "-" disable extraction (returns "")
+//     - any other non-empty value is used verbatim
+//  2. "<directory of the running binary>/dist" by default
+//  3. If the binary path cannot be resolved, returns "" (skip extraction).
+func resolveFrontendExtractPath() string {
+	if v, ok := os.LookupEnv("FRONTEND_EXTRACT_PATH"); ok {
+		v = strings.TrimSpace(v)
+		switch strings.ToLower(v) {
+		case "", "none", "off", "false", "0", "-":
+			return ""
+		}
+		return v
+	}
+
+	exe, err := os.Executable()
+	if err != nil {
+		log.Printf("Warning: cannot resolve executable path for frontend extract: %v", err)
+		return ""
+	}
+	// Resolve symlinks so we end up next to the real binary, not in /usr/local/bin
+	// if the user installed via symlink.
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = resolved
+	}
+	return filepath.Join(filepath.Dir(exe), "dist")
 }
 
 // registerRoutes 注册所有 HTTP 路由

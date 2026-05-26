@@ -4251,6 +4251,9 @@ func (s *OpenAIGatewayService) buildUpstreamImagesGenerationsRequest(
 	if req.Header.Get("content-type") == "" {
 		req.Header.Set("content-type", "application/json")
 	}
+	if openAIImagesRequestWantsStream(body) {
+		req.Header.Set("accept", "text/event-stream")
+	}
 	return req, nil
 }
 
@@ -4319,6 +4322,11 @@ func (s *OpenAIGatewayService) forwardImagesGenerations(ctx context.Context, c *
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	if openAIImagesRequestWantsStream(body) && resp.StatusCode < 400 {
+		result, streamErr := s.handleImagesStreamingResponse(ctx, resp, c, account, upstreamStart, body)
+		return nil, result, streamErr
+	}
+
 	respBody, readErr := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
 	if readErr != nil {
 		return nil, nil, readErr
@@ -4360,6 +4368,134 @@ func (s *OpenAIGatewayService) forwardImagesGenerations(ctx context.Context, c *
 		ImageSize:       normalizeOpenAIImageSize(gjson.GetBytes(body, "size").String()),
 	}
 	return respBody, result, nil
+}
+
+func openAIImagesRequestWantsStream(body []byte) bool {
+	stream := gjson.GetBytes(body, "stream")
+	return stream.Exists() && stream.Type == gjson.True
+}
+
+func (s *OpenAIGatewayService) handleImagesStreamingResponse(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, startTime time.Time, requestBody []byte) (*OpenAIForwardResult, error) {
+	if c == nil {
+		return nil, errors.New("gin context is nil")
+	}
+	writeOpenAIPassthroughResponseHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+	if v := resp.Header.Get("x-request-id"); v != "" {
+		c.Header("x-request-id", v)
+	}
+
+	w := c.Writer
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		return nil, errors.New("streaming not supported")
+	}
+
+	usage := &OpenAIUsage{}
+	imageCount := 0
+	var firstTokenMs *int
+	clientDisconnected := false
+	sawTerminalEvent := false
+	upstreamRequestID := strings.TrimSpace(resp.Header.Get("x-request-id"))
+	if _, err := fmt.Fprint(w, ":\n\n"); err != nil {
+		clientDisconnected = true
+	} else {
+		flusher.Flush()
+	}
+
+	scanner := bufio.NewScanner(resp.Body)
+	maxLineSize := defaultMaxLineSize
+	if s.cfg != nil && s.cfg.Gateway.MaxLineSize > 0 {
+		maxLineSize = s.cfg.Gateway.MaxLineSize
+	}
+	scanBuf := getSSEScannerBuf64K()
+	scanner.Buffer(scanBuf[:0], maxLineSize)
+	defer putSSEScannerBuf64K(scanBuf)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if data, ok := extractOpenAIStreamPayloadLine(line); ok {
+			trimmedData := strings.TrimSpace(data)
+			if openAIStreamEventIsTerminal(trimmedData) {
+				sawTerminalEvent = true
+			}
+			if gjson.Get(trimmedData, "type").String() == "image_generation.completed" {
+				imageCount++
+			}
+			if firstTokenMs == nil && trimmedData != "" && trimmedData != "[DONE]" {
+				ms := int(time.Since(startTime).Milliseconds())
+				firstTokenMs = &ms
+			}
+			parseOpenAIImageStreamUsageBytes([]byte(trimmedData), usage)
+		}
+
+		if !clientDisconnected {
+			if _, err := fmt.Fprintln(w, line); err != nil {
+				clientDisconnected = true
+				logger.LegacyPrintf("service.openai_gateway", "[OpenAI images] client disconnected during streaming, continue draining upstream for usage: account=%d", account.ID)
+			} else {
+				flusher.Flush()
+			}
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		if sawTerminalEvent || clientDisconnected {
+			return buildOpenAIImagesStreamingResult(resp, requestBody, usage, imageCount, firstTokenMs, startTime), nil
+		}
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return buildOpenAIImagesStreamingResult(resp, requestBody, usage, imageCount, firstTokenMs, startTime), fmt.Errorf("image stream usage incomplete: %w", err)
+		}
+		if errors.Is(err, bufio.ErrTooLong) {
+			logger.LegacyPrintf("service.openai_gateway", "[OpenAI images] SSE line too long: account=%d max_size=%d error=%v", account.ID, maxLineSize, err)
+			return buildOpenAIImagesStreamingResult(resp, requestBody, usage, imageCount, firstTokenMs, startTime), err
+		}
+		logger.LegacyPrintf("service.openai_gateway", "[OpenAI images] stream read error: account=%d request_id=%s err=%v", account.ID, upstreamRequestID, err)
+		return buildOpenAIImagesStreamingResult(resp, requestBody, usage, imageCount, firstTokenMs, startTime), fmt.Errorf("image stream read error: %w", err)
+	}
+	if !clientDisconnected && !sawTerminalEvent && ctx.Err() == nil {
+		return buildOpenAIImagesStreamingResult(resp, requestBody, usage, imageCount, firstTokenMs, startTime), errors.New("image stream usage incomplete: missing terminal event")
+	}
+	return buildOpenAIImagesStreamingResult(resp, requestBody, usage, imageCount, firstTokenMs, startTime), nil
+}
+
+func buildOpenAIImagesStreamingResult(resp *http.Response, requestBody []byte, usage *OpenAIUsage, imageCount int, firstTokenMs *int, startTime time.Time) *OpenAIForwardResult {
+	model := strings.TrimSpace(gjson.GetBytes(requestBody, "model").String())
+	if model == "" {
+		model = "gpt-image-2"
+	}
+	if imageCount <= 0 {
+		imageCount = resolveOpenAIImagesCount(requestBody, nil)
+	}
+	result := &OpenAIForwardResult{
+		RequestID:       strings.TrimSpace(resp.Header.Get("x-request-id")),
+		Model:           model,
+		ResponseHeaders: resp.Header.Clone(),
+		Duration:        time.Since(startTime),
+		FirstTokenMs:    firstTokenMs,
+		Stream:          true,
+		ImageCount:      imageCount,
+		ImageSize:       normalizeOpenAIImageSize(gjson.GetBytes(requestBody, "size").String()),
+	}
+	if usage != nil {
+		result.Usage = *usage
+	}
+	return result
+}
+
+func parseOpenAIImageStreamUsageBytes(data []byte, usage *OpenAIUsage) {
+	if usage == nil || len(data) == 0 || bytes.Equal(data, []byte("[DONE]")) {
+		return
+	}
+	eventType := gjson.GetBytes(data, "type").String()
+	if !isOpenAIImageTerminalEventType(eventType) {
+		return
+	}
+	usage.InputTokens = int(gjson.GetBytes(data, "usage.input_tokens").Int())
+	usage.OutputTokens = int(gjson.GetBytes(data, "usage.output_tokens").Int())
+	usage.ImageOutputTokens = usage.OutputTokens
 }
 
 func resolveOpenAIImagesCount(requestBody, responseBody []byte) int {
