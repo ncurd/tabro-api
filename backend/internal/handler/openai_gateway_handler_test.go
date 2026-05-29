@@ -352,6 +352,48 @@ func TestOpenAIEnsureResponsesDependencies(t *testing.T) {
 	})
 }
 
+func TestOpenAIImagesGenerationRequestStreamFlag(t *testing.T) {
+	tests := []struct {
+		name       string
+		body       []byte
+		wantStream bool
+		wantErr    bool
+	}{
+		{
+			name:       "stream_true",
+			body:       []byte(`{"model":"gpt-image-2","prompt":"draw","stream":true}`),
+			wantStream: true,
+		},
+		{
+			name:       "stream_false",
+			body:       []byte(`{"model":"gpt-image-2","prompt":"draw","stream":false}`),
+			wantStream: false,
+		},
+		{
+			name:       "stream_missing",
+			body:       []byte(`{"model":"gpt-image-2","prompt":"draw"}`),
+			wantStream: false,
+		},
+		{
+			name:    "stream_string_rejected",
+			body:    []byte(`{"model":"gpt-image-2","prompt":"draw","stream":"true"}`),
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseOpenAIImagesGenerationStreamFlag(tt.body)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.wantStream, got)
+		})
+	}
+}
+
 func TestResolveOpenAIForwardDefaultMappedModel(t *testing.T) {
 	t.Run("prefers_explicit_fallback_model", func(t *testing.T) {
 		apiKey := &service.APIKey{

@@ -206,6 +206,8 @@ type modelInfo struct {
 var modelInfoMap = map[string]modelInfo{
 	"claude-opus-4-5":   {DisplayName: "Claude Opus 4.5", CanonicalID: "claude-opus-4-5-20250929"},
 	"claude-opus-4-6":   {DisplayName: "Claude Opus 4.6", CanonicalID: "claude-opus-4-6"},
+	"claude-opus-4-7":   {DisplayName: "Claude Opus 4.7", CanonicalID: "claude-opus-4-7"},
+	"claude-opus-4-8":   {DisplayName: "Claude Opus 4.8", CanonicalID: "claude-opus-4-8"},
 	"claude-sonnet-4-6": {DisplayName: "Claude Sonnet 4.6", CanonicalID: "claude-sonnet-4-6"},
 	"claude-sonnet-4-5": {DisplayName: "Claude Sonnet 4.5", CanonicalID: "claude-sonnet-4-5-20250929"},
 	"claude-haiku-4-5":  {DisplayName: "Claude Haiku 4.5", CanonicalID: "claude-haiku-4-5-20251001"},
@@ -587,7 +589,8 @@ func maxOutputTokensLimit(model string) int {
 func isAntigravityOpusHighTierModel(model string) bool {
 	lower := strings.ToLower(model)
 	return strings.HasPrefix(lower, "claude-opus-4-6") ||
-		strings.HasPrefix(lower, "claude-opus-4-7")
+		strings.HasPrefix(lower, "claude-opus-4-7") ||
+		strings.HasPrefix(lower, "claude-opus-4-8")
 }
 
 func buildGenerationConfig(req *ClaudeRequest) *GeminiGenerationConfig {

@@ -462,11 +462,16 @@ func (h *OpenAIGatewayHandler) ImagesGenerations(c *gin.Context) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "model is required")
 		return
 	}
-	setOpsRequestContext(c, reqModel, false, body)
-	setOpsEndpointContext(c, "", int16(service.RequestTypeSync))
+	reqStream, err := parseOpenAIImagesGenerationStreamFlag(body)
+	if err != nil {
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return
+	}
+	setOpsRequestContext(c, reqModel, reqStream, body)
+	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(reqStream, false)))
 
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
-	h.forwardOpenAIImagesGenerationBody(c, body, reqModel, requestStart, apiKey, subject, subscription, reqLog, false)
+	h.forwardOpenAIImagesGenerationBody(c, body, reqModel, reqStream, requestStart, apiKey, subject, subscription, reqLog, false)
 }
 
 func (h *OpenAIGatewayHandler) tryHandleCodexImageGenerationBridge(
@@ -494,7 +499,12 @@ func (h *OpenAIGatewayHandler) tryHandleCodexImageGenerationBridge(
 	if imageModel == "" {
 		imageModel = reqModel
 	}
-	h.forwardOpenAIImagesGenerationBody(c, body, imageModel, requestStart, apiKey, subject, subscription, reqLog, true)
+	imageStream, err := parseOpenAIImagesGenerationStreamFlag(imagesBody)
+	if err != nil {
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return true
+	}
+	h.forwardOpenAIImagesGenerationBody(c, body, imageModel, imageStream, requestStart, apiKey, subject, subscription, reqLog, true)
 	return true
 }
 
@@ -502,6 +512,7 @@ func (h *OpenAIGatewayHandler) forwardOpenAIImagesGenerationBody(
 	c *gin.Context,
 	body []byte,
 	reqModel string,
+	reqStream bool,
 	requestStart time.Time,
 	apiKey *service.APIKey,
 	subject middleware2.AuthSubject,
@@ -512,7 +523,7 @@ func (h *OpenAIGatewayHandler) forwardOpenAIImagesGenerationBody(
 	streamStarted := false
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 
-	userReleaseFunc, acquired := h.acquireResponsesUserSlot(c, subject.UserID, subject.Concurrency, false, &streamStarted, reqLog)
+	userReleaseFunc, acquired := h.acquireResponsesUserSlot(c, subject.UserID, subject.Concurrency, reqStream, &streamStarted, reqLog)
 	if !acquired {
 		return
 	}
@@ -521,7 +532,7 @@ func (h *OpenAIGatewayHandler) forwardOpenAIImagesGenerationBody(
 	}
 	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription); err != nil {
 		status, code, message := billingErrorDetails(err)
-		h.handleStreamingAwareError(c, status, code, message, false)
+		h.handleStreamingAwareError(c, status, code, message, streamStarted)
 		return
 	}
 
@@ -538,14 +549,14 @@ func (h *OpenAIGatewayHandler) forwardOpenAIImagesGenerationBody(
 			service.OpenAIUpstreamTransportHTTPSSE,
 		)
 		if err != nil || selection == nil || selection.Account == nil {
-			h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available compatible OpenAI accounts for image generation", false)
+			h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available compatible OpenAI accounts for image generation", streamStarted)
 			return
 		}
 		account := selection.Account
 		if account.Type != service.AccountTypeAPIKey && account.Type != service.AccountTypeOAuth {
 			failedAccountIDs[account.ID] = struct{}{}
 			if switchCount >= maxAccountSwitches {
-				h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available compatible OpenAI accounts for image generation", false)
+				h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available compatible OpenAI accounts for image generation", streamStarted)
 				return
 			}
 			continue
@@ -557,7 +568,7 @@ func (h *OpenAIGatewayHandler) forwardOpenAIImagesGenerationBody(
 			zap.Int64("account_id", account.ID),
 		)
 
-		accountReleaseFunc, acquired := h.acquireResponsesAccountSlot(c, apiKey.GroupID, "", selection, false, &streamStarted, reqLog)
+		accountReleaseFunc, acquired := h.acquireResponsesAccountSlot(c, apiKey.GroupID, "", selection, reqStream, &streamStarted, reqLog)
 		if !acquired {
 			return
 		}
@@ -579,7 +590,7 @@ func (h *OpenAIGatewayHandler) forwardOpenAIImagesGenerationBody(
 				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, false, nil)
 				failedAccountIDs[account.ID] = struct{}{}
 				if switchCount >= maxAccountSwitches {
-					h.handleFailoverExhausted(c, failoverErr, false)
+					h.handleFailoverExhausted(c, failoverErr, streamStarted)
 					return
 				}
 				h.gatewayService.RecordOpenAIAccountSwitch()
@@ -612,6 +623,14 @@ func (h *OpenAIGatewayHandler) forwardOpenAIImagesGenerationBody(
 		})
 		return
 	}
+}
+
+func parseOpenAIImagesGenerationStreamFlag(body []byte) (bool, error) {
+	streamResult := gjson.GetBytes(body, "stream")
+	if streamResult.Exists() && streamResult.Type != gjson.True && streamResult.Type != gjson.False {
+		return false, errors.New("invalid stream field type")
+	}
+	return streamResult.Bool(), nil
 }
 
 func (h *OpenAIGatewayHandler) ensureImagesDependencies(c *gin.Context) bool {
