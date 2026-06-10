@@ -128,6 +128,7 @@ deploy/docker-compose.override.yml
 .gocache/
 vite.config.js
 docs/*
+!docs/CLIENT_CUSTOM_MODELS_CN.md
 !docs/PAYMENT.md
 !docs/PAYMENT_CN.md
 .serena/

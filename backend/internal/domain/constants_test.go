@@ -24,3 +24,27 @@ func TestDefaultAntigravityModelMapping_ImageCompatibilityAliases(t *testing.T) 
 		}
 	}
 }
+
+func TestDefaultAntigravityModelMapping_ContainsClaudeFable5(t *testing.T) {
+	t.Parallel()
+
+	got, ok := DefaultAntigravityModelMapping["claude-fable-5"]
+	if !ok {
+		t.Fatal("expected mapping for claude-fable-5 to exist")
+	}
+	if got != "claude-fable-5" {
+		t.Fatalf("unexpected mapping for claude-fable-5: got %q", got)
+	}
+}
+
+func TestDefaultBedrockModelMapping_ContainsClaudeFable5(t *testing.T) {
+	t.Parallel()
+
+	got, ok := DefaultBedrockModelMapping["claude-fable-5"]
+	if !ok {
+		t.Fatal("expected Bedrock mapping for claude-fable-5 to exist")
+	}
+	if got != "anthropic.claude-fable-5" {
+		t.Fatalf("unexpected Bedrock mapping for claude-fable-5: got %q", got)
+	}
+}

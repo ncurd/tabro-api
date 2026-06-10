@@ -21,6 +21,8 @@ Tabro is fork from Sub2API, it is an AI API gateway platform designed to distrib
 - **Admin Dashboard** - Web interface for monitoring and management
 - **External System Integration** - Embed external systems (e.g. ticketing) via iframe to extend the admin dashboard
 
+> Client setup note: see [Custom Model Client Guide (Chinese)](docs/CLIENT_CUSTOM_MODELS_CN.md) for VS Code Custom Endpoint, Claude Code, Codex, and CC Switch examples.
+
 
 ## Tech Stack
 

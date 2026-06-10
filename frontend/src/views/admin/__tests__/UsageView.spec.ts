@@ -1,9 +1,10 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
+import { defineComponent } from 'vue'
 
 import UsageView from '../UsageView.vue'
 
-const { list, getStats, getSnapshotV2, getById } = vi.hoisted(() => {
+const { list, getStats, getSnapshotV2, getModelStats, getById } = vi.hoisted(() => {
   vi.stubGlobal('localStorage', {
     getItem: vi.fn(() => null),
     setItem: vi.fn(),
@@ -14,6 +15,7 @@ const { list, getStats, getSnapshotV2, getById } = vi.hoisted(() => {
     list: vi.fn(),
     getStats: vi.fn(),
     getSnapshotV2: vi.fn(),
+    getModelStats: vi.fn(),
     getById: vi.fn(),
   }
 })
@@ -40,6 +42,7 @@ vi.mock('@/api/admin', () => ({
     },
     dashboard: {
       getSnapshotV2,
+      getModelStats,
     },
     users: {
       getById,
@@ -83,7 +86,26 @@ vi.mock('vue-router', () => ({
 }))
 
 const AppLayoutStub = { template: '<div><slot /></div>' }
-const UsageFiltersStub = { template: '<div><slot name="after-reset" /></div>' }
+const UsageFiltersStub = defineComponent({
+  props: {
+    modelValue: {
+      type: Object,
+      required: false,
+      default: () => ({})
+    }
+  },
+  emits: ['refresh', 'change', 'update:modelValue'],
+  template: `
+    <div>
+      <button class="trigger-refresh" @click="$emit('refresh')">refresh</button>
+      <button
+        class="set-custom-range"
+        @click="$emit('update:modelValue', { ...modelValue, start_date: '2026-05-01', end_date: '2026-05-02' })"
+      >set custom</button>
+      <slot name="after-reset" />
+    </div>
+  `,
+})
 const ModelDistributionChartStub = {
   props: ['metric'],
   emits: ['update:metric'],
@@ -105,12 +127,27 @@ const GroupDistributionChartStub = {
   `,
 }
 
+const DateRangePickerStub = defineComponent({
+  emits: ['update:start-date', 'update:end-date', 'change'],
+  template: `
+    <button
+      class="set-custom-date-range"
+      @click="() => {
+        $emit('update:start-date', '2026-05-01')
+        $emit('update:end-date', '2026-05-02')
+        $emit('change', { startDate: '2026-05-01', endDate: '2026-05-02', preset: null })
+      }"
+    >set date range</button>
+  `,
+})
+
 describe('admin UsageView distribution metric toggles', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     list.mockReset()
     getStats.mockReset()
     getSnapshotV2.mockReset()
+    getModelStats.mockReset()
     getById.mockReset()
 
     list.mockResolvedValue({
@@ -133,6 +170,9 @@ describe('admin UsageView distribution metric toggles', () => {
       models: [],
       groups: [],
     })
+    getModelStats.mockResolvedValue({
+      models: [],
+    })
   })
 
   afterEach(() => {
@@ -152,7 +192,7 @@ describe('admin UsageView distribution metric toggles', () => {
           UserBalanceHistoryModal: true,
           Pagination: true,
           Select: true,
-          DateRangePicker: true,
+          DateRangePicker: DateRangePickerStub,
           Icon: true,
           TokenUsageTrend: true,
           ModelDistributionChart: ModelDistributionChartStub,
@@ -192,5 +232,97 @@ describe('admin UsageView distribution metric toggles', () => {
     expect(modelChart.find('.metric').text()).toBe('actual_cost')
     expect(groupChart.find('.metric').text()).toBe('actual_cost')
     expect(getSnapshotV2).toHaveBeenCalledTimes(1)
+  })
+
+  it('refreshes with the new default date range after crossing into a new day', async () => {
+    vi.setSystemTime(new Date('2026-06-02T23:55:00'))
+
+    const wrapper = mount(UsageView, {
+      global: {
+        stubs: {
+          AppLayout: AppLayoutStub,
+          UsageStatsCards: true,
+          UsageFilters: UsageFiltersStub,
+          UsageTable: true,
+          UsageExportProgress: true,
+          UsageCleanupDialog: true,
+          UserBalanceHistoryModal: true,
+          Pagination: true,
+          Select: true,
+          DateRangePicker: DateRangePickerStub,
+          Icon: true,
+          TokenUsageTrend: true,
+          ModelDistributionChart: ModelDistributionChartStub,
+          GroupDistributionChart: GroupDistributionChartStub,
+        },
+      },
+    })
+
+    vi.advanceTimersByTime(120)
+    await flushPromises()
+
+    expect(list).toHaveBeenLastCalledWith(expect.objectContaining({
+      start_date: '2026-06-01',
+      end_date: '2026-06-02',
+    }), expect.anything())
+
+    vi.setSystemTime(new Date('2026-06-03T00:05:00'))
+
+    await wrapper.find('.trigger-refresh').trigger('click')
+    await flushPromises()
+
+    expect(list).toHaveBeenLastCalledWith(expect.objectContaining({
+      start_date: '2026-06-02',
+      end_date: '2026-06-03',
+    }), expect.anything())
+    expect(getStats).toHaveBeenLastCalledWith(expect.objectContaining({
+      start_date: '2026-06-02',
+      end_date: '2026-06-03',
+    }))
+  })
+
+  it('keeps manually selected date ranges on refresh after crossing into a new day', async () => {
+    vi.setSystemTime(new Date('2026-06-02T23:55:00'))
+
+    const wrapper = mount(UsageView, {
+      global: {
+        stubs: {
+          AppLayout: AppLayoutStub,
+          UsageStatsCards: true,
+          UsageFilters: UsageFiltersStub,
+          UsageTable: true,
+          UsageExportProgress: true,
+          UsageCleanupDialog: true,
+          UserBalanceHistoryModal: true,
+          Pagination: true,
+          Select: true,
+          DateRangePicker: DateRangePickerStub,
+          Icon: true,
+          TokenUsageTrend: true,
+          ModelDistributionChart: ModelDistributionChartStub,
+          GroupDistributionChart: GroupDistributionChartStub,
+        },
+      },
+    })
+
+    vi.advanceTimersByTime(120)
+    await flushPromises()
+
+    await wrapper.find('.set-custom-date-range').trigger('click')
+    await flushPromises()
+
+    vi.setSystemTime(new Date('2026-06-03T00:05:00'))
+
+    await wrapper.find('.trigger-refresh').trigger('click')
+    await flushPromises()
+
+    expect(list).toHaveBeenLastCalledWith(expect.objectContaining({
+      start_date: '2026-05-01',
+      end_date: '2026-05-02',
+    }), expect.anything())
+    expect(getStats).toHaveBeenLastCalledWith(expect.objectContaining({
+      start_date: '2026-05-01',
+      end_date: '2026-05-02',
+    }))
   })
 })

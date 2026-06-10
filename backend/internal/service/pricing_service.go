@@ -50,6 +50,16 @@ var (
 		Mode:                    "chat",
 		SupportsPromptCaching:   true,
 	}
+	anthropicFable5FallbackPricing = &LiteLLMModelPricing{
+		InputCostPerToken:                   1e-05,    // $10 per MTok
+		OutputCostPerToken:                  5e-05,    // $50 per MTok
+		CacheCreationInputTokenCost:         1.25e-05, // $12.50 per MTok
+		CacheCreationInputTokenCostAbove1hr: 2e-05,    // $20 per MTok
+		CacheReadInputTokenCost:             1e-06,    // $1 per MTok
+		LiteLLMProvider:                     "anthropic",
+		Mode:                                "chat",
+		SupportsPromptCaching:               true,
+	}
 )
 
 // LiteLLMModelPricing LiteLLM价格数据结构
@@ -771,7 +781,14 @@ func (s *PricingService) GetModelPricing(modelName string) *LiteLLMModelPricing 
 		return pricing
 	}
 
-	// 5. OpenAI 模型回退策略
+	// 5. Anthropic 新模型兜底（远程价格源未更新时仍可计费）
+	if isAnthropicFable5Model(lookupCandidates[0]) {
+		logger.With(zap.String("component", "service.pricing")).
+			Info(fmt.Sprintf("[Pricing] Anthropic fallback matched %s -> %s", lookupCandidates[0], "claude-fable-5(static)"))
+		return anthropicFable5FallbackPricing
+	}
+
+	// 6. OpenAI 模型回退策略
 	if strings.HasPrefix(lookupCandidates[0], "gpt-") {
 		return s.matchOpenAIModel(lookupCandidates[0])
 	}
@@ -930,6 +947,7 @@ func (s *PricingService) matchByModelFamily(model string) *LiteLLMModelPricing {
 	// 因子串关系误匹配 "claude-opus-4-7"（opus-4.7 系列）。
 	// 注意：原 map 实现存在 Go map 迭代随机性导致的同类 bug，此处改为有序切片修复。
 	families := []modelFamily{
+		{name: "fable-5", match: []string{"claude-fable-5"}},
 		{name: "opus-4.8", match: []string{"claude-opus-4-8", "claude-opus-4.8"}, pricing: []string{"claude-opus-4-8", "claude-opus-4.8", "claude-opus-4-7", "claude-opus-4-6"}},
 		{name: "opus-4.7", match: []string{"claude-opus-4-7", "claude-opus-4.7"}, pricing: []string{"claude-opus-4-7", "claude-opus-4.7", "claude-opus-4-6"}},
 		{name: "opus-4.6", match: []string{"claude-opus-4-6", "claude-opus-4.6"}},
@@ -961,6 +979,8 @@ func (s *PricingService) matchByModelFamily(model string) *LiteLLMModelPricing {
 	if matched == nil {
 		var fallbackName string
 		switch {
+		case strings.Contains(model, "fable"):
+			fallbackName = "fable-5"
 		case strings.Contains(model, "opus"):
 			switch {
 			case strings.Contains(model, "4.8") || strings.Contains(model, "4-8"):
@@ -1021,6 +1041,10 @@ func (s *PricingService) matchByModelFamily(model string) *LiteLLMModelPricing {
 	}
 
 	return nil
+}
+
+func isAnthropicFable5Model(model string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "claude-fable-5")
 }
 
 // matchOpenAIModel OpenAI 模型回退匹配策略

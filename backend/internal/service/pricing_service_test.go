@@ -26,7 +26,7 @@ func (s *pricingRemoteClientStub) FetchHashText(_ context.Context, _ string) (st
 	return "", nil
 }
 
-func TestFallbackPricingFile_ContainsLatestOpenAIModels(t *testing.T) {
+func TestFallbackPricingFile_ContainsLatestOpenAIAndAnthropicModels(t *testing.T) {
 	path := filepath.Join("..", "..", "resources", "model-pricing", "model_prices_and_context_window.json")
 	body, err := os.ReadFile(path)
 	require.NoError(t, err)
@@ -44,6 +44,7 @@ func TestFallbackPricingFile_ContainsLatestOpenAIModels(t *testing.T) {
 		"gpt-realtime-2",
 		"gpt-realtime-mini",
 		"gpt-realtime-translate",
+		"claude-fable-5",
 	} {
 		require.Contains(t, data, model)
 	}
@@ -98,6 +99,21 @@ func TestGetModelPricing_ProviderCandidatesCoverAliyunAdjacentModelFamilies(t *t
 	require.Same(t, kimiPricing, svc.GetModelPricing("kimi-latest"))
 	require.Same(t, deepseekPricing, svc.GetModelPricing("deepseek-v3"))
 	require.Same(t, glmPricing, svc.GetModelPricing("glm-4.5"))
+}
+
+func TestGetModelPricing_AnthropicFable5UsesStaticFallbackWhenRemoteMissing(t *testing.T) {
+	svc := &PricingService{
+		pricingData: map[string]*LiteLLMModelPricing{},
+	}
+
+	pricing := svc.GetModelPricing("claude-fable-5")
+	require.NotNil(t, pricing)
+	require.InDelta(t, 10e-6, pricing.InputCostPerToken, 1e-12)
+	require.InDelta(t, 50e-6, pricing.OutputCostPerToken, 1e-12)
+	require.InDelta(t, 12.5e-6, pricing.CacheCreationInputTokenCost, 1e-12)
+	require.InDelta(t, 20e-6, pricing.CacheCreationInputTokenCostAbove1hr, 1e-12)
+	require.InDelta(t, 1e-6, pricing.CacheReadInputTokenCost, 1e-12)
+	require.True(t, pricing.SupportsPromptCaching)
 }
 
 func TestParsePricingData_KeepsImageOnlyPricingEntries(t *testing.T) {

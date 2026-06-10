@@ -20,6 +20,8 @@ Tabro 由 Sub2API 分叉而来，是一个 AI API 网关平台，用于分发和
 - **管理后台** - Web 界面进行监控和管理
 - **外部系统集成** - 支持通过 iframe 嵌入外部系统（如工单等），扩展管理后台功能
 
+> 客户端接入参考：VS Code Custom Endpoint、Claude Code、Codex 和 CC Switch 的自定义模型配置见 [自定义模型客户端接入指南](docs/CLIENT_CUSTOM_MODELS_CN.md)。
+
 ## 技术栈
 
 | 组件 | 技术 |

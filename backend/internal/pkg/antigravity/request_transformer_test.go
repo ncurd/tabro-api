@@ -323,6 +323,13 @@ func TestBuildGenerationConfig_ThinkingDynamicBudget(t *testing.T) {
 			wantPresent: true,
 		},
 		{
+			name:        "adaptive on fable5 maps to high budget (24576)",
+			model:       "claude-fable-5",
+			thinking:    &ThinkingConfig{Type: "adaptive"},
+			wantBudget:  ClaudeAdaptiveHighThinkingBudgetTokens,
+			wantPresent: true,
+		},
+		{
 			name:        "adaptive on non-opus model keeps default dynamic (-1)",
 			model:       "claude-sonnet-4-5-thinking",
 			thinking:    &ThinkingConfig{Type: "adaptive"},
@@ -373,6 +380,21 @@ func TestBuildGenerationConfig_ThinkingDynamicBudget(t *testing.T) {
 				t.Fatalf("expected thinkingConfig to be nil, got %+v", cfg.ThinkingConfig)
 			}
 		})
+	}
+}
+
+func TestBuildGenerationConfig_ClaudeFable5Allows128KMaxTokens(t *testing.T) {
+	req := &ClaudeRequest{
+		Model:     "claude-fable-5",
+		MaxTokens: 128000,
+	}
+
+	cfg := buildGenerationConfig(req)
+	if cfg == nil {
+		t.Fatalf("expected non-nil generationConfig")
+	}
+	if cfg.MaxOutputTokens != 128000 {
+		t.Fatalf("expected maxOutputTokens=128000, got %d", cfg.MaxOutputTokens)
 	}
 }
 

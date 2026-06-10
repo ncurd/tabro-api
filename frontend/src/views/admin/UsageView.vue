@@ -224,8 +224,10 @@ const getGranularityForRange = (start: string, end: string): 'day' | 'hour' => {
   const daysDiff = Math.ceil((endTime - startTime) / (1000 * 60 * 60 * 24))
   return daysDiff <= 1 ? 'hour' : 'day'
 }
+
 const defaultRange = getLast24HoursRangeDates()
 const startDate = ref(defaultRange.start); const endDate = ref(defaultRange.end)
+const dateRangeFollowsDefault = ref(true)
 const filters = ref<AdminUsageQueryParams>({ user_id: undefined, model: undefined, group_id: undefined, request_type: undefined, billing_type: null, start_date: startDate.value, end_date: endDate.value })
 const pagination = reactive({ page: 1, page_size: getPersistedPageSize(), total: 0 })
 const sortState = reactive({
@@ -267,6 +269,7 @@ const applyRouteQueryFilters = () => {
 }
 
 const onDateRangeChange = (range: { startDate: string; endDate: string; preset: string | null }) => {
+  dateRangeFollowsDefault.value = false
   startDate.value = range.startDate
   endDate.value = range.endDate
   filters.value = {
@@ -276,6 +279,22 @@ const onDateRangeChange = (range: { startDate: string; endDate: string; preset: 
   }
   granularity.value = getGranularityForRange(range.startDate, range.endDate)
   applyFilters()
+}
+
+const syncDefaultDateRangeIfNeeded = () => {
+  if (!dateRangeFollowsDefault.value) {
+    return
+  }
+
+  const currentRange = getLast24HoursRangeDates()
+  filters.value = {
+    ...filters.value,
+    start_date: currentRange.start,
+    end_date: currentRange.end,
+  }
+  startDate.value = currentRange.start
+  endDate.value = currentRange.end
+  granularity.value = getGranularityForRange(currentRange.start, currentRange.end)
 }
 
 const buildUsageListParams = (
@@ -428,6 +447,7 @@ const applyFilters = () => {
   loadChartData()
 }
 const refreshData = () => {
+  syncDefaultDateRangeIfNeeded()
   resetModelStatsCache()
   loadLogs()
   loadStats()
@@ -436,6 +456,7 @@ const refreshData = () => {
 }
 const resetFilters = () => {
   const range = getLast24HoursRangeDates()
+  dateRangeFollowsDefault.value = true
   startDate.value = range.start
   endDate.value = range.end
   filters.value = { start_date: startDate.value, end_date: endDate.value, request_type: undefined, billing_type: null, billing_mode: undefined }
@@ -597,6 +618,7 @@ const handleColumnClickOutside = (event: MouseEvent) => {
 
 onMounted(() => {
   applyRouteQueryFilters()
+  dateRangeFollowsDefault.value = !route.query.start_date && !route.query.end_date
   loadLogs()
   loadStats()
   loadModelStats(modelDistributionSource.value, true)
