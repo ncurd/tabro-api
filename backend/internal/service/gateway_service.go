@@ -321,6 +321,19 @@ func isClaudeCodeCredentialScopeError(msg string) bool {
 		strings.Contains(m, "cannot be used for other api requests")
 }
 
+func isClaudeThirdPartyUsageError(msg string) bool {
+	m := strings.ToLower(strings.TrimSpace(msg))
+	if m == "" {
+		return false
+	}
+	return strings.Contains(m, "third-party apps") &&
+		strings.Contains(m, "extra usage")
+}
+
+func isClaudeCodeMimicRelevantError(msg string) bool {
+	return isClaudeCodeCredentialScopeError(msg) || isClaudeThirdPartyUsageError(msg)
+}
+
 // sseDataRe matches SSE data lines with optional whitespace after colon.
 // Some upstream APIs return non-standard "data:" without space (should be "data: ").
 var (
@@ -1049,7 +1062,7 @@ func ensureClaudeOAuthMetadataUserID(body []byte, userID string) ([]byte, bool) 
 	trimmedRaw := strings.TrimSpace(metadata.Raw)
 	if strings.HasPrefix(trimmedRaw, "{") {
 		existing := metadata.Get("user_id")
-		if existing.Exists() && existing.Type == gjson.String && existing.String() != "" {
+		if existing.Exists() && existing.Type == gjson.String && ParseMetadataUserID(existing.String()) != nil {
 			return body, false
 		}
 		return setJSONValueBytes(body, "metadata.user_id", userID)
@@ -3580,13 +3593,53 @@ func isClaudeCodeClient(userAgent string, metadataUserID string) bool {
 }
 
 func isClaudeCodeRequest(ctx context.Context, c *gin.Context, parsed *ParsedRequest) bool {
-	if IsClaudeCodeClient(ctx) {
-		return true
+	if ctx != nil {
+		if v, ok := ctx.Value(ctxkey.IsClaudeCodeClient).(bool); ok {
+			return v
+		}
 	}
 	if parsed == nil || c == nil {
 		return false
 	}
 	return isClaudeCodeClient(c.GetHeader("User-Agent"), parsed.MetadataUserID)
+}
+
+func shouldMimicClaudeCodeForOAuth(account *Account, isClaudeCode bool) bool {
+	return account != nil && account.IsAnthropicOAuthOrSetupToken() && !isClaudeCode
+}
+
+func (s *GatewayService) claudeOAuthMimicNormalizeOptions(ctx context.Context, c *gin.Context, account *Account, parsed *ParsedRequest, stripSystemCacheControl bool) claudeOAuthNormalizeOptions {
+	opts := claudeOAuthNormalizeOptions{stripSystemCacheControl: stripSystemCacheControl}
+	if s == nil || account == nil {
+		return opts
+	}
+
+	metadataPassthrough := false
+	if s.settingService != nil {
+		_, metadataPassthrough, _ = s.settingService.GetGatewayForwardingSettings(ctx)
+	}
+	if metadataPassthrough {
+		return opts
+	}
+
+	var fp *Fingerprint
+	if s.identityService != nil && c != nil && c.Request != nil {
+		if next, err := s.identityService.GetOrCreateFingerprint(ctx, account.ID, c.Request.Header); err == nil {
+			fp = next
+		}
+	}
+
+	metadataUserID := s.buildOAuthMetadataUserID(parsed, account, fp)
+	if metadataUserID == "" && parsed != nil && strings.TrimSpace(parsed.MetadataUserID) != "" && ParseMetadataUserID(parsed.MetadataUserID) == nil {
+		parsedCopy := *parsed
+		parsedCopy.MetadataUserID = ""
+		metadataUserID = s.buildOAuthMetadataUserID(&parsedCopy, account, fp)
+	}
+	if metadataUserID != "" {
+		opts.injectMetadata = true
+		opts.metadataUserID = metadataUserID
+	}
+	return opts
 }
 
 // normalizeSystemParam 将 json.RawMessage 类型的 system 参数转为标准 Go 类型（string / []any / nil），
@@ -3950,36 +4003,14 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	}
 
 	isClaudeCode := isClaudeCodeRequest(ctx, c, parsed)
-	shouldMimicClaudeCode := account.IsOAuth() && !isClaudeCode
+	shouldMimicClaudeCode := shouldMimicClaudeCodeForOAuth(account, isClaudeCode)
 
 	if shouldMimicClaudeCode {
-		// 非 Claude Code 客户端：将 system 替换为 Claude Code 标识，原始 system 迁移至 messages
-		// 条件：1) OAuth/SetupToken 账号  2) 不是 Claude Code 客户端  3) 不是 Haiku 模型  4) system 中还没有 Claude Code 提示词
-		systemRewritten := false
-		if !strings.Contains(strings.ToLower(reqModel), "haiku") &&
-			!systemIncludesClaudeCodePrompt(parsed.System) {
-			body = rewriteSystemForNonClaudeCode(body, parsed.System)
-			systemRewritten = true
-		}
-
-		// system 被重写时保留 CC prompt 的 cache_control: ephemeral（匹配真实 Claude Code 行为）；
-		// 未重写时（haiku / 已含 CC 前缀）剥离客户端 cache_control，与原有行为一致。
-		// 两种情况下 enforceCacheControlLimit 都会兜底处理上限。
-		normalizeOpts := claudeOAuthNormalizeOptions{stripSystemCacheControl: !systemRewritten}
-		if s.identityService != nil {
-			fp, err := s.identityService.GetOrCreateFingerprint(ctx, account.ID, c.Request.Header)
-			if err == nil && fp != nil {
-				// metadata 透传开启时跳过 metadata 注入
-				_, mimicMPT, _ := s.settingService.GetGatewayForwardingSettings(ctx)
-				if !mimicMPT {
-					if metadataUserID := s.buildOAuthMetadataUserID(parsed, account, fp); metadataUserID != "" {
-						normalizeOpts.injectMetadata = true
-						normalizeOpts.metadataUserID = metadataUserID
-					}
-				}
-			}
-		}
-
+		// 非 Claude Code 客户端使用 Claude OAuth/setup-token 时，完整重建为
+		// CLIProxy/Claude Code system 形态，避免 VS Code 等 custom provider 被上游
+		// 判定为第三方应用。
+		body = rewriteSystemForNonClaudeCode(body, parsed.System)
+		normalizeOpts := s.claudeOAuthMimicNormalizeOptions(ctx, c, account, parsed, false)
 		body, reqModel = normalizeClaudeOAuthRequestBody(body, reqModel, normalizeOpts)
 	}
 
@@ -6294,7 +6325,7 @@ func (s *GatewayService) handleErrorResponse(ctx context.Context, resp *http.Res
 
 	// Print a compact upstream request fingerprint when we hit the Claude Code OAuth
 	// credential scope error. This avoids requiring env-var tweaks in a fixed deploy.
-	if isClaudeCodeCredentialScopeError(upstreamMsg) && c != nil {
+	if isClaudeCodeMimicRelevantError(upstreamMsg) && c != nil {
 		if v, ok := c.Get(claudeMimicDebugInfoKey); ok {
 			if line, ok := v.(string); ok && strings.TrimSpace(line) != "" {
 				logger.LegacyPrintf("service.gateway", "[ClaudeMimicDebugOnError] status=%d request_id=%s %s",
@@ -6474,7 +6505,7 @@ func (s *GatewayService) handleRetryExhaustedError(ctx context.Context, resp *ht
 	upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
 	upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
 
-	if isClaudeCodeCredentialScopeError(upstreamMsg) && c != nil {
+	if isClaudeCodeMimicRelevantError(upstreamMsg) && c != nil {
 		if v, ok := c.Get(claudeMimicDebugInfoKey); ok {
 			if line, ok := v.(string); ok && strings.TrimSpace(line) != "" {
 				logger.LegacyPrintf("service.gateway", "[ClaudeMimicDebugOnError] status=%d request_id=%s %s",
@@ -8186,14 +8217,11 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	body = StripEmptyTextBlocks(body)
 
 	isClaudeCode := isClaudeCodeRequest(ctx, c, parsed)
-	shouldMimicClaudeCode := account.IsOAuth() && !isClaudeCode
+	shouldMimicClaudeCode := shouldMimicClaudeCodeForOAuth(account, isClaudeCode)
 
 	if shouldMimicClaudeCode {
-		if !strings.Contains(strings.ToLower(reqModel), "haiku") &&
-			!systemIncludesClaudeCodePrompt(parsed.System) {
-			body = rewriteSystemForNonClaudeCode(body, parsed.System)
-		}
-		normalizeOpts := claudeOAuthNormalizeOptions{}
+		body = rewriteSystemForNonClaudeCode(body, parsed.System)
+		normalizeOpts := s.claudeOAuthMimicNormalizeOptions(ctx, c, account, parsed, false)
 		body, reqModel = normalizeClaudeOAuthRequestBody(body, reqModel, normalizeOpts)
 	}
 

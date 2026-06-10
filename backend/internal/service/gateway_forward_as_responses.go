@@ -84,13 +84,12 @@ func (s *GatewayService) ForwardAsResponses(
 
 	// 6. Apply Claude Code mimicry for OAuth accounts (non-Claude-Code endpoints)
 	isClaudeCode := false // Responses API is never Claude Code
-	shouldMimicClaudeCode := account.IsOAuth() && !isClaudeCode
+	shouldMimicClaudeCode := shouldMimicClaudeCodeForOAuth(account, isClaudeCode)
 
 	if shouldMimicClaudeCode {
-		if !strings.Contains(strings.ToLower(mappedModel), "haiku") &&
-			!systemIncludesClaudeCodePrompt(anthropicReq.System) {
-			anthropicBody = injectClaudeCodePrompt(anthropicBody, anthropicReq.System)
-		}
+		anthropicBody = rewriteSystemForNonClaudeCode(anthropicBody, anthropicReq.System)
+		normalizeOpts := s.claudeOAuthMimicNormalizeOptions(ctx, c, account, parsed, false)
+		anthropicBody, mappedModel = normalizeClaudeOAuthRequestBody(anthropicBody, mappedModel, normalizeOpts)
 	}
 
 	// 7. Enforce cache_control block limit

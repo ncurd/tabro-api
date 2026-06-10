@@ -58,6 +58,75 @@ func TestBuildUpstreamRequest_AnthropicOAuthHeadersMatchCLIProxyShape(t *testing
 	require.Equal(t, "stream", getHeaderRaw(streamReq.Header, "x-stainless-helper-method"))
 }
 
+func TestBuildUpstreamRequest_ClaudeCodeMimicOverridesVSCodeHeaders(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	c.Request.Header.Set("User-Agent", "GitHubCopilotChat/0.29.0 VSCode/1.102.0")
+	c.Request.Header.Set("X-App", "vscode")
+	c.Request.Header.Set("X-Stainless-Lang", "python")
+	c.Request.Header.Set("Anthropic-Dangerous-Direct-Browser-Access", "true")
+	c.Request.Header.Set("anthropic-beta", "client-beta-2026-01-01")
+
+	account := &Account{
+		ID:          903,
+		Name:        "anthropic-oauth-vscode-mimic",
+		Platform:    PlatformAnthropic,
+		Type:        AccountTypeOAuth,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"access_token": "oauth-token",
+		},
+	}
+	body := []byte(`{"model":"claude-fable-5","betas":["body-beta-2026-01-01"],"messages":[{"role":"user","content":[{"type":"text","text":"hello"}]}]}`)
+
+	svc := &GatewayService{}
+
+	req, err := svc.buildUpstreamRequest(context.Background(), c, account, body, "oauth-token", "oauth", "claude-fable-5", false, true)
+	require.NoError(t, err)
+
+	reqBody, err := io.ReadAll(req.Body)
+	require.NoError(t, err)
+	require.False(t, gjson.GetBytes(reqBody, "betas").Exists())
+
+	require.Equal(t, claude.DefaultHeaders["User-Agent"], getHeaderRaw(req.Header, "User-Agent"))
+	require.Equal(t, claude.DefaultHeaders["X-App"], getHeaderRaw(req.Header, "X-App"))
+	require.Equal(t, claude.DefaultHeaders["X-Stainless-Lang"], getHeaderRaw(req.Header, "X-Stainless-Lang"))
+	require.Equal(t, claude.DefaultHeaders["X-Stainless-Runtime"], getHeaderRaw(req.Header, "X-Stainless-Runtime"))
+	require.Equal(t, "", getHeaderRaw(req.Header, "Anthropic-Dangerous-Direct-Browser-Access"))
+	require.NotContains(t, getHeaderRaw(req.Header, "User-Agent"), "VSCode")
+
+	beta := getHeaderRaw(req.Header, "anthropic-beta")
+	require.Contains(t, beta, claude.BetaClaudeCode)
+	require.Contains(t, beta, claude.BetaOAuth)
+	require.Contains(t, beta, "client-beta-2026-01-01")
+	require.Contains(t, beta, "body-beta-2026-01-01")
+}
+
+func TestIsClaudeCodeRequest_HonorsExplicitFalseContext(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	c.Request.Header.Set("User-Agent", "claude-cli/2.1.63 (external, cli)")
+	c.Request = c.Request.WithContext(SetClaudeCodeClient(c.Request.Context(), false))
+
+	parsed := &ParsedRequest{
+		MetadataUserID: "session_123e4567-e89b-12d3-a456-426614174000",
+	}
+
+	require.False(t, isClaudeCodeRequest(c.Request.Context(), c, parsed))
+	require.True(t, shouldMimicClaudeCodeForOAuth(&Account{Platform: PlatformAnthropic, Type: AccountTypeOAuth}, isClaudeCodeRequest(c.Request.Context(), c, parsed)))
+}
+
+func TestIsClaudeCodeMimicRelevantError_IncludesThirdPartyUsage(t *testing.T) {
+	msg := "Third-party apps now draw from your extra usage, not your plan limits. Add more at claude.ai/settings/usage and keep going."
+	require.True(t, isClaudeCodeMimicRelevantError(msg))
+}
+
 func TestRewriteSystemForNonClaudeCode_InjectsCLIProxySystemBlocks(t *testing.T) {
 	body := []byte(`{"model":"claude-3","system":"You are a product-specific coding assistant.","messages":[{"role":"user","content":[{"type":"text","text":"hello"}]}]}`)
 
@@ -76,6 +145,80 @@ func TestRewriteSystemForNonClaudeCode_InjectsCLIProxySystemBlocks(t *testing.T)
 	require.Contains(t, firstUserText, "<system-reminder>")
 	require.Contains(t, firstUserText, "Use the available tools when needed to help with software engineering tasks.")
 	require.NotContains(t, firstUserText, "[System Instructions]")
+}
+
+func TestRewriteSystemForNonClaudeCode_NoSystemStillBuildsCLIProxySystemBlocks(t *testing.T) {
+	body := []byte(`{"model":"claude-fable-5","messages":[{"role":"user","content":[{"type":"text","text":"hello"}]}]}`)
+
+	rewritten := rewriteSystemForNonClaudeCode(body, nil)
+	signed := signBillingHeaderCCH(rewritten)
+
+	system := gjson.GetBytes(signed, "system")
+	require.True(t, system.IsArray())
+	require.Len(t, system.Array(), 3)
+	require.Regexp(t, `^x-anthropic-billing-header: cc_version=2\.1\.63\.[0-9a-f]{3}; cc_entrypoint=cli; cch=[0-9a-f]{5};$`, system.Array()[0].Get("text").String())
+	require.Equal(t, claudeCodeSystemPrompt, system.Array()[1].Get("text").String())
+	require.Contains(t, system.Array()[2].Get("text").String(), "# System")
+
+	firstUserText := gjson.GetBytes(signed, "messages.0.content.0.text").String()
+	require.Equal(t, "hello", firstUserText)
+}
+
+func TestGatewayService_AnthropicOAuth_CountTokensUsesClaudeCodeMimicForVSCode(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", nil)
+	c.Request.Header.Set("User-Agent", "GitHubCopilotChat/0.29.0 VSCode/1.102.0")
+	c.Request.Header.Set("X-App", "vscode")
+
+	body := []byte(`{"model":"claude-fable-5","messages":[{"role":"user","content":[{"type":"text","text":"hello"}]}]}`)
+	parsed, err := ParseGatewayRequest(body, PlatformAnthropic)
+	require.NoError(t, err)
+
+	upstream := &anthropicHTTPUpstreamRecorder{
+		resp: &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"input_tokens":42}`)),
+		},
+	}
+	svc := &GatewayService{
+		httpUpstream:     upstream,
+		rateLimitService: &RateLimitService{},
+	}
+	account := &Account{
+		ID:          904,
+		Name:        "anthropic-oauth-vscode-count-tokens",
+		Platform:    PlatformAnthropic,
+		Type:        AccountTypeOAuth,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"access_token": "oauth-token",
+		},
+	}
+
+	err = svc.ForwardCountTokens(context.Background(), c, account, parsed)
+	require.NoError(t, err)
+
+	require.Equal(t, claude.DefaultHeaders["User-Agent"], getHeaderRaw(upstream.lastReq.Header, "User-Agent"))
+	require.Equal(t, claude.DefaultHeaders["X-App"], getHeaderRaw(upstream.lastReq.Header, "X-App"))
+	beta := getHeaderRaw(upstream.lastReq.Header, "anthropic-beta")
+	require.Contains(t, beta, claude.BetaClaudeCode)
+	require.Contains(t, beta, claude.BetaOAuth)
+	require.Contains(t, beta, claude.BetaTokenCounting)
+
+	system := gjson.GetBytes(upstream.lastBody, "system")
+	require.True(t, system.IsArray())
+	require.Len(t, system.Array(), 3)
+	require.Equal(t, claudeCodeSystemPrompt, system.Array()[1].Get("text").String())
+	metadataUserID := gjson.GetBytes(upstream.lastBody, "metadata.user_id").String()
+	require.NotEmpty(t, metadataUserID)
+	require.NotNil(t, ParseMetadataUserID(metadataUserID))
+	require.False(t, gjson.GetBytes(upstream.lastBody, "betas").Exists())
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.JSONEq(t, `{"input_tokens":42}`, rec.Body.String())
 }
 
 func TestResolveAnthropicOAuthTLSProfile_DefaultsForOAuthAndSetupToken(t *testing.T) {
