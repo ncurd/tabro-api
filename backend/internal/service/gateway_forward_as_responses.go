@@ -88,6 +88,9 @@ func (s *GatewayService) ForwardAsResponses(
 
 	if shouldMimicClaudeCode {
 		anthropicBody = rewriteSystemForNonClaudeCode(anthropicBody, anthropicReq.System)
+		if isVSCodeCopilotRequest(c) {
+			anthropicBody = stripVSCodeCopilotToolsForClaudeOAuthMimic(anthropicBody)
+		}
 		normalizeOpts := s.claudeOAuthMimicNormalizeOptions(ctx, c, account, parsed, false)
 		anthropicBody, mappedModel = normalizeClaudeOAuthRequestBody(anthropicBody, mappedModel, normalizeOpts)
 	}

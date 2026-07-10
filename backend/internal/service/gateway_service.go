@@ -276,6 +276,25 @@ func buildClaudeMimicDebugLine(req *http.Request, body []byte, account *Account,
 
 	metaUserID := strings.TrimSpace(gjson.GetBytes(body, "metadata.user_id").String())
 	sysPreview := strings.TrimSpace(extractSystemPreviewFromBody(body))
+	tools := gjson.GetBytes(body, "tools")
+	toolCount := 0
+	toolNames := make([]string, 0, 6)
+	if tools.Exists() && tools.IsArray() {
+		tools.ForEach(func(_, tool gjson.Result) bool {
+			toolCount++
+			if len(toolNames) < 6 {
+				name := strings.TrimSpace(tool.Get("name").String())
+				if name == "" {
+					name = strings.TrimSpace(tool.Get("type").String())
+				}
+				if name != "" {
+					toolNames = append(toolNames, name)
+				}
+			}
+			return true
+		})
+	}
+	toolChoice := strings.TrimSpace(gjson.GetBytes(body, "tool_choice.type").String())
 
 	// Truncate preview to keep logs sane.
 	if len(sysPreview) > 300 {
@@ -292,13 +311,16 @@ func buildClaudeMimicDebugLine(req *http.Request, body []byte, account *Account,
 	}
 
 	return fmt.Sprintf(
-		"url=%s account=%d(%s) tokenType=%s mimic=%t meta.user_id=%q system.preview=%q headers={%s}",
+		"url=%s account=%d(%s) tokenType=%s mimic=%t meta.user_id=%q tools=%d tool_names=%q tool_choice=%q system.preview=%q headers={%s}",
 		req.URL.String(),
 		aid,
 		aname,
 		tokenType,
 		mimicClaudeCode,
 		metaUserID,
+		toolCount,
+		strings.Join(toolNames, ","),
+		toolChoice,
 		sysPreview,
 		strings.Join(h, " "),
 	)
@@ -3608,6 +3630,46 @@ func shouldMimicClaudeCodeForOAuth(account *Account, isClaudeCode bool) bool {
 	return account != nil && account.IsAnthropicOAuthOrSetupToken() && !isClaudeCode
 }
 
+func isVSCodeCopilotRequest(c *gin.Context) bool {
+	if c == nil || c.Request == nil {
+		return false
+	}
+	signals := []string{
+		c.Request.Header.Get("User-Agent"),
+		c.Request.Header.Get("X-App"),
+		c.Request.Header.Get("X-Client-Name"),
+		c.Request.Header.Get("X-Client"),
+	}
+	for _, signal := range signals {
+		signal = strings.ToLower(strings.TrimSpace(signal))
+		if signal == "" {
+			continue
+		}
+		if strings.Contains(signal, "vscode") || strings.Contains(signal, "githubcopilot") || strings.Contains(signal, "copilot") {
+			return true
+		}
+	}
+	return false
+}
+
+func stripVSCodeCopilotToolsForClaudeOAuthMimic(body []byte) []byte {
+	if len(body) == 0 {
+		return body
+	}
+	out := body
+	if gjson.GetBytes(out, "tools").Exists() {
+		if next, ok := deleteJSONPathBytes(out, "tools"); ok {
+			out = next
+		}
+	}
+	if gjson.GetBytes(out, "tool_choice").Exists() {
+		if next, ok := deleteJSONPathBytes(out, "tool_choice"); ok {
+			out = next
+		}
+	}
+	return out
+}
+
 func (s *GatewayService) claudeOAuthMimicNormalizeOptions(ctx context.Context, c *gin.Context, account *Account, parsed *ParsedRequest, stripSystemCacheControl bool) claudeOAuthNormalizeOptions {
 	opts := claudeOAuthNormalizeOptions{stripSystemCacheControl: stripSystemCacheControl}
 	if s == nil || account == nil {
@@ -4010,6 +4072,9 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		// CLIProxy/Claude Code system 形态，避免 VS Code 等 custom provider 被上游
 		// 判定为第三方应用。
 		body = rewriteSystemForNonClaudeCode(body, parsed.System)
+		if isVSCodeCopilotRequest(c) {
+			body = stripVSCodeCopilotToolsForClaudeOAuthMimic(body)
+		}
 		normalizeOpts := s.claudeOAuthMimicNormalizeOptions(ctx, c, account, parsed, false)
 		body, reqModel = normalizeClaudeOAuthRequestBody(body, reqModel, normalizeOpts)
 	}
@@ -8221,6 +8286,9 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 
 	if shouldMimicClaudeCode {
 		body = rewriteSystemForNonClaudeCode(body, parsed.System)
+		if isVSCodeCopilotRequest(c) {
+			body = stripVSCodeCopilotToolsForClaudeOAuthMimic(body)
+		}
 		normalizeOpts := s.claudeOAuthMimicNormalizeOptions(ctx, c, account, parsed, false)
 		body, reqModel = normalizeClaudeOAuthRequestBody(body, reqModel, normalizeOpts)
 	}

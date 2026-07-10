@@ -91,7 +91,7 @@ VS Code 的 BYOK 模型通过 **Chat: Manage Language Models** 管理。官方�
         "id": "claude-fable-5",
         "name": "Claude Fable 5",
         "url": "https://tabro.example.com/v1/messages",
-        "toolCalling": true,
+        "toolCalling": false,
         "vision": true,
         "thinking": true,
         "maxInputTokens": 1000000,
@@ -118,7 +118,7 @@ VS Code 的 BYOK 模型通过 **Chat: Manage Language Models** 管理。官方�
         "id": "claude-fable-5",
         "name": "Claude Fable 5 via Antigravity",
         "url": "https://tabro.example.com/antigravity/v1/messages",
-        "toolCalling": true,
+        "toolCalling": false,
         "vision": true,
         "thinking": true,
         "maxInputTokens": 1000000,
@@ -131,7 +131,8 @@ VS Code 的 BYOK 模型通过 **Chat: Manage Language Models** 管理。官方�
 
 ### VS Code 常见问题
 
-- **模型不显示**：确认 `toolCalling` 为 `true`，保存后重启 VS Code。
+- **模型不显示**：保存后重启 VS Code；如果 VS Code 版本较旧，优先切换 Insiders。
+- **Claude OAuth/setup-token 账号报 third-party/extra usage**：VS Code Copilot 的工具 schema 会让 Anthropic 将请求识别为三方应用。Claude Messages 示例默认 `toolCalling: false`；服务端也会对 VS Code Copilot + Anthropic OAuth/setup-token 自动移除工具定义。需要 Agent 工具模式时，建议使用 Anthropic API Key 透传账号或非 OAuth 链路。
 - **401/403**：确认 API Key 可用，并用 curl 先测通：
 
   ```bash

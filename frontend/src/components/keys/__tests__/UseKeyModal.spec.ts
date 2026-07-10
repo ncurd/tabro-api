@@ -17,7 +17,7 @@ vi.mock('@/composables/useClipboard', () => ({
 import UseKeyModal from '../UseKeyModal.vue'
 
 describe('UseKeyModal', () => {
-  it('renders updated GPT-5.4 mini/nano names in OpenCode config', async () => {
+  it('renders updated GPT-5.4 and GPT-5.6 names in OpenCode config', async () => {
     const wrapper = mount(UseKeyModal, {
       props: {
         show: true,
@@ -49,5 +49,8 @@ describe('UseKeyModal', () => {
     expect(codeBlock.exists()).toBe(true)
     expect(codeBlock.text()).toContain('"name": "GPT-5.4 Mini"')
     expect(codeBlock.text()).toContain('"name": "GPT-5.4 Nano"')
+    expect(codeBlock.text()).toContain('"name": "GPT-5.6 Sol"')
+    expect(codeBlock.text()).toContain('"name": "GPT-5.6 Terra"')
+    expect(codeBlock.text()).toContain('"name": "GPT-5.6 Luna"')
   })
 })

@@ -30,6 +30,15 @@ describe('useModelWhitelist', () => {
     expect(models).toContain('gpt-5.5-pro-2026-04-23')
   })
 
+  it('openai 模型列表包含 GPT-5.6 Sol/Terra/Luna', () => {
+    const models = getModelsByPlatform('openai')
+
+    expect(models).toContain('gpt-5.6')
+    expect(models).toContain('gpt-5.6-sol')
+    expect(models).toContain('gpt-5.6-terra')
+    expect(models).toContain('gpt-5.6-luna')
+  })
+
   it('openai 模型列表包含最新图片和实时模型', () => {
     const models = getModelsByPlatform('openai')
 
@@ -97,6 +106,16 @@ describe('useModelWhitelist', () => {
 
     expect(mapping).toEqual({
       'gpt-5.5-2026-04-23': 'gpt-5.5-2026-04-23'
+    })
+  })
+
+  it('whitelist 模式会保留 GPT-5.6 三档模型的精确映射', () => {
+    const mapping = buildModelMappingObject('whitelist', ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'], [])
+
+    expect(mapping).toEqual({
+      'gpt-5.6-sol': 'gpt-5.6-sol',
+      'gpt-5.6-terra': 'gpt-5.6-terra',
+      'gpt-5.6-luna': 'gpt-5.6-luna'
     })
   })
 })
