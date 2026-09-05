@@ -21,8 +21,8 @@
 
 | 场景 | 模型示例 |
 |------|----------|
-| OpenAI / Codex 兼容 | `gpt-5.4` |
-| Claude / Anthropic 兼容 | `claude-fable-5`、`claude-sonnet-4-6` |
+| OpenAI / Codex 兼容 | `gpt-6-astra`、`gpt-5.6` |
+| Claude / Anthropic 兼容 | `claude-fable-5-1`、`claude-opus-5` |
 | Antigravity Claude | `claude-fable-5`、`claude-opus-4-6-thinking` |
 
 如果你给 Key 配了模型白名单或模型映射，客户端里的模型 ID 必须能被该分组和账号支持。
@@ -49,7 +49,7 @@ VS Code 的 BYOK 模型通过 **Chat: Manage Language Models** 管理。官方�
 
 ### OpenAI Responses 示例
 
-用于 Tabro 的 OpenAI 兼容入口，推荐给 `gpt-5.4`、`gpt-5.4-mini` 等模型。
+用于 Tabro 的 OpenAI 兼容入口，推荐给 `gpt-6-astra`、`gpt-5.6` 等模型。
 
 ```json
 [
@@ -60,14 +60,14 @@ VS Code 的 BYOK 模型通过 **Chat: Manage Language Models** 管理。官方�
     "apiType": "responses",
     "models": [
       {
-        "id": "gpt-5.4",
-        "name": "Tabro GPT-5.4",
+        "id": "gpt-6-astra",
+        "name": "Tabro GPT-6 Astra",
         "url": "https://tabro.example.com/v1/responses",
         "toolCalling": true,
         "vision": true,
         "thinking": true,
-        "supportsReasoningEffort": ["low", "medium", "high", "xhigh"],
-        "maxInputTokens": 1000000,
+        "supportsReasoningEffort": ["low", "medium", "high", "xhigh", "max"],
+        "maxInputTokens": 922000,
         "maxOutputTokens": 128000
       }
     ]
@@ -88,8 +88,8 @@ VS Code 的 BYOK 模型通过 **Chat: Manage Language Models** 管理。官方�
     "apiType": "messages",
     "models": [
       {
-        "id": "claude-fable-5",
-        "name": "Claude Fable 5",
+        "id": "claude-fable-5-1",
+        "name": "Claude Fable 5.1",
         "url": "https://tabro.example.com/v1/messages",
         "toolCalling": false,
         "vision": true,
@@ -153,6 +153,7 @@ Claude Code 使用 Anthropic 兼容入口。Tabro API Key 推荐放在 `ANTHROPI
 ```bash
 export ANTHROPIC_BASE_URL="https://tabro.example.com"
 export ANTHROPIC_AUTH_TOKEN="sk-xxxx"
+export ANTHROPIC_MODEL="claude-fable-5-1"
 export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 ```
 
@@ -179,9 +180,13 @@ export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 
 注意：Claude Code 的 `ANTHROPIC_BASE_URL` 是 base URL，不要写成 `/v1/messages`。
 
+也可以用 `claude --model claude-fable-5-1` 或 `claude --model claude-opus-5` 临时选择模型。Fable 5.1 需要 Claude Code 2.1.255 或更高版本，Opus 5 需要 2.1.219 或更高版本。
+
 ## Codex 直接配置
 
 Codex CLI / IDE 扩展共用 `~/.codex/config.toml`。Tabro 推荐使用 Responses API。
+
+使用 GPT-6 时，将下面的 `model` 和 `review_model` 改为 `gpt-6-astra`，并可将 `model_reasoning_effort` 设为 `low`、`medium`、`high`、`xhigh` 或 `max`。
 
 `~/.codex/config.toml`：
 

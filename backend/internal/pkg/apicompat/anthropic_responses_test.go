@@ -150,6 +150,36 @@ func TestAnthropicToResponses_MaxTokensFloor(t *testing.T) {
 	assert.Equal(t, 128, *resp.MaxOutputTokens)
 }
 
+func TestResponsesToAnthropicRequest_ReasoningEffortCompatibility(t *testing.T) {
+	tests := []struct {
+		name   string
+		model  string
+		effort string
+		want   string
+	}{
+		{name: "fable 5.1 xhigh", model: "claude-fable-5-1", effort: "xhigh", want: "xhigh"},
+		{name: "fable 5.1 max", model: "claude-fable-5.1", effort: "max", want: "max"},
+		{name: "opus 5 xhigh", model: "claude-opus-5", effort: "xhigh", want: "xhigh"},
+		{name: "opus 5 max", model: "claude-opus-5", effort: "max", want: "max"},
+		{name: "legacy model maps xhigh to max", model: "claude-opus-4-6", effort: "xhigh", want: "max"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := &ResponsesRequest{
+				Model:     tt.model,
+				Input:     json.RawMessage(`"Hello"`),
+				Reasoning: &ResponsesReasoning{Effort: tt.effort},
+			}
+
+			anthropicReq, err := ResponsesToAnthropicRequest(req)
+			require.NoError(t, err)
+			require.NotNil(t, anthropicReq.OutputConfig)
+			assert.Equal(t, tt.want, anthropicReq.OutputConfig.Effort)
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // ResponsesToAnthropic (non-streaming) tests
 // ---------------------------------------------------------------------------
@@ -167,7 +197,15 @@ func TestResponsesToAnthropic_TextOnly(t *testing.T) {
 				},
 			},
 		},
-		Usage: &ResponsesUsage{InputTokens: 10, OutputTokens: 5, TotalTokens: 15},
+		Usage: &ResponsesUsage{
+			InputTokens:  10,
+			OutputTokens: 5,
+			TotalTokens:  15,
+			InputTokensDetails: &ResponsesInputTokensDetails{
+				CachedTokens:     3,
+				CacheWriteTokens: 2,
+			},
+		},
 	}
 
 	anth := ResponsesToAnthropic(resp, "claude-opus-4-6")
@@ -177,8 +215,47 @@ func TestResponsesToAnthropic_TextOnly(t *testing.T) {
 	require.Len(t, anth.Content, 1)
 	assert.Equal(t, "text", anth.Content[0].Type)
 	assert.Equal(t, "Hello there!", anth.Content[0].Text)
-	assert.Equal(t, 10, anth.Usage.InputTokens)
+	assert.Equal(t, 5, anth.Usage.InputTokens)
 	assert.Equal(t, 5, anth.Usage.OutputTokens)
+	assert.Equal(t, 3, anth.Usage.CacheReadInputTokens)
+	assert.Equal(t, 2, anth.Usage.CacheCreationInputTokens)
+}
+
+func TestResponsesToAnthropic_UsageClampsUncachedInputTokens(t *testing.T) {
+	resp := &ResponsesResponse{
+		Usage: &ResponsesUsage{
+			InputTokens: 4,
+			InputTokensDetails: &ResponsesInputTokensDetails{
+				CachedTokens:     3,
+				CacheWriteTokens: 2,
+			},
+		},
+	}
+
+	anth := ResponsesToAnthropic(resp, "claude-opus-4-6")
+	assert.Zero(t, anth.Usage.InputTokens)
+	assert.Equal(t, 3, anth.Usage.CacheReadInputTokens)
+	assert.Equal(t, 2, anth.Usage.CacheCreationInputTokens)
+}
+
+func TestAnthropicToResponsesResponse_UsageIncludesCacheTokens(t *testing.T) {
+	resp := &AnthropicResponse{
+		Usage: AnthropicUsage{
+			InputTokens:              5,
+			OutputTokens:             4,
+			CacheReadInputTokens:     3,
+			CacheCreationInputTokens: 2,
+		},
+	}
+
+	openAIResp := AnthropicToResponsesResponse(resp)
+	require.NotNil(t, openAIResp.Usage)
+	assert.Equal(t, 10, openAIResp.Usage.InputTokens)
+	assert.Equal(t, 4, openAIResp.Usage.OutputTokens)
+	assert.Equal(t, 14, openAIResp.Usage.TotalTokens)
+	require.NotNil(t, openAIResp.Usage.InputTokensDetails)
+	assert.Equal(t, 3, openAIResp.Usage.InputTokensDetails.CachedTokens)
+	assert.Equal(t, 2, openAIResp.Usage.InputTokensDetails.CacheWriteTokens)
 }
 
 func TestResponsesToAnthropic_ToolUse(t *testing.T) {
@@ -332,15 +409,75 @@ func TestStreamingTextOnly(t *testing.T) {
 		Type: "response.completed",
 		Response: &ResponsesResponse{
 			Status: "completed",
-			Usage:  &ResponsesUsage{InputTokens: 10, OutputTokens: 5},
+			Usage: &ResponsesUsage{
+				InputTokens:  10,
+				OutputTokens: 5,
+				InputTokensDetails: &ResponsesInputTokensDetails{
+					CachedTokens:     3,
+					CacheWriteTokens: 2,
+				},
+			},
 		},
 	}, state)
 	require.Len(t, events, 2) // message_delta + message_stop
 	assert.Equal(t, "message_delta", events[0].Type)
 	assert.Equal(t, "end_turn", events[0].Delta.StopReason)
-	assert.Equal(t, 10, events[0].Usage.InputTokens)
+	assert.Equal(t, 5, events[0].Usage.InputTokens)
 	assert.Equal(t, 5, events[0].Usage.OutputTokens)
+	assert.Equal(t, 3, events[0].Usage.CacheReadInputTokens)
+	assert.Equal(t, 2, events[0].Usage.CacheCreationInputTokens)
 	assert.Equal(t, "message_stop", events[1].Type)
+}
+
+func TestAnthropicToResponsesStreaming_UsageIncludesCacheTokens(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		finalize bool
+	}{
+		{name: "message_stop"},
+		{name: "finalize", finalize: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			state := NewAnthropicEventToResponsesState()
+			created := AnthropicEventToResponsesEvents(&AnthropicStreamEvent{
+				Type: "message_start",
+				Message: &AnthropicResponse{
+					ID:    "msg_1",
+					Model: "claude-opus-5",
+					Usage: AnthropicUsage{
+						InputTokens:              5,
+						CacheReadInputTokens:     3,
+						CacheCreationInputTokens: 2,
+					},
+				},
+			}, state)
+			require.Len(t, created, 1)
+
+			AnthropicEventToResponsesEvents(&AnthropicStreamEvent{
+				Type:  "message_delta",
+				Usage: &AnthropicUsage{OutputTokens: 4},
+			}, state)
+
+			var completed []ResponsesStreamEvent
+			if tc.finalize {
+				completed = FinalizeAnthropicResponsesStream(state)
+			} else {
+				completed = AnthropicEventToResponsesEvents(&AnthropicStreamEvent{Type: "message_stop"}, state)
+			}
+
+			require.Len(t, completed, 1)
+			assert.Equal(t, "response.completed", completed[0].Type)
+			require.NotNil(t, completed[0].Response)
+			require.NotNil(t, completed[0].Response.Usage)
+			usage := completed[0].Response.Usage
+			assert.Equal(t, 10, usage.InputTokens)
+			assert.Equal(t, 4, usage.OutputTokens)
+			assert.Equal(t, 14, usage.TotalTokens)
+			require.NotNil(t, usage.InputTokensDetails)
+			assert.Equal(t, 3, usage.InputTokensDetails.CachedTokens)
+			assert.Equal(t, 2, usage.InputTokensDetails.CacheWriteTokens)
+		})
+	}
 }
 
 func TestStreamingToolCall(t *testing.T) {
@@ -753,6 +890,40 @@ func TestAnthropicToResponses_OutputConfigMax(t *testing.T) {
 	require.NotNil(t, resp.Reasoning)
 	assert.Equal(t, "xhigh", resp.Reasoning.Effort)
 	assert.Equal(t, "auto", resp.Reasoning.Summary)
+}
+
+func TestAnthropicToResponses_ReasoningEffortCompatibility(t *testing.T) {
+	tests := []struct {
+		name   string
+		model  string
+		effort string
+		want   string
+	}{
+		{name: "gpt 6 astra xhigh", model: "gpt-6-astra", effort: "xhigh", want: "xhigh"},
+		{name: "gpt 6 astra max", model: "gpt-6-astra", effort: "max", want: "max"},
+		{name: "gpt 5.6 xhigh", model: "gpt-5.6", effort: "xhigh", want: "xhigh"},
+		{name: "gpt 5.6 sol max", model: "gpt-5.6-sol", effort: "max", want: "max"},
+		{name: "gpt 5.6 terra xhigh", model: "gpt-5.6-terra", effort: "xhigh", want: "xhigh"},
+		{name: "gpt 5.6 luna max", model: "gpt-5.6-luna", effort: "max", want: "max"},
+		{name: "gpt 5.6 none", model: "gpt-5.6-sol", effort: "none", want: "none"},
+		{name: "legacy model maps max to xhigh", model: "gpt-5.2", effort: "max", want: "xhigh"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := &AnthropicRequest{
+				Model:        tt.model,
+				MaxTokens:    1024,
+				Messages:     []AnthropicMessage{{Role: "user", Content: json.RawMessage(`"Hello"`)}},
+				OutputConfig: &AnthropicOutputConfig{Effort: tt.effort},
+			}
+
+			resp, err := AnthropicToResponses(req)
+			require.NoError(t, err)
+			require.NotNil(t, resp.Reasoning)
+			assert.Equal(t, tt.want, resp.Reasoning.Effort)
+		})
+	}
 }
 
 func TestAnthropicToResponses_NoOutputConfig(t *testing.T) {

@@ -11,9 +11,12 @@
         </p>
       </div>
 
-  <div v-if="!backendModeEnabled && (linuxdoOAuthEnabled || oidcOAuthEnabled)" class="space-y-4">
+      <div
+        v-if="(!backendModeEnabled && linuxdoOAuthEnabled) || oidcOAuthEnabled"
+        class="space-y-4"
+      >
         <LinuxDoOAuthSection
-          v-if="linuxdoOAuthEnabled"
+          v-if="!backendModeEnabled && linuxdoOAuthEnabled"
           :disabled="isLoading"
           :show-divider="false"
         />

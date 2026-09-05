@@ -208,6 +208,9 @@ type OpenAIUsage struct {
 	CacheCreationInputTokens int `json:"cache_creation_input_tokens,omitempty"`
 	CacheReadInputTokens     int `json:"cache_read_input_tokens,omitempty"`
 	ImageOutputTokens        int `json:"image_output_tokens,omitempty"`
+	// ResponseServiceTier is the actual tier reported by the upstream response.
+	// It is internal billing metadata rather than part of the usage payload.
+	ResponseServiceTier string `json:"-"`
 }
 
 // OpenAIForwardResult represents the result of forwarding
@@ -223,8 +226,8 @@ type OpenAIForwardResult struct {
 	// UpstreamModel is the actual model sent to the upstream provider after mapping.
 	// Empty when no mapping was applied (requested model was used as-is).
 	UpstreamModel string
-	// ServiceTier records the OpenAI Responses API service tier, e.g. "priority" / "flex".
-	// Nil means the request did not specify a recognized tier.
+	// ServiceTier records the effective OpenAI Responses API billing tier, e.g.
+	// "priority" / "flex". The upstream response takes precedence over the request.
 	ServiceTier *string
 	// ReasoningEffort is extracted from request body (reasoning.effort) or derived from model suffix.
 	// Stored for usage records display; nil means not provided / not applicable.
@@ -2427,7 +2430,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		}
 
 		reasoningEffort := extractOpenAIReasoningEffort(reqBody, originalModel)
-		serviceTier := extractOpenAIServiceTier(reqBody)
+		serviceTier := resolveOpenAIServiceTier(usage.ResponseServiceTier, extractOpenAIServiceTier(reqBody))
 
 		return &OpenAIForwardResult{
 			RequestID:       resp.Header.Get("x-request-id"),
@@ -2606,7 +2609,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		RequestID:       resp.Header.Get("x-request-id"),
 		Usage:           *usage,
 		Model:           reqModel,
-		ServiceTier:     extractOpenAIServiceTierFromBody(body),
+		ServiceTier:     resolveOpenAIServiceTier(usage.ResponseServiceTier, extractOpenAIServiceTierFromBody(body)),
 		ReasoningEffort: reasoningEffort,
 		Stream:          reqStream,
 		OpenAIWSMode:    false,
@@ -3916,7 +3919,9 @@ func (s *OpenAIGatewayService) parseSSEUsageBytes(data []byte, usage *OpenAIUsag
 	usage.InputTokens = int(gjson.GetBytes(data, "response.usage.input_tokens").Int())
 	usage.OutputTokens = int(gjson.GetBytes(data, "response.usage.output_tokens").Int())
 	usage.CacheReadInputTokens = int(gjson.GetBytes(data, "response.usage.input_tokens_details.cached_tokens").Int())
+	usage.CacheCreationInputTokens = int(gjson.GetBytes(data, "response.usage.input_tokens_details.cache_write_tokens").Int())
 	usage.ImageOutputTokens = int(gjson.GetBytes(data, "response.usage.output_tokens_details.image_tokens").Int())
+	usage.ResponseServiceTier = gjson.GetBytes(data, "response.service_tier").String()
 }
 
 func extractOpenAIUsageFromJSONBytes(body []byte) (OpenAIUsage, bool) {
@@ -3928,14 +3933,35 @@ func extractOpenAIUsageFromJSONBytes(body []byte) (OpenAIUsage, bool) {
 		"usage.input_tokens",
 		"usage.output_tokens",
 		"usage.input_tokens_details.cached_tokens",
+		"usage.input_tokens_details.cache_write_tokens",
 		"usage.output_tokens_details.image_tokens",
+		"service_tier",
 	)
 	return OpenAIUsage{
-		InputTokens:          int(values[0].Int()),
-		OutputTokens:         int(values[1].Int()),
-		CacheReadInputTokens: int(values[2].Int()),
-		ImageOutputTokens:    int(values[3].Int()),
+		InputTokens:              int(values[0].Int()),
+		OutputTokens:             int(values[1].Int()),
+		CacheReadInputTokens:     int(values[2].Int()),
+		CacheCreationInputTokens: int(values[3].Int()),
+		ImageOutputTokens:        int(values[4].Int()),
+		ResponseServiceTier:      values[5].String(),
 	}, true
+}
+
+func openAIUsageFromResponsesResponse(response *apicompat.ResponsesResponse) OpenAIUsage {
+	if response == nil || response.Usage == nil {
+		return OpenAIUsage{}
+	}
+	usage := response.Usage
+	result := OpenAIUsage{
+		InputTokens:         usage.InputTokens,
+		OutputTokens:        usage.OutputTokens,
+		ResponseServiceTier: response.ServiceTier,
+	}
+	if usage.InputTokensDetails != nil {
+		result.CacheReadInputTokens = usage.InputTokensDetails.CachedTokens
+		result.CacheCreationInputTokens = usage.InputTokensDetails.CacheWriteTokens
+	}
+	return result
 }
 
 func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, originalModel, mappedModel string) (*OpenAIUsage, error) {
@@ -4861,9 +4887,9 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	account := input.Account
 	subscription := input.Subscription
 
-	// 计算实际的新输入token（减去缓存读取的token）
-	// 因为 input_tokens 包含了 cache_read_tokens，而缓存读取的token不应按输入价格计费
-	actualInputTokens := result.Usage.InputTokens - result.Usage.CacheReadInputTokens
+	// 计算实际的未缓存输入 token。OpenAI input_tokens 包含缓存读取和缓存写入 token，
+	// 两者都有独立价格，必须从普通输入中扣除以避免重复计费。
+	actualInputTokens := result.Usage.InputTokens - result.Usage.CacheReadInputTokens - result.Usage.CacheCreationInputTokens
 	if actualInputTokens < 0 {
 		actualInputTokens = 0
 	}
@@ -5440,6 +5466,23 @@ func normalizeOpenAIServiceTier(raw string) *string {
 	}
 }
 
+// resolveOpenAIServiceTier prefers the tier the upstream actually used. An
+// explicit standard/default response intentionally clears a requested tier;
+// otherwise a missing response value falls back to the normalized request.
+func resolveOpenAIServiceTier(responseRaw string, requested *string) *string {
+	value := strings.ToLower(strings.TrimSpace(responseRaw))
+	if value != "" {
+		if normalized := normalizeOpenAIServiceTier(value); normalized != nil {
+			return normalized
+		}
+		switch value {
+		case "default", "standard", "auto":
+			return nil
+		}
+	}
+	return requested
+}
+
 func sanitizeEmptyBase64InputImagesInOpenAIBody(body []byte) ([]byte, bool, error) {
 	if len(body) == 0 || !bytes.Contains(body, []byte(`"image_url"`)) || !bytes.Contains(body, []byte(`base64,`)) {
 		return body, false, nil
@@ -5603,7 +5646,7 @@ func normalizeOpenAIReasoningEffort(raw string) string {
 	switch value {
 	case "none", "minimal":
 		return ""
-	case "low", "medium", "high":
+	case "low", "medium", "high", "max":
 		return value
 	case "xhigh", "extrahigh":
 		return "xhigh"

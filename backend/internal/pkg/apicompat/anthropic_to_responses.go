@@ -54,7 +54,7 @@ func AnthropicToResponses(req *AnthropicRequest) (*ResponsesRequest, error) {
 		effort = req.OutputConfig.Effort
 	}
 	out.Reasoning = &ResponsesReasoning{
-		Effort:  mapAnthropicEffortToResponses(effort),
+		Effort:  mapAnthropicEffortToResponsesForModel(effort, req.Model),
 		Summary: "auto",
 	}
 
@@ -381,19 +381,31 @@ func extractAnthropicTextFromBlocks(blocks []AnthropicContentBlock) string {
 // mapAnthropicEffortToResponses converts Anthropic reasoning effort levels to
 // OpenAI Responses API effort levels.
 //
-// Both APIs default to "high". The mapping is 1:1 for shared levels;
-// only Anthropic's "max" (Opus 4.6 exclusive) maps to OpenAI's "xhigh"
-// (GPT-5.2+ exclusive) as both represent the highest reasoning tier.
+// Both APIs default to "high". Legacy models map Anthropic's "max" to
+// OpenAI's "xhigh". GPT-6 Astra and GPT-5.6 preserve xhigh and max as
+// separate supported levels.
 //
 //	low    → low
 //	medium → medium
 //	high   → high
-//	max    → xhigh
+//	max    → xhigh (legacy models)
 func mapAnthropicEffortToResponses(effort string) string {
+	return mapAnthropicEffortToResponsesForModel(effort, "")
+}
+
+func mapAnthropicEffortToResponsesForModel(effort, model string) string {
+	if supportsIndependentOpenAIXHighAndMax(model) && (effort == "xhigh" || effort == "max") {
+		return effort
+	}
 	if effort == "max" {
 		return "xhigh"
 	}
 	return effort // low→low, medium→medium, high→high, unknown→passthrough
+}
+
+func supportsIndependentOpenAIXHighAndMax(model string) bool {
+	model = strings.ToLower(strings.TrimSpace(model))
+	return strings.Contains(model, "gpt-6-astra") || strings.Contains(model, "gpt-5.6")
 }
 
 // convertAnthropicToolsToResponses maps Anthropic tool definitions to

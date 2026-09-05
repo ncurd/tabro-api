@@ -159,6 +159,7 @@ func TestBackendModeAuthGuard(t *testing.T) {
 		name       string
 		nilService bool
 		enabled    string
+		method     string
 		path       string
 		wantStatus int
 	}{
@@ -210,6 +211,62 @@ func TestBackendModeAuthGuard(t *testing.T) {
 			path:       "/api/v1/auth/forgot-password",
 			wantStatus: http.StatusForbidden,
 		},
+		{
+			name:       "enabled_allows_oidc_start_get",
+			enabled:    "true",
+			method:     http.MethodGet,
+			path:       "/api/v1/auth/oauth/oidc/start",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "enabled_allows_oidc_callback_get",
+			enabled:    "true",
+			method:     http.MethodGet,
+			path:       "/api/v1/auth/oauth/oidc/callback",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "enabled_blocks_oidc_start_post",
+			enabled:    "true",
+			method:     http.MethodPost,
+			path:       "/api/v1/auth/oauth/oidc/start",
+			wantStatus: http.StatusForbidden,
+		},
+		{
+			name:       "enabled_blocks_oidc_callback_post",
+			enabled:    "true",
+			method:     http.MethodPost,
+			path:       "/api/v1/auth/oauth/oidc/callback",
+			wantStatus: http.StatusForbidden,
+		},
+		{
+			name:       "enabled_blocks_oidc_complete_registration",
+			enabled:    "true",
+			method:     http.MethodPost,
+			path:       "/api/v1/auth/oauth/oidc/complete-registration",
+			wantStatus: http.StatusForbidden,
+		},
+		{
+			name:       "enabled_blocks_linuxdo_start",
+			enabled:    "true",
+			method:     http.MethodGet,
+			path:       "/api/v1/auth/oauth/linuxdo/start",
+			wantStatus: http.StatusForbidden,
+		},
+		{
+			name:       "enabled_blocks_linuxdo_callback",
+			enabled:    "true",
+			method:     http.MethodGet,
+			path:       "/api/v1/auth/oauth/linuxdo/callback",
+			wantStatus: http.StatusForbidden,
+		},
+		{
+			name:       "enabled_blocks_oidc_start_path_suffix",
+			enabled:    "true",
+			method:     http.MethodGet,
+			path:       "/unexpected/api/v1/auth/oauth/oidc/start",
+			wantStatus: http.StatusForbidden,
+		},
 	}
 
 	for _, tc := range tests {
@@ -229,8 +286,12 @@ func TestBackendModeAuthGuard(t *testing.T) {
 				c.JSON(http.StatusOK, gin.H{"ok": true})
 			})
 
+			method := tc.method
+			if method == "" {
+				method = http.MethodGet
+			}
 			w := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+			req := httptest.NewRequest(method, tc.path, nil)
 			r.ServeHTTP(w, req)
 
 			require.Equal(t, tc.wantStatus, w.Code)

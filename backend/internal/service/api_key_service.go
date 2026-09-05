@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -20,13 +21,14 @@ import (
 )
 
 var (
-	ErrAPIKeyNotFound     = infraerrors.NotFound("API_KEY_NOT_FOUND", "api key not found")
-	ErrGroupNotAllowed    = infraerrors.Forbidden("GROUP_NOT_ALLOWED", "user is not allowed to bind this group")
-	ErrAPIKeyExists       = infraerrors.Conflict("API_KEY_EXISTS", "api key already exists")
-	ErrAPIKeyTooShort     = infraerrors.BadRequest("API_KEY_TOO_SHORT", "api key must be at least 16 characters")
-	ErrAPIKeyInvalidChars = infraerrors.BadRequest("API_KEY_INVALID_CHARS", "api key can only contain letters, numbers, underscores, and hyphens")
-	ErrAPIKeyRateLimited  = infraerrors.TooManyRequests("API_KEY_RATE_LIMITED", "too many failed attempts, please try again later")
-	ErrInvalidIPPattern   = infraerrors.BadRequest("INVALID_IP_PATTERN", "invalid IP or CIDR pattern")
+	ErrAPIKeyNotFound         = infraerrors.NotFound("API_KEY_NOT_FOUND", "api key not found")
+	ErrGroupNotAllowed        = infraerrors.Forbidden("GROUP_NOT_ALLOWED", "user is not allowed to bind this group")
+	ErrAPIKeyExists           = infraerrors.Conflict("API_KEY_EXISTS", "api key already exists")
+	ErrAPIKeyTooShort         = infraerrors.BadRequest("API_KEY_TOO_SHORT", "api key must be at least 16 characters")
+	ErrAPIKeyInvalidChars     = infraerrors.BadRequest("API_KEY_INVALID_CHARS", "api key can only contain letters, numbers, underscores, and hyphens")
+	ErrAPIKeyRateLimited      = infraerrors.TooManyRequests("API_KEY_RATE_LIMITED", "too many failed attempts, please try again later")
+	ErrInvalidIPPattern       = infraerrors.BadRequest("INVALID_IP_PATTERN", "invalid IP or CIDR pattern")
+	ErrOIDCGatewayKeyConflict = infraerrors.Conflict("OIDC_GATEWAY_KEY_CONFLICT", "oidc gateway billing key belongs to another user")
 	// ErrAPIKeyExpired        = infraerrors.Forbidden("API_KEY_EXPIRED", "api key has expired")
 	ErrAPIKeyExpired = infraerrors.Forbidden("API_KEY_EXPIRED", "api key 已过期")
 	// ErrAPIKeyQuotaExhausted = infraerrors.TooManyRequests("API_KEY_QUOTA_EXHAUSTED", "api key quota exhausted")
@@ -42,7 +44,10 @@ const (
 	apiKeyMaxErrorsPerHour = 20
 	apiKeyLastUsedMinTouch = 30 * time.Second
 	// DB 写失败后的短退避，避免请求路径持续同步重试造成写风暴与高延迟。
-	apiKeyLastUsedFailBackoff = 5 * time.Second
+	apiKeyLastUsedFailBackoff       = 5 * time.Second
+	oidcGatewayKeyName              = "OIDC Access Token"
+	oidcGatewayKeyPrefix            = "oidc-internal:"
+	oidcGatewayKeyMaxCreateAttempts = 8
 )
 
 type APIKeyRepository interface {
@@ -204,6 +209,7 @@ type APIKeyService struct {
 	authCacheL1           *ristretto.Cache
 	authCfg               apiKeyAuthCacheConfig
 	authGroup             singleflight.Group
+	oidcGatewayKeyGroup   singleflight.Group
 	lastUsedTouchL1       sync.Map // keyID -> nextAllowedAt(time.Time)
 	lastUsedTouchSF       singleflight.Group
 }
@@ -261,6 +267,178 @@ func (s *APIKeyService) GenerateKey() (string, error) {
 
 	key := prefix + hex.EncodeToString(bytes)
 	return key, nil
+}
+
+// EnsureOIDCGatewayKey returns the persistent API key used as the billing and
+// routing identity for local access tokens issued by an OIDC login. The key's
+// secret is never embedded in the JWT; only its database ID is carried there.
+//
+// The record deliberately remains a normal API key so existing group routing,
+// subscription/balance billing, per-key quota, rate limiting, IP restrictions,
+// usage foreign keys, and billing idempotency all stay on the established path.
+func (s *APIKeyService) EnsureOIDCGatewayKey(ctx context.Context, userID int64) (*APIKey, error) {
+	if s == nil || s.apiKeyRepo == nil {
+		return nil, fmt.Errorf("ensure oidc gateway key: service is not configured")
+	}
+	if userID <= 0 {
+		return nil, fmt.Errorf("ensure oidc gateway key: invalid user id")
+	}
+
+	value, err, _ := s.oidcGatewayKeyGroup.Do(strconv.FormatInt(userID, 10), func() (any, error) {
+		return s.ensureOIDCGatewayKey(ctx, userID)
+	})
+	if err != nil {
+		return nil, err
+	}
+	apiKey, ok := value.(*APIKey)
+	if !ok || apiKey == nil {
+		return nil, fmt.Errorf("ensure oidc gateway key: invalid result")
+	}
+	return apiKey, nil
+}
+
+func (s *APIKeyService) ensureOIDCGatewayKey(ctx context.Context, userID int64) (*APIKey, error) {
+	existing, err := s.findOIDCGatewayKey(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if existing != nil {
+		return existing, nil
+	}
+
+	groupID, err := s.preferredOIDCGatewayGroupID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	for attempt := 0; attempt < oidcGatewayKeyMaxCreateAttempts; attempt++ {
+		candidate, err := generateOIDCGatewayKeyValue()
+		if err != nil {
+			return nil, err
+		}
+		apiKey := &APIKey{
+			UserID:      userID,
+			Key:         candidate,
+			Name:        oidcGatewayKeyName,
+			GroupID:     groupID,
+			Status:      StatusAPIKeyActive,
+			OIDCManaged: true,
+		}
+		if err := s.apiKeyRepo.Create(ctx, apiKey); err != nil {
+			if errors.Is(err, ErrAPIKeyExists) {
+				// The database also enforces one active managed key per user. If
+				// another instance won that race, resolve and return its record;
+				// otherwise this was only an extremely unlikely random key-value
+				// collision and a fresh candidate is safe to try.
+				winner, findErr := s.findOIDCGatewayKey(ctx, userID)
+				if findErr != nil {
+					return nil, findErr
+				}
+				if winner != nil {
+					return winner, nil
+				}
+				continue
+			}
+			return nil, fmt.Errorf("create oidc gateway key: %w", err)
+		}
+
+		s.InvalidateAuthCacheByKey(ctx, candidate)
+		s.compileAPIKeyIPRules(apiKey)
+
+		// A second process can pass the initial read concurrently. Re-read and
+		// converge on the oldest managed record so every later token uses one
+		// canonical billing identity; the in-process singleflight prevents the
+		// common single-instance race entirely.
+		if canonical, findErr := s.findOIDCGatewayKey(ctx, userID); findErr == nil && canonical != nil {
+			return canonical, nil
+		}
+		return apiKey, nil
+	}
+
+	return nil, fmt.Errorf("create oidc gateway key: exhausted %d attempts", oidcGatewayKeyMaxCreateAttempts)
+}
+
+func (s *APIKeyService) findOIDCGatewayKey(ctx context.Context, userID int64) (*APIKey, error) {
+	keys, err := s.apiKeyRepo.ListKeysByUserID(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list api keys for oidc gateway key: %w", err)
+	}
+
+	var managed *APIKey
+	for _, key := range keys {
+		// Managed values always use this private namespace. Treat the prefix as
+		// a query optimization only; the persisted boolean below is the
+		// authoritative security marker.
+		if !strings.HasPrefix(key, oidcGatewayKeyPrefix) {
+			continue
+		}
+		candidate, getErr := s.GetByKey(ctx, key)
+		if getErr != nil {
+			if errors.Is(getErr, ErrAPIKeyNotFound) {
+				continue
+			}
+			return nil, fmt.Errorf("get existing oidc gateway key: %w", getErr)
+		}
+		if candidate.UserID != userID {
+			return nil, ErrOIDCGatewayKeyConflict
+		}
+		if !candidate.OIDCManaged {
+			continue
+		}
+		if managed == nil || candidate.ID < managed.ID {
+			managed = candidate
+		}
+	}
+	return managed, nil
+}
+
+func generateOIDCGatewayKeyValue() (string, error) {
+	bytes := make([]byte, 32)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", fmt.Errorf("generate oidc gateway key: %w", err)
+	}
+	return oidcGatewayKeyPrefix + hex.EncodeToString(bytes), nil
+}
+
+func (s *APIKeyService) preferredOIDCGatewayGroupID(ctx context.Context, userID int64) (*int64, error) {
+	keys, _, err := s.apiKeyRepo.ListByUserID(ctx, userID, pagination.PaginationParams{
+		Page:      1,
+		PageSize:  1000,
+		SortBy:    "id",
+		SortOrder: pagination.SortOrderDesc,
+	}, APIKeyListFilters{Status: StatusAPIKeyActive})
+	if err != nil {
+		return nil, fmt.Errorf("list api keys for oidc gateway group: %w", err)
+	}
+	for i := range keys {
+		if keys[i].OIDCManaged || keys[i].GroupID == nil {
+			continue
+		}
+		groupID := *keys[i].GroupID
+		return &groupID, nil
+	}
+
+	// Fresh users may not have created a key yet. Reuse the same permission
+	// filtering as the API-key creation screen and pick the administrator's
+	// first sorted usable group, preferring one that currently has capacity.
+	if s.userRepo == nil || s.groupRepo == nil || s.userSubRepo == nil {
+		return nil, nil
+	}
+	groups, err := s.GetAvailableGroups(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list groups for oidc gateway key: %w", err)
+	}
+	for i := range groups {
+		if groups[i].ActiveAccountCount > 0 {
+			groupID := groups[i].ID
+			return &groupID, nil
+		}
+	}
+	if len(groups) > 0 {
+		groupID := groups[0].ID
+		return &groupID, nil
+	}
+	return nil, nil
 }
 
 // ValidateCustomKey 验证自定义API Key格式
@@ -668,6 +846,9 @@ func (s *APIKeyService) ValidateKey(ctx context.Context, key string) (*APIKey, *
 	apiKey, err := s.GetByKey(ctx, key)
 	if err != nil {
 		return nil, nil, err
+	}
+	if apiKey.OIDCManaged {
+		return nil, nil, infraerrors.Unauthorized("INVALID_API_KEY", "invalid api key")
 	}
 
 	// 检查API Key状态

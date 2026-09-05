@@ -77,8 +77,13 @@ func TestGetIntervalPricing_MatchesInterval(t *testing.T) {
 	r := NewModelPricingResolver(&ChannelService{}, bs)
 
 	resolved := &ResolvedPricing{
-		Mode:                   BillingModeToken,
-		BasePricing:            &ModelPricing{InputPricePerToken: 5e-6},
+		Mode: BillingModeToken,
+		BasePricing: &ModelPricing{
+			InputPricePerToken:         5e-6,
+			CacheCreationPricePerToken: 3.75e-6,
+			CacheReadPricePerToken:     0.3e-6,
+			LongContextInputThreshold:  200000,
+		},
 		SupportsCacheBreakdown: true,
 		Intervals: []PricingInterval{
 			{MinTokens: 0, MaxTokens: testPtrInt(128000), InputPrice: testPtrFloat64(1e-6), OutputPrice: testPtrFloat64(2e-6)},
@@ -90,6 +95,10 @@ func TestGetIntervalPricing_MatchesInterval(t *testing.T) {
 	require.NotNil(t, result)
 	require.InDelta(t, 1e-6, result.InputPricePerToken, 1e-12)
 	require.InDelta(t, 2e-6, result.OutputPricePerToken, 1e-12)
+	// Partial intervals only override fields they explicitly provide.
+	require.InDelta(t, 3.75e-6, result.CacheCreationPricePerToken, 1e-12)
+	require.InDelta(t, 0.3e-6, result.CacheReadPricePerToken, 1e-12)
+	require.Equal(t, 200000, result.LongContextInputThreshold)
 	require.True(t, result.SupportsCacheBreakdown)
 
 	result2 := r.GetIntervalPricing(resolved, 200000)
@@ -198,11 +207,12 @@ func groupIDPtr() *int64 { v := int64(100); return &v }
 
 func TestResolve_WithChannelOverride_TokenFlat(t *testing.T) {
 	r := newResolverWithChannel(t, []ChannelModelPricing{{
-		Platform:    "anthropic",
-		Models:      []string{"claude-sonnet-4"},
-		BillingMode: BillingModeToken,
-		InputPrice:  testPtrFloat64(10e-6),
-		OutputPrice: testPtrFloat64(50e-6),
+		Platform:        "anthropic",
+		Models:          []string{"claude-sonnet-4"},
+		BillingMode:     BillingModeToken,
+		InputPrice:      testPtrFloat64(10e-6),
+		OutputPrice:     testPtrFloat64(50e-6),
+		CacheWritePrice: testPtrFloat64(12e-6),
 	}})
 
 	resolved := r.Resolve(context.Background(), PricingInput{
@@ -218,6 +228,8 @@ func TestResolve_WithChannelOverride_TokenFlat(t *testing.T) {
 	require.InDelta(t, 10e-6, resolved.BasePricing.InputPricePerTokenPriority, 1e-12)
 	require.InDelta(t, 50e-6, resolved.BasePricing.OutputPricePerToken, 1e-12)
 	require.InDelta(t, 50e-6, resolved.BasePricing.OutputPricePerTokenPriority, 1e-12)
+	require.InDelta(t, 12e-6, resolved.BasePricing.CacheCreationPricePerToken, 1e-12)
+	require.InDelta(t, 12e-6, resolved.BasePricing.CacheCreationPricePerTokenPriority, 1e-12)
 }
 
 func TestResolve_WithChannelOverride_TokenPartialOverride(t *testing.T) {
@@ -242,6 +254,11 @@ func TestResolve_WithChannelOverride_TokenPartialOverride(t *testing.T) {
 	require.InDelta(t, 20e-6, resolved.BasePricing.InputPricePerToken, 1e-12)
 	// OutputPrice kept from base (fallback: 15e-6)
 	require.InDelta(t, 15e-6, resolved.BasePricing.OutputPricePerToken, 1e-12)
+
+	// The request-scoped override must not mutate the shared fallback price.
+	fresh := r.Resolve(context.Background(), PricingInput{Model: "claude-sonnet-4"})
+	require.NotNil(t, fresh.BasePricing)
+	require.InDelta(t, 3e-6, fresh.BasePricing.InputPricePerToken, 1e-12)
 }
 
 func TestResolve_WithChannelOverride_TokenWithIntervals(t *testing.T) {
@@ -250,7 +267,7 @@ func TestResolve_WithChannelOverride_TokenWithIntervals(t *testing.T) {
 		Models:      []string{"claude-sonnet-4"},
 		BillingMode: BillingModeToken,
 		Intervals: []PricingInterval{
-			{MinTokens: 0, MaxTokens: testPtrInt(128000), InputPrice: testPtrFloat64(2e-6), OutputPrice: testPtrFloat64(8e-6)},
+			{MinTokens: 0, MaxTokens: testPtrInt(128000), InputPrice: testPtrFloat64(2e-6), OutputPrice: testPtrFloat64(8e-6), CacheWritePrice: testPtrFloat64(3e-6)},
 			{MinTokens: 128000, MaxTokens: nil, InputPrice: testPtrFloat64(4e-6), OutputPrice: testPtrFloat64(16e-6)},
 		},
 	}})
@@ -269,6 +286,8 @@ func TestResolve_WithChannelOverride_TokenWithIntervals(t *testing.T) {
 	require.NotNil(t, iv)
 	require.InDelta(t, 2e-6, iv.InputPricePerToken, 1e-12)
 	require.InDelta(t, 8e-6, iv.OutputPricePerToken, 1e-12)
+	require.InDelta(t, 3e-6, iv.CacheCreationPricePerToken, 1e-12)
+	require.InDelta(t, 3e-6, iv.CacheCreationPricePerTokenPriority, 1e-12)
 
 	iv2 := r.GetIntervalPricing(resolved, 200000)
 	require.NotNil(t, iv2)

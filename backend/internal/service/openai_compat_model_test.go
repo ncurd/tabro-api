@@ -29,6 +29,8 @@ func TestNormalizeOpenAICompatRequestedModel(t *testing.T) {
 		{name: "gpt reasoning alias strips xhigh", input: "gpt-5.4-xhigh", want: "gpt-5.4"},
 		{name: "gpt reasoning alias strips none", input: "gpt-5.4-none", want: "gpt-5.4"},
 		{name: "gpt 5.6 tier alias strips high", input: "gpt-5.6-terra-high", want: "gpt-5.6-terra"},
+		{name: "gpt 5.6 alias strips none", input: "gpt-5.6-luna-none", want: "gpt-5.6-luna"},
+		{name: "gpt 6 astra strips max", input: "gpt-6-astra-max", want: "gpt-6-astra"},
 		{name: "codex max model stays intact", input: "gpt-5.1-codex-max", want: "gpt-5.1-codex-max"},
 		{name: "non openai model unchanged", input: "claude-opus-4-6", want: "claude-opus-4-6"},
 	}
@@ -53,6 +55,56 @@ func TestApplyOpenAICompatModelNormalization(t *testing.T) {
 		require.Equal(t, "max", req.OutputConfig.Effort)
 	})
 
+	t.Run("derives max from gpt 6 astra model suffix", func(t *testing.T) {
+		req := &apicompat.AnthropicRequest{Model: "gpt-6-astra-max"}
+
+		applyOpenAICompatModelNormalization(req)
+
+		require.Equal(t, "gpt-6-astra", req.Model)
+		require.NotNil(t, req.OutputConfig)
+		require.Equal(t, "max", req.OutputConfig.Effort)
+	})
+
+	t.Run("keeps xhigh and max distinct for new openai models", func(t *testing.T) {
+		for _, tc := range []struct {
+			model      string
+			wantModel  string
+			wantEffort string
+		}{
+			{model: "gpt-6-astra-xhigh", wantModel: "gpt-6-astra", wantEffort: "xhigh"},
+			{model: "gpt-6-astra-max", wantModel: "gpt-6-astra", wantEffort: "max"},
+			{model: "gpt-5.6-xhigh", wantModel: "gpt-5.6-sol", wantEffort: "xhigh"},
+			{model: "gpt-5.6-sol-max", wantModel: "gpt-5.6-sol", wantEffort: "max"},
+			{model: "gpt-5.6-terra-xhigh", wantModel: "gpt-5.6-terra", wantEffort: "xhigh"},
+			{model: "gpt-5.6-terra-max", wantModel: "gpt-5.6-terra", wantEffort: "max"},
+			{model: "gpt-5.6-luna-xhigh", wantModel: "gpt-5.6-luna", wantEffort: "xhigh"},
+			{model: "gpt-5.6-luna-max", wantModel: "gpt-5.6-luna", wantEffort: "max"},
+		} {
+			req := &apicompat.AnthropicRequest{Model: tc.model}
+
+			applyOpenAICompatModelNormalization(req)
+
+			require.Equal(t, tc.wantModel, req.Model)
+			require.NotNil(t, req.OutputConfig)
+			require.Equal(t, tc.wantEffort, req.OutputConfig.Effort)
+		}
+	})
+
+	t.Run("gpt 5.6 none is not replaced by default high", func(t *testing.T) {
+		req := &apicompat.AnthropicRequest{Model: "gpt-5.6-none"}
+
+		applyOpenAICompatModelNormalization(req)
+
+		require.Equal(t, "gpt-5.6-sol", req.Model)
+		require.NotNil(t, req.OutputConfig)
+		require.Equal(t, "none", req.OutputConfig.Effort)
+
+		responsesReq, err := apicompat.AnthropicToResponses(req)
+		require.NoError(t, err)
+		require.NotNil(t, responsesReq.Reasoning)
+		require.Equal(t, "none", responsesReq.Reasoning.Effort)
+	})
+
 	t.Run("explicit output config wins over model suffix", func(t *testing.T) {
 		req := &apicompat.AnthropicRequest{
 			Model:        "gpt-5.4-xhigh",
@@ -72,6 +124,15 @@ func TestApplyOpenAICompatModelNormalization(t *testing.T) {
 		applyOpenAICompatModelNormalization(req)
 
 		require.Equal(t, "claude-opus-4-6", req.Model)
+		require.Nil(t, req.OutputConfig)
+	})
+
+	t.Run("codex max model name is not treated as an effort suffix", func(t *testing.T) {
+		req := &apicompat.AnthropicRequest{Model: "gpt-5.1-codex-max"}
+
+		applyOpenAICompatModelNormalization(req)
+
+		require.Equal(t, "gpt-5.1-codex-max", req.Model)
 		require.Nil(t, req.OutputConfig)
 	})
 }

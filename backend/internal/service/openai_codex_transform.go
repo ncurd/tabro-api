@@ -6,6 +6,12 @@ import (
 )
 
 var codexModelMap = map[string]string{
+	"gpt-6-astra":                "gpt-6-astra",
+	"gpt-6-astra-low":            "gpt-6-astra",
+	"gpt-6-astra-medium":         "gpt-6-astra",
+	"gpt-6-astra-high":           "gpt-6-astra",
+	"gpt-6-astra-xhigh":          "gpt-6-astra",
+	"gpt-6-astra-max":            "gpt-6-astra",
 	"gpt-5.6":                    "gpt-5.6-sol",
 	"gpt-5.6-none":               "gpt-5.6-sol",
 	"gpt-5.6-low":                "gpt-5.6-sol",
@@ -272,6 +278,9 @@ func normalizeCodexModel(model string) string {
 
 	normalized := strings.ToLower(modelID)
 
+	if strings.Contains(normalized, "gpt-6-astra") || strings.Contains(normalized, "gpt 6 astra") {
+		return "gpt-6-astra"
+	}
 	if strings.Contains(normalized, "gpt-5.6-luna") || strings.Contains(normalized, "gpt 5.6 luna") {
 		return "gpt-5.6-luna"
 	}

@@ -525,6 +525,12 @@ const navigationLoading = useNavigationLoadingState()
 // 延迟初始化预加载，传入 router 实例
 let routePrefetch: ReturnType<typeof useRoutePrefetch> | null = null
 const BACKEND_MODE_ALLOWED_PATHS = ['/login', '/key-usage', '/setup', '/docs']
+const BACKEND_MODE_OIDC_CALLBACK_PATH = '/auth/oidc/callback'
+
+function isBackendModeAllowedPath(path: string): boolean {
+  return path === BACKEND_MODE_OIDC_CALLBACK_PATH
+    || BACKEND_MODE_ALLOWED_PATHS.some((allowedPath) => path === allowedPath || path.startsWith(allowedPath))
+}
 
 router.beforeEach((to, _from, next) => {
   // 开始导航加载状态
@@ -575,9 +581,9 @@ router.beforeEach((to, _from, next) => {
       next(authStore.isAdmin ? '/admin/dashboard' : '/dashboard')
       return
     }
-    // Backend mode: block public pages for unauthenticated users (except login, key-usage, setup)
+    // Backend mode: block public pages for unauthenticated users except the explicit allowlist.
     if (appStore.backendModeEnabled && !authStore.isAuthenticated) {
-      const isAllowed = BACKEND_MODE_ALLOWED_PATHS.some((p) => to.path === p || to.path.startsWith(p))
+      const isAllowed = isBackendModeAllowedPath(to.path)
       if (!isAllowed) {
         next('/login')
         return
@@ -637,7 +643,7 @@ router.beforeEach((to, _from, next) => {
       next()
       return
     }
-    const isAllowed = BACKEND_MODE_ALLOWED_PATHS.some((p) => to.path === p || to.path.startsWith(p))
+    const isAllowed = isBackendModeAllowedPath(to.path)
     if (!isAllowed) {
       next('/login')
       return

@@ -54,6 +54,35 @@ func (s *APIKeyRepoSuite) TestCreate() {
 	s.Require().Equal("sk-create-test", got.Key)
 }
 
+func (s *APIKeyRepoSuite) TestOIDCManagedKeyUniquePerActiveUser() {
+	user := s.mustCreateUser("oidc-managed-unique@test.com")
+	first := &service.APIKey{
+		UserID:      user.ID,
+		Key:         "oidc-internal:first-managed-value",
+		Name:        "OIDC Access Token",
+		Status:      service.StatusActive,
+		OIDCManaged: true,
+	}
+	s.Require().NoError(s.repo.Create(s.ctx, first))
+
+	loaded, err := s.repo.GetByKeyForAuth(s.ctx, first.Key)
+	s.Require().NoError(err)
+	s.Require().True(loaded.OIDCManaged)
+
+	second := &service.APIKey{
+		UserID:      user.ID,
+		Key:         "oidc-internal:second-managed-value",
+		Name:        "OIDC Access Token",
+		Status:      service.StatusActive,
+		OIDCManaged: true,
+	}
+	err = s.repo.Create(s.ctx, second)
+	s.Require().ErrorIs(err, service.ErrAPIKeyExists)
+
+	s.Require().NoError(s.repo.Delete(s.ctx, first.ID))
+	s.Require().NoError(s.repo.Create(s.ctx, second), "soft-deleted managed key must permit a replacement")
+}
+
 func (s *APIKeyRepoSuite) TestGetByID_NotFound() {
 	_, err := s.repo.GetByID(s.ctx, 999999)
 	s.Require().Error(err, "expected error for non-existent ID")

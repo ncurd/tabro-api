@@ -1840,19 +1840,22 @@ func TestExtractOpenAIStreamPayloadLine(t *testing.T) {
 
 func TestParseSSEUsage_SelectiveParsing(t *testing.T) {
 	svc := &OpenAIGatewayService{}
-	usage := &OpenAIUsage{InputTokens: 9, OutputTokens: 8, CacheReadInputTokens: 7}
+	usage := &OpenAIUsage{InputTokens: 9, OutputTokens: 8, CacheCreationInputTokens: 6, CacheReadInputTokens: 7}
 
 	// 非 completed 事件，不应覆盖 usage
 	svc.parseSSEUsage(`{"type":"response.in_progress","response":{"usage":{"input_tokens":1,"output_tokens":2}}}`, usage)
 	require.Equal(t, 9, usage.InputTokens)
 	require.Equal(t, 8, usage.OutputTokens)
+	require.Equal(t, 6, usage.CacheCreationInputTokens)
 	require.Equal(t, 7, usage.CacheReadInputTokens)
 
 	// completed 事件，应提取 usage
-	svc.parseSSEUsage(`{"type":"response.completed","response":{"usage":{"input_tokens":3,"output_tokens":5,"input_tokens_details":{"cached_tokens":2}}}}`, usage)
+	svc.parseSSEUsage(`{"type":"response.completed","response":{"service_tier":"priority","usage":{"input_tokens":3,"output_tokens":5,"input_tokens_details":{"cached_tokens":2,"cache_write_tokens":1}}}}`, usage)
 	require.Equal(t, 3, usage.InputTokens)
 	require.Equal(t, 5, usage.OutputTokens)
+	require.Equal(t, 1, usage.CacheCreationInputTokens)
 	require.Equal(t, 2, usage.CacheReadInputTokens)
+	require.Equal(t, "priority", usage.ResponseServiceTier)
 
 	// done 事件同样可能携带最终 usage
 	svc.parseSSEUsage(`{"type":"response.done","response":{"usage":{"input_tokens":13,"output_tokens":15,"input_tokens_details":{"cached_tokens":4}}}}`, usage)
@@ -1869,6 +1872,26 @@ func TestParseSSEUsage_SelectiveParsing(t *testing.T) {
 		require.Equal(t, 34, usage.OutputTokens, eventType)
 		require.Equal(t, 5, usage.CacheReadInputTokens, eventType)
 	}
+}
+
+func TestExtractOpenAIUsageFromJSONBytes_CacheWriteTokens(t *testing.T) {
+	usage, ok := extractOpenAIUsageFromJSONBytes([]byte(`{
+		"service_tier": "flex",
+		"usage": {
+			"input_tokens": 20,
+			"output_tokens": 4,
+			"input_tokens_details": {"cached_tokens": 7, "cache_write_tokens": 5},
+			"output_tokens_details": {"image_tokens": 2}
+		}
+	}`))
+
+	require.True(t, ok)
+	require.Equal(t, 20, usage.InputTokens)
+	require.Equal(t, 4, usage.OutputTokens)
+	require.Equal(t, 7, usage.CacheReadInputTokens)
+	require.Equal(t, 5, usage.CacheCreationInputTokens)
+	require.Equal(t, 2, usage.ImageOutputTokens)
+	require.Equal(t, "flex", usage.ResponseServiceTier)
 }
 
 func TestOpenAIResponseTerminalEventHelpers_AdditionalStatuses(t *testing.T) {

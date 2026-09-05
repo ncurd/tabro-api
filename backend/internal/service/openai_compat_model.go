@@ -20,6 +20,10 @@ func NormalizeOpenAICompatRequestedModel(model string) string {
 }
 
 func applyOpenAICompatModelNormalization(req *apicompat.AnthropicRequest) {
+	applyOpenAICompatModelNormalizationForTarget(req, "")
+}
+
+func applyOpenAICompatModelNormalizationForTarget(req *apicompat.AnthropicRequest, targetModel string) {
 	if req == nil {
 		return
 	}
@@ -38,7 +42,11 @@ func applyOpenAICompatModelNormalization(req *apicompat.AnthropicRequest) {
 		return
 	}
 
-	claudeEffort := openAIReasoningEffortToClaudeOutputEffort(derivedEffort)
+	effortModel := strings.TrimSpace(targetModel)
+	if effortModel == "" {
+		effortModel = normalizedModel
+	}
+	claudeEffort := openAIReasoningEffortToClaudeOutputEffortForModel(derivedEffort, effortModel)
 	if claudeEffort == "" {
 		return
 	}
@@ -77,27 +85,56 @@ func splitOpenAICompatReasoningModel(model string) (normalizedModel string, reas
 		return trimmed, "", false
 	}
 
+	normalizedModel = normalizeCodexModel(modelID)
 	last := strings.NewReplacer("-", "", "_", "", " ", "").Replace(parts[len(parts)-1])
 	switch last {
-	case "none", "minimal":
+	case "none":
+		reasoningEffort = "none"
+	case "minimal":
 	case "low", "medium", "high":
 		reasoningEffort = last
+	case "max":
+		if strings.EqualFold(modelID, "gpt-5.1-codex-max") {
+			return trimmed, "", false
+		}
+		reasoningEffort = "max"
 	case "xhigh", "extrahigh":
 		reasoningEffort = "xhigh"
 	default:
 		return trimmed, "", false
 	}
 
-	return normalizeCodexModel(modelID), reasoningEffort, true
+	return normalizedModel, reasoningEffort, true
 }
 
 func openAIReasoningEffortToClaudeOutputEffort(effort string) string {
+	return openAIReasoningEffortToClaudeOutputEffortForModel(effort, "")
+}
+
+func openAIReasoningEffortToClaudeOutputEffortForModel(effort, model string) string {
 	switch strings.TrimSpace(effort) {
-	case "low", "medium", "high":
+	case "none":
+		if supportsOpenAINoneReasoningEffort(model) {
+			return "none"
+		}
+	case "low", "medium", "high", "max":
 		return effort
 	case "xhigh":
+		if supportsIndependentOpenAIReasoningEfforts(model) {
+			return "xhigh"
+		}
 		return "max"
 	default:
 		return ""
 	}
+	return ""
+}
+
+func supportsIndependentOpenAIReasoningEfforts(model string) bool {
+	model = strings.ToLower(strings.TrimSpace(model))
+	return strings.Contains(model, "gpt-6-astra") || strings.Contains(model, "gpt-5.6")
+}
+
+func supportsOpenAINoneReasoningEffort(model string) bool {
+	return strings.Contains(strings.ToLower(strings.TrimSpace(model)), "gpt-5.6")
 }

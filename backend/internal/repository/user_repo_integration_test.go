@@ -140,6 +140,24 @@ func (s *UserRepoSuite) TestUpdate() {
 	s.Require().Equal("updated", updated.Username)
 }
 
+func (s *UserRepoSuite) TestTokenVersionPersistsAcrossCreateAndUpdate() {
+	user := s.mustCreateUser(&service.User{
+		Email:        "token-version@test.com",
+		TokenVersion: 3,
+	})
+
+	created, err := s.repo.GetByID(s.ctx, user.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(int64(3), created.TokenVersion)
+
+	created.TokenVersion++
+	s.Require().NoError(s.repo.Update(s.ctx, created))
+
+	updated, err := s.repo.GetByEmail(s.ctx, user.Email)
+	s.Require().NoError(err)
+	s.Require().Equal(int64(4), updated.TokenVersion)
+}
+
 func (s *UserRepoSuite) TestDelete() {
 	user := s.mustCreateUser(&service.User{Email: "delete@test.com"})
 

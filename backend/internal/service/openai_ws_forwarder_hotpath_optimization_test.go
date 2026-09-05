@@ -23,12 +23,14 @@ func TestParseOpenAIWSEventEnvelope(t *testing.T) {
 func TestParseOpenAIWSResponseUsageFromCompletedEvent(t *testing.T) {
 	usage := &OpenAIUsage{}
 	parseOpenAIWSResponseUsageFromCompletedEvent(
-		[]byte(`{"type":"response.completed","response":{"usage":{"input_tokens":11,"output_tokens":7,"input_tokens_details":{"cached_tokens":3}}}}`),
+		[]byte(`{"type":"response.completed","response":{"service_tier":"priority","usage":{"input_tokens":11,"output_tokens":7,"input_tokens_details":{"cached_tokens":3,"cache_write_tokens":2}}}}`),
 		usage,
 	)
 	require.Equal(t, 11, usage.InputTokens)
 	require.Equal(t, 7, usage.OutputTokens)
 	require.Equal(t, 3, usage.CacheReadInputTokens)
+	require.Equal(t, 2, usage.CacheCreationInputTokens)
+	require.Equal(t, "priority", usage.ResponseServiceTier)
 }
 
 func TestOpenAIWSErrorEventHelpers_ConsistentWithWrapper(t *testing.T) {

@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"net/http"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
@@ -28,8 +29,8 @@ func BackendModeUserGuard(settingService *service.SettingService) gin.HandlerFun
 }
 
 // BackendModeAuthGuard selectively blocks auth endpoints when backend mode is enabled.
-// Allows: login, login/2fa, logout, refresh (admin needs these).
-// Blocks: register, forgot-password, reset-password, OAuth, etc.
+// Allows: login, login/2fa, logout, refresh, and the OIDC GET start/callback endpoints.
+// Blocks: register, forgot-password, reset-password, OAuth registration, other OAuth providers, etc.
 func BackendModeAuthGuard(settingService *service.SettingService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if settingService == nil || !settingService.IsBackendModeEnabled(c.Request.Context()) {
@@ -37,6 +38,14 @@ func BackendModeAuthGuard(settingService *service.SettingService) gin.HandlerFun
 			return
 		}
 		path := c.Request.URL.Path
+		// OIDC is the only OAuth flow available in backend mode. Keep this
+		// allowlist method- and path-exact so registration and other OAuth
+		// endpoints remain unavailable.
+		if c.Request.Method == http.MethodGet &&
+			(path == "/api/v1/auth/oauth/oidc/start" || path == "/api/v1/auth/oauth/oidc/callback") {
+			c.Next()
+			return
+		}
 		// Allow login, 2FA, logout, refresh, public settings
 		allowedSuffixes := []string{"/auth/login", "/auth/login/2fa", "/auth/logout", "/auth/refresh"}
 		for _, suffix := range allowedSuffixes {

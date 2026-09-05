@@ -95,3 +95,22 @@ func TestAdminService_UpdateUserBalance_NoChangeNoInvalidate(t *testing.T) {
 	require.Empty(t, invalidator.userIDs)
 	require.Empty(t, redeemRepo.created)
 }
+
+func TestAdminService_UpdateUserPasswordIncrementsTokenVersion(t *testing.T) {
+	baseRepo := &userRepoStub{user: &User{
+		ID:           8,
+		Role:         RoleUser,
+		Status:       StatusActive,
+		TokenVersion: 7,
+	}}
+	repo := &balanceUserRepoStub{userRepoStub: baseRepo}
+	svc := &adminServiceImpl{userRepo: repo}
+
+	updated, err := svc.UpdateUser(context.Background(), 8, &UpdateUserInput{Password: "new-strong-password"})
+	require.NoError(t, err)
+	require.NotNil(t, updated)
+	require.Equal(t, int64(8), updated.TokenVersion)
+	require.True(t, updated.CheckPassword("new-strong-password"))
+	require.Len(t, repo.updated, 1)
+	require.Equal(t, int64(8), repo.updated[0].TokenVersion)
+}

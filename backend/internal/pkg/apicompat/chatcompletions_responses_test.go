@@ -383,8 +383,9 @@ func TestChatCompletionsToResponses_AssistantThinkingTagPreserved(t *testing.T) 
 
 func TestResponsesToChatCompletions_BasicText(t *testing.T) {
 	resp := &ResponsesResponse{
-		ID:     "resp_123",
-		Status: "completed",
+		ID:          "resp_123",
+		Status:      "completed",
+		ServiceTier: "priority",
 		Output: []ResponsesOutput{
 			{
 				Type: "message",
@@ -403,6 +404,7 @@ func TestResponsesToChatCompletions_BasicText(t *testing.T) {
 	chat := ResponsesToChatCompletions(resp, "gpt-4o")
 	assert.Equal(t, "chat.completion", chat.Object)
 	assert.Equal(t, "gpt-4o", chat.Model)
+	assert.Equal(t, "priority", chat.ServiceTier)
 	require.Len(t, chat.Choices, 1)
 	assert.Equal(t, "stop", chat.Choices[0].FinishReason)
 
@@ -545,7 +547,8 @@ func TestResponsesToChatCompletions_CachedTokens(t *testing.T) {
 			OutputTokens: 10,
 			TotalTokens:  110,
 			InputTokensDetails: &ResponsesInputTokensDetails{
-				CachedTokens: 80,
+				CachedTokens:     80,
+				CacheWriteTokens: 10,
 			},
 		},
 	}
@@ -554,6 +557,7 @@ func TestResponsesToChatCompletions_CachedTokens(t *testing.T) {
 	require.NotNil(t, chat.Usage)
 	require.NotNil(t, chat.Usage.PromptTokensDetails)
 	assert.Equal(t, 80, chat.Usage.PromptTokensDetails.CachedTokens)
+	assert.Equal(t, 10, chat.Usage.PromptTokensDetails.CacheWriteTokens)
 }
 
 func TestResponsesToChatCompletions_WebSearch(t *testing.T) {
@@ -697,7 +701,8 @@ func TestResponsesEventToChatChunks_Completed(t *testing.T) {
 				OutputTokens: 20,
 				TotalTokens:  70,
 				InputTokensDetails: &ResponsesInputTokensDetails{
-					CachedTokens: 30,
+					CachedTokens:     30,
+					CacheWriteTokens: 5,
 				},
 			},
 		},
@@ -716,6 +721,7 @@ func TestResponsesEventToChatChunks_Completed(t *testing.T) {
 	assert.Equal(t, 70, chunks[1].Usage.TotalTokens)
 	require.NotNil(t, chunks[1].Usage.PromptTokensDetails)
 	assert.Equal(t, 30, chunks[1].Usage.PromptTokensDetails.CachedTokens)
+	assert.Equal(t, 5, chunks[1].Usage.PromptTokensDetails.CacheWriteTokens)
 }
 
 func TestResponsesEventToChatChunks_CompletedWithToolCalls(t *testing.T) {

@@ -74,10 +74,18 @@ func APIKeyFromService(k *service.APIKey) *APIKey {
 	if k == nil {
 		return nil
 	}
+	keyValue := k.Key
+	oidcManaged := k.OIDCManaged
+	if oidcManaged {
+		// This record is only a billing/routing identity for signed OIDC access
+		// tokens. Never disclose its opaque database key as a reusable secret.
+		keyValue = ""
+	}
 	out := &APIKey{
 		ID:            k.ID,
 		UserID:        k.UserID,
-		Key:           k.Key,
+		Key:           keyValue,
+		OIDCManaged:   oidcManaged,
 		Name:          k.Name,
 		GroupID:       k.GroupID,
 		Status:        k.Status,

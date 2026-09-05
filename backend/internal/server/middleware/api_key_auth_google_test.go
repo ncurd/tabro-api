@@ -15,11 +15,13 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/require"
 )
 
 type fakeAPIKeyRepo struct {
 	getByKey       func(ctx context.Context, key string) (*service.APIKey, error)
+	getByID        func(ctx context.Context, id int64) (*service.APIKey, error)
 	updateLastUsed func(ctx context.Context, id int64, usedAt time.Time) error
 }
 
@@ -36,6 +38,9 @@ func (f fakeAPIKeyRepo) Create(ctx context.Context, key *service.APIKey) error {
 	return errors.New("not implemented")
 }
 func (f fakeAPIKeyRepo) GetByID(ctx context.Context, id int64) (*service.APIKey, error) {
+	if f.getByID != nil {
+		return f.getByID(ctx, id)
+	}
 	return nil, errors.New("not implemented")
 }
 func (f fakeAPIKeyRepo) GetKeyAndOwnerID(ctx context.Context, id int64) (string, int64, error) {
@@ -205,6 +210,321 @@ func newTestAPIKeyService(repo service.APIKeyRepository) *service.APIKeyService 
 		nil, // cache
 		&config.Config{},
 	)
+}
+
+func signGoogleOIDCGatewayToken(t *testing.T, secret string, userID, billingAPIKeyID, tokenVersion int64, authMethod string) string {
+	t.Helper()
+	now := time.Now()
+	claims := service.JWTClaims{
+		UserID:          userID,
+		AuthMethod:      authMethod,
+		BillingAPIKeyID: billingAPIKeyID,
+		TokenVersion:    tokenVersion,
+		RegisteredClaims: jwt.RegisteredClaims{
+			IssuedAt:  jwt.NewNumericDate(now),
+			NotBefore: jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(time.Hour)),
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	signed, err := token.SignedString([]byte(secret))
+	require.NoError(t, err)
+	return signed
+}
+
+func TestGatewayAuthWithSubscriptionGoogle_AcceptsOIDCLocalTokenAsPersistentBillingKey(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cfg := &config.Config{RunMode: config.RunModeSimple}
+	cfg.JWT.Secret = "google-gateway-oidc-test-secret"
+	cfg.JWT.AccessTokenExpireMinutes = 60
+
+	user := &service.User{
+		ID:           71,
+		Email:        "oidc-google@example.com",
+		Role:         service.RoleUser,
+		Status:       service.StatusActive,
+		Concurrency:  3,
+		TokenVersion: 5,
+	}
+	groupID := int64(81)
+	billingKey := &service.APIKey{
+		ID:          901,
+		UserID:      user.ID,
+		Key:         "persistent-google-billing-key",
+		OIDCManaged: true,
+		Status:      service.StatusAPIKeyActive,
+		GroupID:     &groupID,
+		User:        user,
+		Group: &service.Group{
+			ID:       groupID,
+			Status:   service.StatusActive,
+			Platform: service.PlatformGemini,
+			Hydrated: true,
+		},
+	}
+
+	var getByIDCalls int
+	repo := fakeAPIKeyRepo{
+		getByKey: func(_ context.Context, _ string) (*service.APIKey, error) {
+			return nil, service.ErrAPIKeyNotFound
+		},
+		getByID: func(_ context.Context, id int64) (*service.APIKey, error) {
+			getByIDCalls++
+			if id != billingKey.ID {
+				return nil, service.ErrAPIKeyNotFound
+			}
+			clone := *billingKey
+			return &clone, nil
+		},
+	}
+	apiKeyService := service.NewAPIKeyService(repo, nil, nil, nil, nil, nil, cfg)
+	authService := service.NewAuthService(nil, nil, nil, nil, cfg, nil, nil, nil, nil, nil, nil)
+	token := signGoogleOIDCGatewayToken(t, cfg.JWT.Secret, user.ID, billingKey.ID, user.TokenVersion, service.AuthMethodOIDC)
+
+	var resolved *service.APIKey
+	router := gin.New()
+	router.Use(GatewayAuthWithSubscriptionGoogle(apiKeyService, nil, authService, cfg))
+	router.GET("/v1beta/test", func(c *gin.Context) {
+		resolved, _ = GetAPIKeyFromContext(c)
+		c.Status(http.StatusNoContent)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/v1beta/test", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusNoContent, rec.Code)
+	require.Equal(t, 1, getByIDCalls)
+	require.NotNil(t, resolved)
+	require.Equal(t, billingKey.ID, resolved.ID)
+	require.Equal(t, billingKey.UserID, resolved.UserID)
+	require.Equal(t, billingKey.Key, resolved.Key)
+	require.Equal(t, billingKey.GroupID, resolved.GroupID)
+}
+
+func TestGatewayAuthWithSubscriptionGoogle_EnforcesOIDCBillingKeyPolicy(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	const secret = "google-gateway-oidc-policy-secret"
+	now := time.Now()
+
+	tests := []struct {
+		name           string
+		mutateKey      func(*service.APIKey)
+		runMode        string
+		expectedCode   int
+		expectedStatus string
+	}{
+		{
+			name: "ip whitelist",
+			mutateKey: func(key *service.APIKey) {
+				key.IPWhitelist = []string{"203.0.113.10"}
+			},
+			runMode:        config.RunModeStandard,
+			expectedCode:   http.StatusForbidden,
+			expectedStatus: "PERMISSION_DENIED",
+		},
+		{
+			name: "runtime expiration",
+			mutateKey: func(key *service.APIKey) {
+				expiresAt := now.Add(-time.Minute)
+				key.ExpiresAt = &expiresAt
+			},
+			runMode:        config.RunModeStandard,
+			expectedCode:   http.StatusForbidden,
+			expectedStatus: "PERMISSION_DENIED",
+		},
+		{
+			name: "persisted expired status",
+			mutateKey: func(key *service.APIKey) {
+				key.Status = service.StatusAPIKeyExpired
+			},
+			runMode:        config.RunModeStandard,
+			expectedCode:   http.StatusForbidden,
+			expectedStatus: "PERMISSION_DENIED",
+		},
+		{
+			name: "runtime quota exhaustion",
+			mutateKey: func(key *service.APIKey) {
+				key.Quota = 1
+				key.QuotaUsed = 1
+			},
+			runMode:        config.RunModeStandard,
+			expectedCode:   http.StatusTooManyRequests,
+			expectedStatus: "RESOURCE_EXHAUSTED",
+		},
+		{
+			name: "persisted quota status",
+			mutateKey: func(key *service.APIKey) {
+				key.Status = service.StatusAPIKeyQuotaExhausted
+			},
+			runMode:        config.RunModeStandard,
+			expectedCode:   http.StatusTooManyRequests,
+			expectedStatus: "RESOURCE_EXHAUSTED",
+		},
+		{
+			name: "simple mode skips billing policy",
+			mutateKey: func(key *service.APIKey) {
+				key.Status = service.StatusAPIKeyQuotaExhausted
+			},
+			runMode:        config.RunModeSimple,
+			expectedCode:   http.StatusNoContent,
+			expectedStatus: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{RunMode: tt.runMode}
+			cfg.JWT.Secret = secret
+			user := &service.User{
+				ID:           74,
+				Status:       service.StatusActive,
+				Balance:      10,
+				TokenVersion: 6,
+			}
+			billingKey := &service.APIKey{
+				ID:          904,
+				UserID:      user.ID,
+				Key:         "persistent-google-policy-key",
+				OIDCManaged: true,
+				Status:      service.StatusAPIKeyActive,
+				User:        user,
+			}
+			tt.mutateKey(billingKey)
+
+			repo := fakeAPIKeyRepo{
+				getByID: func(_ context.Context, id int64) (*service.APIKey, error) {
+					if id != billingKey.ID {
+						return nil, service.ErrAPIKeyNotFound
+					}
+					clone := *billingKey
+					return &clone, nil
+				},
+				getByKey: func(_ context.Context, _ string) (*service.APIKey, error) {
+					return nil, service.ErrAPIKeyNotFound
+				},
+			}
+			apiKeyService := service.NewAPIKeyService(repo, nil, nil, nil, nil, nil, cfg)
+			authService := service.NewAuthService(nil, nil, nil, nil, cfg, nil, nil, nil, nil, nil, nil)
+			token := signGoogleOIDCGatewayToken(t, secret, user.ID, billingKey.ID, user.TokenVersion, service.AuthMethodOIDC)
+
+			router := gin.New()
+			router.Use(GatewayAuthWithSubscriptionGoogle(apiKeyService, nil, authService, cfg))
+			router.GET("/v1beta/test", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+
+			req := httptest.NewRequest(http.MethodGet, "/v1beta/test", nil)
+			req.Header.Set("Authorization", "Bearer "+token)
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+
+			require.Equal(t, tt.expectedCode, rec.Code)
+			if tt.expectedStatus != "" {
+				var resp googleErrorResponse
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.Equal(t, tt.expectedStatus, resp.Error.Status)
+			}
+		})
+	}
+}
+
+func TestGatewayAuthWithSubscriptionGoogle_RejectsOIDCTokenInQueryKey(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cfg := &config.Config{RunMode: config.RunModeSimple}
+	cfg.JWT.Secret = "google-gateway-query-test-secret"
+
+	user := &service.User{ID: 72, Status: service.StatusActive, TokenVersion: 2}
+	billingKey := &service.APIKey{ID: 902, UserID: user.ID, OIDCManaged: true, Status: service.StatusAPIKeyActive, User: user}
+	getByIDCalls := 0
+	repo := fakeAPIKeyRepo{
+		getByKey: func(_ context.Context, _ string) (*service.APIKey, error) {
+			return nil, service.ErrAPIKeyNotFound
+		},
+		getByID: func(_ context.Context, _ int64) (*service.APIKey, error) {
+			getByIDCalls++
+			clone := *billingKey
+			return &clone, nil
+		},
+	}
+	apiKeyService := service.NewAPIKeyService(repo, nil, nil, nil, nil, nil, cfg)
+	authService := service.NewAuthService(nil, nil, nil, nil, cfg, nil, nil, nil, nil, nil, nil)
+	token := signGoogleOIDCGatewayToken(t, cfg.JWT.Secret, user.ID, billingKey.ID, user.TokenVersion, service.AuthMethodOIDC)
+
+	router := gin.New()
+	router.Use(GatewayAuthWithSubscriptionGoogle(apiKeyService, nil, authService, cfg))
+	router.GET("/v1beta/test", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+
+	req := httptest.NewRequest(http.MethodGet, "/v1beta/test?key="+token, nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusUnauthorized, rec.Code)
+	require.Zero(t, getByIDCalls, "query credentials must never be resolved as OIDC tokens")
+	var resp googleErrorResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Equal(t, http.StatusUnauthorized, resp.Error.Code)
+	require.Equal(t, "Invalid API key", resp.Error.Message)
+	require.Equal(t, "UNAUTHENTICATED", resp.Error.Status)
+}
+
+func TestGatewayAuthWithSubscriptionGoogle_RejectsPasswordJWTAndWrongOwner(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cfg := &config.Config{RunMode: config.RunModeSimple}
+	cfg.JWT.Secret = "google-gateway-rejection-test-secret"
+	cfg.JWT.AccessTokenExpireMinutes = 60
+
+	user := &service.User{
+		ID:           73,
+		Email:        "google-user@example.com",
+		Role:         service.RoleUser,
+		Status:       service.StatusActive,
+		TokenVersion: 4,
+	}
+	billingKey := &service.APIKey{ID: 903, UserID: user.ID, OIDCManaged: true, Status: service.StatusAPIKeyActive, User: user}
+	repo := fakeAPIKeyRepo{
+		getByKey: func(_ context.Context, _ string) (*service.APIKey, error) {
+			return nil, service.ErrAPIKeyNotFound
+		},
+		getByID: func(_ context.Context, _ int64) (*service.APIKey, error) {
+			clone := *billingKey
+			return &clone, nil
+		},
+	}
+	apiKeyService := service.NewAPIKeyService(repo, nil, nil, nil, nil, nil, cfg)
+	authService := service.NewAuthService(nil, nil, nil, nil, cfg, nil, nil, nil, nil, nil, nil)
+	passwordToken, err := authService.GenerateToken(user)
+	require.NoError(t, err)
+
+	tests := map[string]string{
+		"password_access_token": passwordToken,
+		"wrong_owner": signGoogleOIDCGatewayToken(
+			t,
+			cfg.JWT.Secret,
+			user.ID+1,
+			billingKey.ID,
+			user.TokenVersion,
+			service.AuthMethodOIDC,
+		),
+	}
+	for name, token := range tests {
+		t.Run(name, func(t *testing.T) {
+			router := gin.New()
+			router.Use(GatewayAuthWithSubscriptionGoogle(apiKeyService, nil, authService, cfg))
+			router.GET("/v1beta/test", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+
+			req := httptest.NewRequest(http.MethodGet, "/v1beta/test", nil)
+			req.Header.Set("Authorization", "Bearer "+token)
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+
+			require.Equal(t, http.StatusUnauthorized, rec.Code)
+			var resp googleErrorResponse
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.Equal(t, http.StatusUnauthorized, resp.Error.Code)
+			require.Equal(t, "Invalid API key", resp.Error.Message)
+			require.Equal(t, "UNAUTHENTICATED", resp.Error.Status)
+		})
+	}
 }
 
 func TestApiKeyAuthWithSubscriptionGoogle_MissingKey(t *testing.T) {

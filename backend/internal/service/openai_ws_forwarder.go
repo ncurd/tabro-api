@@ -400,10 +400,14 @@ func parseOpenAIWSResponseUsageFromCompletedEvent(message []byte, usage *OpenAIU
 		"response.usage.input_tokens",
 		"response.usage.output_tokens",
 		"response.usage.input_tokens_details.cached_tokens",
+		"response.usage.input_tokens_details.cache_write_tokens",
+		"response.service_tier",
 	)
 	usage.InputTokens = int(values[0].Int())
 	usage.OutputTokens = int(values[1].Int())
 	usage.CacheReadInputTokens = int(values[2].Int())
+	usage.CacheCreationInputTokens = int(values[3].Int())
+	usage.ResponseServiceTier = values[4].String()
 }
 
 func parseOpenAIWSErrorEventFields(message []byte) (code string, errType string, errMessage string) {
@@ -2329,7 +2333,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		Usage:           *usage,
 		Model:           originalModel,
 		UpstreamModel:   mappedModel,
-		ServiceTier:     extractOpenAIServiceTier(reqBody),
+		ServiceTier:     resolveOpenAIServiceTier(usage.ResponseServiceTier, extractOpenAIServiceTier(reqBody)),
 		ReasoningEffort: extractOpenAIReasoningEffort(reqBody, originalModel),
 		Stream:          reqStream,
 		OpenAIWSMode:    true,
@@ -2941,7 +2945,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 					Usage:           usage,
 					Model:           originalModel,
 					UpstreamModel:   mappedModel,
-					ServiceTier:     extractOpenAIServiceTierFromBody(payload),
+					ServiceTier:     resolveOpenAIServiceTier(usage.ResponseServiceTier, extractOpenAIServiceTierFromBody(payload)),
 					ReasoningEffort: extractOpenAIReasoningEffortFromBody(payload, originalModel),
 					Stream:          reqStream,
 					OpenAIWSMode:    true,
@@ -3771,10 +3775,12 @@ func populateOpenAIUsageFromResponseJSON(body []byte, usage *OpenAIUsage) {
 		"usage.input_tokens",
 		"usage.output_tokens",
 		"usage.input_tokens_details.cached_tokens",
+		"usage.input_tokens_details.cache_write_tokens",
 	)
 	usage.InputTokens = int(values[0].Int())
 	usage.OutputTokens = int(values[1].Int())
 	usage.CacheReadInputTokens = int(values[2].Int())
+	usage.CacheCreationInputTokens = int(values[3].Int())
 }
 
 func getOpenAIGroupIDFromContext(c *gin.Context) int64 {

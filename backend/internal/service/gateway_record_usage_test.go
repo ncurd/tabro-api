@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/stretchr/testify/require"
 )
@@ -51,6 +52,26 @@ func newGatewayRecordUsageServiceWithBillingRepoForTest(usageRepo UsageLogReposi
 	svc := newGatewayRecordUsageServiceForTest(usageRepo, userRepo, subRepo)
 	svc.usageBillingRepo = billingRepo
 	return svc
+}
+
+func TestGatewayServiceCalculateTokenCost_AnthropicFastModeUsesDoublePricing(t *testing.T) {
+	cfg := &config.Config{}
+	svc := &GatewayService{billingService: NewBillingService(cfg, nil)}
+	apiKey := &APIKey{}
+	usage := ClaudeUsage{
+		InputTokens:              100,
+		OutputTokens:             50,
+		CacheCreationInputTokens: 40,
+		CacheReadInputTokens:     20,
+	}
+
+	standard := svc.calculateTokenCost(context.Background(), &ForwardResult{Usage: usage}, apiKey, "claude-opus-5", 1, &recordUsageOpts{})
+	mergeAnthropicUsage(&usage, apicompat.AnthropicUsage{Speed: "fast"})
+	fast := svc.calculateTokenCost(context.Background(), &ForwardResult{Usage: usage}, apiKey, "claude-opus-5", 1, &recordUsageOpts{})
+
+	require.Equal(t, "fast", usage.Speed)
+	require.InDelta(t, standard.TotalCost*2, fast.TotalCost, 1e-12)
+	require.InDelta(t, standard.ActualCost*2, fast.ActualCost, 1e-12)
 }
 
 type openAIRecordUsageBestEffortLogRepoStub struct {

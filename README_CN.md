@@ -22,6 +22,22 @@ Tabro 由 Sub2API 分叉而来，是一个 AI API 网关平台，用于分发和
 
 > 客户端接入参考：VS Code Custom Endpoint、Claude Code、Codex 和 CC Switch 的自定义模型配置见 [自定义模型客户端接入指南](docs/CLIENT_CUSTOM_MODELS_CN.md)。
 
+## 用户登录与 OIDC 访问令牌
+
+Tabro 的登录页可以同时启用邮箱/密码登录和通用 OIDC 登录，用户可任选其中一种方式登录。
+
+OIDC 回调成功后签发的 `access_token` 是 **Tabro 本地访问令牌**，不是上游身份提供方（IdP）的 access token 或 ID token。调用 Tabro 网关时，可像使用普通 API Key 一样任选一种请求头传入：
+
+```http
+Authorization: Bearer <OIDC access_token>
+x-api-key: <OIDC access_token>
+x-goog-api-key: <OIDC access_token>
+```
+
+每个 OIDC 登录用户都会绑定一条持久化、名称为 `OIDC Access Token` 的专用 API Key 记录。本地访问令牌引用这条 Key，并走与普通 API Key 相同的网关鉴权和计费链路，因此会沿用分组路由、用户余额与订阅、Key 配额、IP 黑白名单、限流、用量计费和日志记录等规则。该记录在密钥页面标记为 `OIDC`，其内部值不会返回、也不能脱离本地访问令牌直接认证；禁用或删除记录、修改账户密码均会使对应访问失效。
+
+在 Backend 模式下，邮箱/密码登录仍然可用；OIDC 仅允许身份提供方已验证的邮箱匹配到 Tabro 中既有、状态为启用的管理员账户。Backend 模式不会通过 OIDC 自动注册用户，普通用户或未匹配的身份会被拒绝。
+
 ## 技术栈
 
 | 组件 | 技术 |

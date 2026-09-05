@@ -223,10 +223,11 @@ func chatCompletionsResponseToResponsesResponse(chatResp *apicompat.ChatCompleti
 	}
 
 	resp := &apicompat.ResponsesResponse{
-		ID:     chatResp.ID,
-		Object: "response",
-		Model:  chatResp.Model,
-		Status: "completed",
+		ID:          chatResp.ID,
+		Object:      "response",
+		Model:       chatResp.Model,
+		Status:      "completed",
+		ServiceTier: chatResp.ServiceTier,
 	}
 
 	if chatResp.Usage != nil {
@@ -240,7 +241,8 @@ func chatCompletionsResponseToResponsesResponse(chatResp *apicompat.ChatCompleti
 		}
 		if chatResp.Usage.PromptTokensDetails != nil {
 			resp.Usage.InputTokensDetails = &apicompat.ResponsesInputTokensDetails{
-				CachedTokens: chatResp.Usage.PromptTokensDetails.CachedTokens,
+				CachedTokens:     chatResp.Usage.PromptTokensDetails.CachedTokens,
+				CacheWriteTokens: chatResp.Usage.PromptTokensDetails.CacheWriteTokens,
 			}
 		}
 	}
@@ -340,11 +342,13 @@ func openAIUsageFromChatCompletionsResponse(chatResp *apicompat.ChatCompletionsR
 		return OpenAIUsage{}
 	}
 	usage := OpenAIUsage{
-		InputTokens:  chatResp.Usage.PromptTokens,
-		OutputTokens: chatResp.Usage.CompletionTokens,
+		InputTokens:         chatResp.Usage.PromptTokens,
+		OutputTokens:        chatResp.Usage.CompletionTokens,
+		ResponseServiceTier: chatResp.ServiceTier,
 	}
 	if chatResp.Usage.PromptTokensDetails != nil {
 		usage.CacheReadInputTokens = chatResp.Usage.PromptTokensDetails.CachedTokens
+		usage.CacheCreationInputTokens = chatResp.Usage.PromptTokensDetails.CacheWriteTokens
 	}
 	return usage
 }

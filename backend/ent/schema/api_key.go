@@ -47,6 +47,9 @@ func (APIKey) Fields() []ent.Field {
 		field.String("status").
 			MaxLen(20).
 			Default(domain.StatusActive),
+		field.Bool("oidc_managed").
+			Default(false).
+			Comment("Internal billing identity for signed OIDC access tokens"),
 		field.Time("last_used_at").
 			Optional().
 			Nillable().

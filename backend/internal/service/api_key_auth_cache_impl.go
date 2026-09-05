@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 5 // v5: added TotalRecharged for percentage threshold
+const apiKeyAuthSnapshotVersion = 6 // v6: added OIDCManaged credential isolation
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -211,6 +211,7 @@ func (s *APIKeyService) snapshotFromAPIKey(apiKey *APIKey) *APIKeyAuthSnapshot {
 		UserID:      apiKey.UserID,
 		GroupID:     apiKey.GroupID,
 		Status:      apiKey.Status,
+		OIDCManaged: apiKey.OIDCManaged,
 		IPWhitelist: apiKey.IPWhitelist,
 		IPBlacklist: apiKey.IPBlacklist,
 		Quota:       apiKey.Quota,
@@ -273,6 +274,7 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 		GroupID:     snapshot.GroupID,
 		Key:         key,
 		Status:      snapshot.Status,
+		OIDCManaged: snapshot.OIDCManaged,
 		IPWhitelist: snapshot.IPWhitelist,
 		IPBlacklist: snapshot.IPBlacklist,
 		Quota:       snapshot.Quota,

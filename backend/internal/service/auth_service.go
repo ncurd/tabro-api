@@ -49,13 +49,23 @@ const maxTokenLength = 8192
 // refreshTokenPrefix is the prefix for refresh tokens to distinguish them from access tokens.
 const refreshTokenPrefix = "rt_"
 
+// AuthMethodOIDC marks access and refresh tokens created from an OIDC login.
+const AuthMethodOIDC = "oidc"
+
 // JWTClaims JWT载荷数据
 type JWTClaims struct {
-	UserID       int64  `json:"user_id"`
-	Email        string `json:"email"`
-	Role         string `json:"role"`
-	TokenVersion int64  `json:"token_version"` // Used to invalidate tokens on password change
+	UserID          int64  `json:"user_id"`
+	Email           string `json:"email"`
+	Role            string `json:"role"`
+	TokenVersion    int64  `json:"token_version"` // Used to invalidate tokens on password change
+	AuthMethod      string `json:"auth_method,omitempty"`
+	BillingAPIKeyID int64  `json:"billing_api_key_id,omitempty"`
 	jwt.RegisteredClaims
+}
+
+type authTokenMetadata struct {
+	AuthMethod      string
+	BillingAPIKeyID int64
 }
 
 // AuthService 认证服务
@@ -537,12 +547,28 @@ func (s *AuthService) LoginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 		return nil, nil, errors.New("refresh token cache not configured")
 	}
 
+	user, err := s.LoginOrRegisterOAuthUser(ctx, email, username, invitationCode)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	tokenPair, err := s.GenerateTokenPair(ctx, user, "")
+	if err != nil {
+		return nil, nil, fmt.Errorf("generate token pair: %w", err)
+	}
+	return tokenPair, user, nil
+}
+
+// LoginOrRegisterOAuthUser resolves an OAuth identity to a local user, creating
+// the user when registration policy allows it. Token issuance is intentionally
+// kept separate so callers can choose the appropriate token metadata.
+func (s *AuthService) LoginOrRegisterOAuthUser(ctx context.Context, email, username, invitationCode string) (*User, error) {
 	email = strings.TrimSpace(email)
 	if email == "" || len(email) > 255 {
-		return nil, nil, infraerrors.BadRequest("INVALID_EMAIL", "invalid email")
+		return nil, infraerrors.BadRequest("INVALID_EMAIL", "invalid email")
 	}
 	if _, err := mail.ParseAddress(email); err != nil {
-		return nil, nil, infraerrors.BadRequest("INVALID_EMAIL", "invalid email")
+		return nil, infraerrors.BadRequest("INVALID_EMAIL", "invalid email")
 	}
 
 	username = strings.TrimSpace(username)
@@ -555,21 +581,21 @@ func (s *AuthService) LoginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 		if errors.Is(err, ErrUserNotFound) {
 			// OAuth 首次登录视为注册
 			if s.settingService == nil || !s.settingService.IsRegistrationEnabled(ctx) {
-				return nil, nil, ErrRegDisabled
+				return nil, ErrRegDisabled
 			}
 
 			// 检查是否需要邀请码
 			var invitationRedeemCode *RedeemCode
 			if s.settingService != nil && s.settingService.IsInvitationCodeEnabled(ctx) {
 				if invitationCode == "" {
-					return nil, nil, ErrOAuthInvitationRequired
+					return nil, ErrOAuthInvitationRequired
 				}
 				redeemCode, err := s.redeemRepo.GetByCode(ctx, invitationCode)
 				if err != nil {
-					return nil, nil, ErrInvitationCodeInvalid
+					return nil, ErrInvitationCodeInvalid
 				}
 				if redeemCode.Type != RedeemTypeInvitation || redeemCode.Status != StatusUnused {
-					return nil, nil, ErrInvitationCodeInvalid
+					return nil, ErrInvitationCodeInvalid
 				}
 				invitationRedeemCode = redeemCode
 			}
@@ -577,11 +603,11 @@ func (s *AuthService) LoginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 			randomPassword, err := randomHexString(32)
 			if err != nil {
 				logger.LegacyPrintf("service.auth", "[Auth] Failed to generate random password for oauth signup: %v", err)
-				return nil, nil, ErrServiceUnavailable
+				return nil, ErrServiceUnavailable
 			}
 			hashedPassword, err := s.HashPassword(randomPassword)
 			if err != nil {
-				return nil, nil, fmt.Errorf("hash password: %w", err)
+				return nil, fmt.Errorf("hash password: %w", err)
 			}
 
 			defaultBalance := s.cfg.Default.UserBalance
@@ -605,7 +631,7 @@ func (s *AuthService) LoginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 				tx, err := s.entClient.Tx(ctx)
 				if err != nil {
 					logger.LegacyPrintf("service.auth", "[Auth] Failed to begin transaction for oauth registration: %v", err)
-					return nil, nil, ErrServiceUnavailable
+					return nil, ErrServiceUnavailable
 				}
 				defer func() { _ = tx.Rollback() }()
 				txCtx := dbent.NewTxContext(ctx, tx)
@@ -615,19 +641,19 @@ func (s *AuthService) LoginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 						user, err = s.userRepo.GetByEmail(ctx, email)
 						if err != nil {
 							logger.LegacyPrintf("service.auth", "[Auth] Database error getting user after conflict: %v", err)
-							return nil, nil, ErrServiceUnavailable
+							return nil, ErrServiceUnavailable
 						}
 					} else {
 						logger.LegacyPrintf("service.auth", "[Auth] Database error creating oauth user: %v", err)
-						return nil, nil, ErrServiceUnavailable
+						return nil, ErrServiceUnavailable
 					}
 				} else {
 					if err := s.redeemRepo.Use(txCtx, invitationRedeemCode.ID, newUser.ID); err != nil {
-						return nil, nil, ErrInvitationCodeInvalid
+						return nil, ErrInvitationCodeInvalid
 					}
 					if err := tx.Commit(); err != nil {
 						logger.LegacyPrintf("service.auth", "[Auth] Failed to commit oauth registration transaction: %v", err)
-						return nil, nil, ErrServiceUnavailable
+						return nil, ErrServiceUnavailable
 					}
 					user = newUser
 					s.assignDefaultSubscriptions(ctx, user.ID)
@@ -638,30 +664,30 @@ func (s *AuthService) LoginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 						user, err = s.userRepo.GetByEmail(ctx, email)
 						if err != nil {
 							logger.LegacyPrintf("service.auth", "[Auth] Database error getting user after conflict: %v", err)
-							return nil, nil, ErrServiceUnavailable
+							return nil, ErrServiceUnavailable
 						}
 					} else {
 						logger.LegacyPrintf("service.auth", "[Auth] Database error creating oauth user: %v", err)
-						return nil, nil, ErrServiceUnavailable
+						return nil, ErrServiceUnavailable
 					}
 				} else {
 					user = newUser
 					s.assignDefaultSubscriptions(ctx, user.ID)
 					if invitationRedeemCode != nil {
 						if err := s.redeemRepo.Use(ctx, invitationRedeemCode.ID, user.ID); err != nil {
-							return nil, nil, ErrInvitationCodeInvalid
+							return nil, ErrInvitationCodeInvalid
 						}
 					}
 				}
 			}
 		} else {
 			logger.LegacyPrintf("service.auth", "[Auth] Database error during oauth login: %v", err)
-			return nil, nil, ErrServiceUnavailable
+			return nil, ErrServiceUnavailable
 		}
 	}
 
 	if !user.IsActive() {
-		return nil, nil, ErrUserNotActive
+		return nil, ErrUserNotActive
 	}
 
 	if user.Username == "" && username != "" {
@@ -671,11 +697,32 @@ func (s *AuthService) LoginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 		}
 	}
 
-	tokenPair, err := s.GenerateTokenPair(ctx, user, "")
-	if err != nil {
-		return nil, nil, fmt.Errorf("generate token pair: %w", err)
+	return user, nil
+}
+
+// LoginExistingAdminOAuthUser authenticates an already-provisioned active
+// administrator by OAuth email. It never creates users or mutates profiles and
+// intentionally returns the same generic authentication error for every denial.
+func (s *AuthService) LoginExistingAdminOAuthUser(ctx context.Context, email string) (*User, error) {
+	email = strings.TrimSpace(email)
+	if email == "" || len(email) > 255 {
+		return nil, ErrInvalidCredentials
 	}
-	return tokenPair, user, nil
+	if _, err := mail.ParseAddress(email); err != nil {
+		return nil, ErrInvalidCredentials
+	}
+
+	user, err := s.userRepo.GetByEmail(ctx, email)
+	if err != nil {
+		if !errors.Is(err, ErrUserNotFound) {
+			logger.LegacyPrintf("service.auth", "[Auth] Database error during admin oauth login: %v", err)
+		}
+		return nil, ErrInvalidCredentials
+	}
+	if user == nil || !user.IsActive() || !user.IsAdmin() {
+		return nil, ErrInvalidCredentials
+	}
+	return user, nil
 }
 
 // pendingOAuthTokenTTL is the validity period for pending OAuth tokens.
@@ -840,6 +887,10 @@ func isReservedEmail(email string) bool {
 // GenerateToken 生成JWT access token
 // 使用新的access_token_expire_minutes配置项（如果配置了），否则回退到expire_hour
 func (s *AuthService) GenerateToken(user *User) (string, error) {
+	return s.generateToken(user, authTokenMetadata{})
+}
+
+func (s *AuthService) generateToken(user *User, metadata authTokenMetadata) (string, error) {
 	now := time.Now()
 	var expiresAt time.Time
 	if s.cfg.JWT.AccessTokenExpireMinutes > 0 {
@@ -850,10 +901,12 @@ func (s *AuthService) GenerateToken(user *User) (string, error) {
 	}
 
 	claims := &JWTClaims{
-		UserID:       user.ID,
-		Email:        user.Email,
-		Role:         user.Role,
-		TokenVersion: user.TokenVersion,
+		UserID:          user.ID,
+		Email:           user.Email,
+		Role:            user.Role,
+		TokenVersion:    user.TokenVersion,
+		AuthMethod:      metadata.AuthMethod,
+		BillingAPIKeyID: metadata.BillingAPIKeyID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(expiresAt),
 			IssuedAt:  jwt.NewNumericDate(now),
@@ -923,8 +976,11 @@ func (s *AuthService) RefreshToken(ctx context.Context, oldTokenString string) (
 		return "", ErrTokenRevoked
 	}
 
-	// 生成新token
-	return s.GenerateToken(user)
+	// 生成新token，并保留原 access token 的认证来源及计费 Key 绑定。
+	return s.generateToken(user, authTokenMetadata{
+		AuthMethod:      claims.AuthMethod,
+		BillingAPIKeyID: claims.BillingAPIKeyID,
+	})
 }
 
 // IsPasswordResetEnabled 检查是否启用密码重置功能
@@ -1097,19 +1153,35 @@ type TokenPairWithUser struct {
 // GenerateTokenPair 生成Access Token和Refresh Token对
 // familyID: 可选的Token家族ID，用于Token轮转时保持家族关系
 func (s *AuthService) GenerateTokenPair(ctx context.Context, user *User, familyID string) (*TokenPair, error) {
+	return s.generateTokenPair(ctx, user, familyID, authTokenMetadata{})
+}
+
+// GenerateOIDCTokenPair generates a token pair for an OIDC-authenticated user
+// and binds the pair to the persistent API key used for gateway billing.
+func (s *AuthService) GenerateOIDCTokenPair(ctx context.Context, user *User, billingAPIKeyID int64, familyID string) (*TokenPair, error) {
+	if billingAPIKeyID <= 0 {
+		return nil, errors.New("billing api key id must be positive")
+	}
+	return s.generateTokenPair(ctx, user, familyID, authTokenMetadata{
+		AuthMethod:      AuthMethodOIDC,
+		BillingAPIKeyID: billingAPIKeyID,
+	})
+}
+
+func (s *AuthService) generateTokenPair(ctx context.Context, user *User, familyID string, metadata authTokenMetadata) (*TokenPair, error) {
 	// 检查 refreshTokenCache 是否可用
 	if s.refreshTokenCache == nil {
 		return nil, errors.New("refresh token cache not configured")
 	}
 
 	// 生成Access Token
-	accessToken, err := s.GenerateToken(user)
+	accessToken, err := s.generateToken(user, metadata)
 	if err != nil {
 		return nil, fmt.Errorf("generate access token: %w", err)
 	}
 
 	// 生成Refresh Token
-	refreshToken, err := s.generateRefreshToken(ctx, user, familyID)
+	refreshToken, err := s.generateRefreshToken(ctx, user, familyID, metadata)
 	if err != nil {
 		return nil, fmt.Errorf("generate refresh token: %w", err)
 	}
@@ -1122,7 +1194,7 @@ func (s *AuthService) GenerateTokenPair(ctx context.Context, user *User, familyI
 }
 
 // generateRefreshToken 生成并存储Refresh Token
-func (s *AuthService) generateRefreshToken(ctx context.Context, user *User, familyID string) (string, error) {
+func (s *AuthService) generateRefreshToken(ctx context.Context, user *User, familyID string, metadata authTokenMetadata) (string, error) {
 	// 生成随机Token
 	tokenBytes := make([]byte, 32)
 	if _, err := rand.Read(tokenBytes); err != nil {
@@ -1146,11 +1218,13 @@ func (s *AuthService) generateRefreshToken(ctx context.Context, user *User, fami
 	ttl := time.Duration(s.cfg.JWT.RefreshTokenExpireDays) * 24 * time.Hour
 
 	data := &RefreshTokenData{
-		UserID:       user.ID,
-		TokenVersion: user.TokenVersion,
-		FamilyID:     familyID,
-		CreatedAt:    now,
-		ExpiresAt:    now.Add(ttl),
+		UserID:          user.ID,
+		TokenVersion:    user.TokenVersion,
+		FamilyID:        familyID,
+		AuthMethod:      metadata.AuthMethod,
+		BillingAPIKeyID: metadata.BillingAPIKeyID,
+		CreatedAt:       now,
+		ExpiresAt:       now.Add(ttl),
 	}
 
 	// 存储Token数据
@@ -1239,8 +1313,11 @@ func (s *AuthService) RefreshTokenPair(ctx context.Context, refreshToken string)
 		// 继续处理，不影响主流程
 	}
 
-	// 生成新的Token对，保持同一个家族ID
-	pair, err := s.GenerateTokenPair(ctx, user, data.FamilyID)
+	// 生成新的Token对，保持同一个家族ID及认证/计费元数据。
+	pair, err := s.generateTokenPair(ctx, user, data.FamilyID, authTokenMetadata{
+		AuthMethod:      data.AuthMethod,
+		BillingAPIKeyID: data.BillingAPIKeyID,
+	})
 	if err != nil {
 		return nil, err
 	}

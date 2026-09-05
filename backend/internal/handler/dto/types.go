@@ -44,6 +44,7 @@ type APIKey struct {
 	ID          int64      `json:"id"`
 	UserID      int64      `json:"user_id"`
 	Key         string     `json:"key"`
+	OIDCManaged bool       `json:"oidc_managed,omitempty"`
 	Name        string     `json:"name"`
 	GroupID     *int64     `json:"group_id"`
 	Status      string     `json:"status"`

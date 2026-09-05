@@ -6,6 +6,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -13,7 +14,7 @@ import (
 
 // APIKeyAuthGoogle is a Google-style error wrapper for API key auth.
 func APIKeyAuthGoogle(apiKeyService *service.APIKeyService, cfg *config.Config) gin.HandlerFunc {
-	return APIKeyAuthWithSubscriptionGoogle(apiKeyService, nil, cfg)
+	return gatewayAuthWithSubscriptionGoogle(apiKeyService, nil, nil, cfg)
 }
 
 // APIKeyAuthWithSubscriptionGoogle behaves like ApiKeyAuthWithSubscription but returns Google-style errors:
@@ -21,6 +22,17 @@ func APIKeyAuthGoogle(apiKeyService *service.APIKeyService, cfg *config.Config) 
 //
 // It is intended for Gemini native endpoints (/v1beta) to match Gemini SDK expectations.
 func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subscriptionService *service.SubscriptionService, cfg *config.Config) gin.HandlerFunc {
+	return gatewayAuthWithSubscriptionGoogle(apiKeyService, subscriptionService, nil, cfg)
+}
+
+// GatewayAuthWithSubscriptionGoogle is the production Gemini middleware. It
+// adds OIDC-issued local access tokens while retaining the legacy constructor
+// above for callers that only need API-key authentication.
+func GatewayAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subscriptionService *service.SubscriptionService, authService *service.AuthService, cfg *config.Config) gin.HandlerFunc {
+	return gatewayAuthWithSubscriptionGoogle(apiKeyService, subscriptionService, authService, cfg)
+}
+
+func gatewayAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subscriptionService *service.SubscriptionService, authService *service.AuthService, cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if v := strings.TrimSpace(c.Query("api_key")); v != "" {
 			abortWithGoogleError(c, 400, "Query parameter api_key is deprecated. Use Authorization header or key instead.")
@@ -32,9 +44,10 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 			return
 		}
 
-		apiKey, err := apiKeyService.GetByKey(c.Request.Context(), apiKeyString)
+		allowOIDCToken := googleCredentialCameFromHeader(c)
+		apiKey, err := resolveGatewayAPIKey(c.Request.Context(), apiKeyString, allowOIDCToken, apiKeyService, authService)
 		if err != nil {
-			if errors.Is(err, service.ErrAPIKeyNotFound) {
+			if errors.Is(err, service.ErrAPIKeyNotFound) || errors.Is(err, errInvalidGatewayCredential) || errors.Is(err, service.ErrTokenRevoked) {
 				abortWithGoogleError(c, 401, "Invalid API key")
 				return
 			}
@@ -42,9 +55,23 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 			return
 		}
 
-		if !apiKey.IsActive() {
+		// Match the standard gateway's split between authentication policy
+		// (always enforced) and billing policy (skipped only in simple mode).
+		// Expired/quota-exhausted states are handled below with their proper
+		// 403/429 semantics instead of being flattened into "disabled".
+		if !apiKey.IsActive() &&
+			apiKey.Status != service.StatusAPIKeyExpired &&
+			apiKey.Status != service.StatusAPIKeyQuotaExhausted {
 			abortWithGoogleError(c, 401, "API key is disabled")
 			return
+		}
+		if len(apiKey.IPWhitelist) > 0 || len(apiKey.IPBlacklist) > 0 {
+			clientIP := ip.GetTrustedClientIP(c)
+			allowed, _ := ip.CheckIPRestrictionWithCompiledRules(clientIP, apiKey.CompiledIPWhitelist, apiKey.CompiledIPBlacklist)
+			if !allowed {
+				abortWithGoogleError(c, 403, "Access denied")
+				return
+			}
 		}
 		if apiKey.User == nil {
 			abortWithGoogleError(c, 401, "User associated with API key not found")
@@ -66,6 +93,23 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 			setGroupContext(c, apiKey.Group)
 			_ = apiKeyService.TouchLastUsed(c.Request.Context(), apiKey.ID)
 			c.Next()
+			return
+		}
+
+		switch apiKey.Status {
+		case service.StatusAPIKeyQuotaExhausted:
+			abortWithGoogleError(c, 429, "API key quota exhausted")
+			return
+		case service.StatusAPIKeyExpired:
+			abortWithGoogleError(c, 403, "API key expired")
+			return
+		}
+		if apiKey.IsExpired() {
+			abortWithGoogleError(c, 403, "API key expired")
+			return
+		}
+		if apiKey.IsQuotaExhausted() {
+			abortWithGoogleError(c, 429, "API key quota exhausted")
 			return
 		}
 
@@ -116,6 +160,15 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 		_ = apiKeyService.TouchLastUsed(c.Request.Context(), apiKey.ID)
 		c.Next()
 	}
+}
+
+func googleCredentialCameFromHeader(c *gin.Context) bool {
+	if strings.TrimSpace(c.GetHeader("x-goog-api-key")) != "" || strings.TrimSpace(c.GetHeader("x-api-key")) != "" {
+		return true
+	}
+	auth := strings.TrimSpace(c.GetHeader("Authorization"))
+	parts := strings.SplitN(auth, " ", 2)
+	return len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") && strings.TrimSpace(parts[1]) != ""
 }
 
 // extractAPIKeyForGoogle extracts API key for Google/Gemini endpoints.

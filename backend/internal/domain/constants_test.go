@@ -48,3 +48,21 @@ func TestDefaultBedrockModelMapping_ContainsClaudeFable5(t *testing.T) {
 		t.Fatalf("unexpected Bedrock mapping for claude-fable-5: got %q", got)
 	}
 }
+
+func TestDefaultBedrockModelMapping_ContainsLatestClaudeModels(t *testing.T) {
+	t.Parallel()
+
+	want := map[string]string{
+		"claude-fable-5-1": "anthropic.claude-fable-5-1",
+		"claude-opus-5":    "anthropic.claude-opus-5",
+	}
+	for model, expected := range want {
+		got, ok := DefaultBedrockModelMapping[model]
+		if !ok {
+			t.Fatalf("expected Bedrock mapping for %q to exist", model)
+		}
+		if got != expected {
+			t.Fatalf("unexpected Bedrock mapping for %q: got %q want %q", model, got, expected)
+		}
+	}
+}

@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
@@ -45,29 +44,20 @@ func (s *GatewayService) ForwardAsResponses(
 	originalModel := responsesReq.Model
 	clientStream := responsesReq.Stream
 
-	// 2. Convert Responses → Anthropic
-	anthropicReq, err := apicompat.ResponsesToAnthropicRequest(&responsesReq)
+	// 2. Resolve the actual target before compatibility conversion so
+	// model-aware fields such as reasoning effort use the upstream model family.
+	mappedModel := resolveAnthropicCompatTargetModel(account, originalModel)
+	reasoningEffort := ExtractResponsesReasoningEffortFromBody(body)
+
+	// 3. Convert Responses → Anthropic using the mapped target model.
+	anthropicReq, err := responsesToAnthropicForTargetModel(&responsesReq, mappedModel)
 	if err != nil {
 		return nil, fmt.Errorf("convert responses to anthropic: %w", err)
 	}
 
-	// 3. Force upstream streaming (Anthropic works best with streaming)
+	// 4. Force upstream streaming (Anthropic works best with streaming)
 	anthropicReq.Stream = true
 	reqStream := true
-
-	// 4. Model mapping
-	mappedModel := originalModel
-	reasoningEffort := ExtractResponsesReasoningEffortFromBody(body)
-	if account.Type == AccountTypeAPIKey {
-		mappedModel = account.GetMappedModel(originalModel)
-	}
-	if mappedModel == originalModel && account.Platform == PlatformAnthropic && account.Type != AccountTypeAPIKey {
-		normalized := claude.NormalizeModelID(originalModel)
-		if normalized != originalModel {
-			mappedModel = normalized
-		}
-	}
-	anthropicReq.Model = mappedModel
 
 	logger.L().Debug("gateway forward_as_responses: model mapping applied",
 		zap.Int64("account_id", account.ID),
@@ -214,6 +204,9 @@ func mergeAnthropicUsage(dst *ClaudeUsage, src apicompat.AnthropicUsage) {
 	if src.CacheCreationInputTokens > 0 {
 		dst.CacheCreationInputTokens = src.CacheCreationInputTokens
 	}
+	if speed := strings.TrimSpace(src.Speed); speed != "" {
+		dst.Speed = speed
+	}
 }
 
 // handleResponsesBufferedStreamingResponse reads all Anthropic SSE events from
@@ -325,6 +318,7 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 			OutputTokens:             usage.OutputTokens,
 			CacheCreationInputTokens: usage.CacheCreationInputTokens,
 			CacheReadInputTokens:     usage.CacheReadInputTokens,
+			Speed:                    usage.Speed,
 		}
 	}
 

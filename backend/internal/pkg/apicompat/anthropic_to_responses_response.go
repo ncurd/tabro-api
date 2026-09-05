@@ -95,18 +95,26 @@ func AnthropicToResponsesResponse(resp *AnthropicResponse) *ResponsesResponse {
 	}
 
 	// Usage
+	totalInputTokens := anthropicTotalInputTokens(resp.Usage)
 	out.Usage = &ResponsesUsage{
-		InputTokens:  resp.Usage.InputTokens,
+		InputTokens:  totalInputTokens,
 		OutputTokens: resp.Usage.OutputTokens,
-		TotalTokens:  resp.Usage.InputTokens + resp.Usage.OutputTokens,
+		TotalTokens:  totalInputTokens + resp.Usage.OutputTokens,
 	}
-	if resp.Usage.CacheReadInputTokens > 0 {
+	if resp.Usage.CacheReadInputTokens > 0 || resp.Usage.CacheCreationInputTokens > 0 {
 		out.Usage.InputTokensDetails = &ResponsesInputTokensDetails{
-			CachedTokens: resp.Usage.CacheReadInputTokens,
+			CachedTokens:     resp.Usage.CacheReadInputTokens,
+			CacheWriteTokens: resp.Usage.CacheCreationInputTokens,
 		}
 	}
 
 	return out
+}
+
+// anthropicTotalInputTokens converts Anthropic's mutually exclusive uncached,
+// cache-read, and cache-write counts into OpenAI's total input token count.
+func anthropicTotalInputTokens(usage AnthropicUsage) int {
+	return usage.InputTokens + usage.CacheReadInputTokens + usage.CacheCreationInputTokens
 }
 
 // anthropicStopReasonToResponsesStatus maps Anthropic stop_reason to Responses status.
@@ -151,9 +159,11 @@ type AnthropicEventToResponsesState struct {
 	CurrentName   string
 
 	// Usage from message_delta
-	InputTokens          int
-	OutputTokens         int
-	CacheReadInputTokens int
+	// InputTokens follows Anthropic semantics and excludes cache reads/writes.
+	InputTokens              int
+	OutputTokens             int
+	CacheCreationInputTokens int
+	CacheReadInputTokens     int
 }
 
 // NewAnthropicEventToResponsesState returns an initialised stream state.
@@ -224,6 +234,12 @@ func anthToResHandleMessageStart(evt *AnthropicStreamEvent, state *AnthropicEven
 		}
 		if evt.Message.Usage.InputTokens > 0 {
 			state.InputTokens = evt.Message.Usage.InputTokens
+		}
+		if evt.Message.Usage.CacheCreationInputTokens > 0 {
+			state.CacheCreationInputTokens = evt.Message.Usage.CacheCreationInputTokens
+		}
+		if evt.Message.Usage.CacheReadInputTokens > 0 {
+			state.CacheReadInputTokens = evt.Message.Usage.CacheReadInputTokens
 		}
 	}
 
@@ -395,6 +411,9 @@ func anthToResHandleMessageDelta(evt *AnthropicStreamEvent, state *AnthropicEven
 		if evt.Usage.CacheReadInputTokens > 0 {
 			state.CacheReadInputTokens = evt.Usage.CacheReadInputTokens
 		}
+		if evt.Usage.CacheCreationInputTokens > 0 {
+			state.CacheCreationInputTokens = evt.Usage.CacheCreationInputTokens
+		}
 	}
 
 	return nil
@@ -472,14 +491,20 @@ func makeResponsesCompletedEvent(
 	seq := state.SequenceNumber
 	state.SequenceNumber++
 
+	totalInputTokens := anthropicTotalInputTokens(AnthropicUsage{
+		InputTokens:              state.InputTokens,
+		CacheCreationInputTokens: state.CacheCreationInputTokens,
+		CacheReadInputTokens:     state.CacheReadInputTokens,
+	})
 	usage := &ResponsesUsage{
-		InputTokens:  state.InputTokens,
+		InputTokens:  totalInputTokens,
 		OutputTokens: state.OutputTokens,
-		TotalTokens:  state.InputTokens + state.OutputTokens,
+		TotalTokens:  totalInputTokens + state.OutputTokens,
 	}
-	if state.CacheReadInputTokens > 0 {
+	if state.CacheReadInputTokens > 0 || state.CacheCreationInputTokens > 0 {
 		usage.InputTokensDetails = &ResponsesInputTokensDetails{
-			CachedTokens: state.CacheReadInputTokens,
+			CachedTokens:     state.CacheReadInputTokens,
+			CacheWriteTokens: state.CacheCreationInputTokens,
 		}
 	}
 

@@ -34,6 +34,7 @@ type APIKey struct {
 	Name        string
 	GroupID     *int64
 	Status      string
+	OIDCManaged bool
 	IPWhitelist []string
 	IPBlacklist []string
 	// 预编译的 IP 规则，用于认证热路径避免重复 ParseIP/ParseCIDR。

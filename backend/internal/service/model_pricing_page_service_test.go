@@ -128,7 +128,7 @@ func TestModelPricingPageServiceListAvailablePricingFallsBackToPlatformDefaults(
 	require.NoError(t, err)
 	require.Len(t, result.Groups, 1)
 	require.NotEmpty(t, result.Groups[0].Models)
-	require.Equal(t, "gpt-5.6", result.Groups[0].Models[0].ID)
+	require.Equal(t, "gpt-6-astra", result.Groups[0].Models[0].ID)
 	require.False(t, result.Groups[0].Models[0].PricingAvailable)
 }
 

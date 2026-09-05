@@ -84,13 +84,7 @@ func ResponsesToAnthropic(resp *ResponsesResponse, model string) *AnthropicRespo
 	out.StopReason = responsesStatusToAnthropicStopReason(resp.Status, resp.IncompleteDetails, blocks)
 
 	if resp.Usage != nil {
-		out.Usage = AnthropicUsage{
-			InputTokens:  resp.Usage.InputTokens,
-			OutputTokens: resp.Usage.OutputTokens,
-		}
-		if resp.Usage.InputTokensDetails != nil {
-			out.Usage.CacheReadInputTokens = resp.Usage.InputTokensDetails.CachedTokens
-		}
+		out.Usage = responsesUsageToAnthropicUsage(resp.Usage)
 	}
 
 	return out
@@ -113,6 +107,23 @@ func responsesStatusToAnthropicStopReason(status string, details *ResponsesIncom
 	}
 }
 
+// responsesUsageToAnthropicUsage converts OpenAI's total input token count
+// into Anthropic's mutually exclusive uncached, cache-read, and cache-write
+// input token fields.
+func responsesUsageToAnthropicUsage(usage *ResponsesUsage) AnthropicUsage {
+	converted := AnthropicUsage{OutputTokens: usage.OutputTokens}
+	if usage.InputTokensDetails != nil {
+		converted.CacheReadInputTokens = usage.InputTokensDetails.CachedTokens
+		converted.CacheCreationInputTokens = usage.InputTokensDetails.CacheWriteTokens
+	}
+
+	converted.InputTokens = usage.InputTokens - converted.CacheReadInputTokens - converted.CacheCreationInputTokens
+	if converted.InputTokens < 0 {
+		converted.InputTokens = 0
+	}
+	return converted
+}
+
 // ---------------------------------------------------------------------------
 // Streaming: ResponsesStreamEvent → []AnthropicStreamEvent (stateful converter)
 // ---------------------------------------------------------------------------
@@ -130,9 +141,11 @@ type ResponsesEventToAnthropicState struct {
 	// OutputIndexToBlockIdx maps Responses output_index → Anthropic content block index.
 	OutputIndexToBlockIdx map[int]int
 
-	InputTokens          int
-	OutputTokens         int
-	CacheReadInputTokens int
+	// InputTokens follows Anthropic semantics and excludes cache reads/writes.
+	InputTokens              int
+	OutputTokens             int
+	CacheCreationInputTokens int
+	CacheReadInputTokens     int
 
 	ResponseID string
 	Model      string
@@ -196,9 +209,10 @@ func FinalizeResponsesAnthropicStream(state *ResponsesEventToAnthropicState) []A
 				StopReason: "end_turn",
 			},
 			Usage: &AnthropicUsage{
-				InputTokens:          state.InputTokens,
-				OutputTokens:         state.OutputTokens,
-				CacheReadInputTokens: state.CacheReadInputTokens,
+				InputTokens:              state.InputTokens,
+				OutputTokens:             state.OutputTokens,
+				CacheCreationInputTokens: state.CacheCreationInputTokens,
+				CacheReadInputTokens:     state.CacheReadInputTokens,
 			},
 		},
 		AnthropicStreamEvent{Type: "message_stop"},
@@ -466,11 +480,11 @@ func resToAnthHandleCompleted(evt *ResponsesStreamEvent, state *ResponsesEventTo
 	stopReason := "end_turn"
 	if evt.Response != nil {
 		if evt.Response.Usage != nil {
-			state.InputTokens = evt.Response.Usage.InputTokens
-			state.OutputTokens = evt.Response.Usage.OutputTokens
-			if evt.Response.Usage.InputTokensDetails != nil {
-				state.CacheReadInputTokens = evt.Response.Usage.InputTokensDetails.CachedTokens
-			}
+			usage := responsesUsageToAnthropicUsage(evt.Response.Usage)
+			state.InputTokens = usage.InputTokens
+			state.OutputTokens = usage.OutputTokens
+			state.CacheReadInputTokens = usage.CacheReadInputTokens
+			state.CacheCreationInputTokens = usage.CacheCreationInputTokens
 		}
 		switch evt.Response.Status {
 		case "incomplete":
@@ -491,9 +505,10 @@ func resToAnthHandleCompleted(evt *ResponsesStreamEvent, state *ResponsesEventTo
 				StopReason: stopReason,
 			},
 			Usage: &AnthropicUsage{
-				InputTokens:          state.InputTokens,
-				OutputTokens:         state.OutputTokens,
-				CacheReadInputTokens: state.CacheReadInputTokens,
+				InputTokens:              state.InputTokens,
+				OutputTokens:             state.OutputTokens,
+				CacheCreationInputTokens: state.CacheCreationInputTokens,
+				CacheReadInputTokens:     state.CacheReadInputTokens,
 			},
 		},
 		AnthropicStreamEvent{Type: "message_stop"},

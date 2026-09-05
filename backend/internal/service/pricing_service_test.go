@@ -36,6 +36,7 @@ func TestFallbackPricingFile_ContainsLatestOpenAIAndAnthropicModels(t *testing.T
 	require.NoError(t, err)
 
 	for _, model := range []string{
+		"gpt-6-astra",
 		"gpt-5.6",
 		"gpt-5.6-sol",
 		"gpt-5.6-terra",
@@ -49,8 +50,109 @@ func TestFallbackPricingFile_ContainsLatestOpenAIAndAnthropicModels(t *testing.T
 		"gpt-realtime-mini",
 		"gpt-realtime-translate",
 		"claude-fable-5",
+		"claude-fable-5-1",
+		"claude-opus-5",
 	} {
 		require.Contains(t, data, model)
+	}
+}
+
+func TestFallbackPricingFile_NewModelsUseOfficialPricing(t *testing.T) {
+	path := filepath.Join("..", "..", "resources", "model-pricing", "model_prices_and_context_window.json")
+	body, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	svc := &PricingService{}
+	data, err := svc.parsePricingData(body)
+	require.NoError(t, err)
+
+	tests := []struct {
+		model        string
+		input        float64
+		output       float64
+		cacheWrite   float64
+		cacheRead    float64
+		cacheWrite1h float64
+	}{
+		{model: "gpt-6-astra", input: 10e-6, output: 50e-6, cacheWrite: 12.5e-6, cacheRead: 1e-6},
+		{model: "gpt-5.6", input: 4e-6, output: 20e-6, cacheWrite: 5e-6, cacheRead: 0.4e-6},
+		{model: "gpt-5.6-sol", input: 4e-6, output: 20e-6, cacheWrite: 5e-6, cacheRead: 0.4e-6},
+		{model: "gpt-5.6-terra", input: 2e-6, output: 12e-6, cacheWrite: 2.5e-6, cacheRead: 0.2e-6},
+		{model: "gpt-5.6-luna", input: 0.2e-6, output: 1.2e-6, cacheWrite: 0.25e-6, cacheRead: 0.02e-6},
+		{model: "claude-fable-5-1", input: 10e-6, output: 50e-6, cacheWrite: 12.5e-6, cacheRead: 0.25e-6, cacheWrite1h: 20e-6},
+		{model: "claude-opus-5", input: 5e-6, output: 25e-6, cacheWrite: 6.25e-6, cacheRead: 0.5e-6, cacheWrite1h: 10e-6},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.model, func(t *testing.T) {
+			pricing := data[tt.model]
+			require.NotNil(t, pricing)
+			require.InDelta(t, tt.input, pricing.InputCostPerToken, 1e-12)
+			require.InDelta(t, tt.output, pricing.OutputCostPerToken, 1e-12)
+			require.InDelta(t, tt.cacheWrite, pricing.CacheCreationInputTokenCost, 1e-12)
+			require.InDelta(t, tt.cacheRead, pricing.CacheReadInputTokenCost, 1e-12)
+			require.InDelta(t, tt.cacheWrite1h, pricing.CacheCreationInputTokenCostAbove1hr, 1e-12)
+		})
+	}
+}
+
+func TestFallbackPricingFile_NewModelsIncludeOfficialBatchPricing(t *testing.T) {
+	path := filepath.Join("..", "..", "resources", "model-pricing", "model_prices_and_context_window.json")
+	body, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	type batchPricing struct {
+		Input            float64            `json:"input_cost_per_token_batches"`
+		Output           float64            `json:"output_cost_per_token_batches"`
+		CacheWrite       float64            `json:"cache_creation_input_token_cost_batches"`
+		CacheRead        float64            `json:"cache_read_input_token_cost_batches"`
+		SupportsMax      bool               `json:"supports_max_reasoning_effort"`
+		SupportsTier     bool               `json:"supports_service_tier"`
+		SupportsSpeed    bool               `json:"supports_speed"`
+		ProviderSpecific map[string]float64 `json:"provider_specific_entry"`
+		DeprecationDate  *string            `json:"deprecation_date"`
+	}
+	var data map[string]batchPricing
+	require.NoError(t, json.Unmarshal(body, &data))
+
+	tests := []struct {
+		model      string
+		input      float64
+		output     float64
+		cacheWrite float64
+		cacheRead  float64
+	}{
+		{model: "gpt-6-astra", input: 5e-6, output: 25e-6, cacheWrite: 6.25e-6, cacheRead: 0.5e-6},
+		{model: "gpt-5.6", input: 2e-6, output: 10e-6, cacheWrite: 2.5e-6, cacheRead: 0.2e-6},
+		{model: "gpt-5.6-sol", input: 2e-6, output: 10e-6, cacheWrite: 2.5e-6, cacheRead: 0.2e-6},
+		{model: "gpt-5.6-terra", input: 1e-6, output: 6e-6, cacheWrite: 1.25e-6, cacheRead: 0.1e-6},
+		{model: "gpt-5.6-luna", input: 0.1e-6, output: 0.6e-6, cacheWrite: 0.125e-6, cacheRead: 0.01e-6},
+		{model: "claude-fable-5-1", input: 5e-6, output: 25e-6, cacheWrite: 6.25e-6, cacheRead: 0.125e-6},
+		{model: "claude-opus-5", input: 2.5e-6, output: 12.5e-6, cacheWrite: 3.125e-6, cacheRead: 0.25e-6},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.model, func(t *testing.T) {
+			pricing, ok := data[tt.model]
+			require.True(t, ok)
+			require.InDelta(t, tt.input, pricing.Input, 1e-12)
+			require.InDelta(t, tt.output, pricing.Output, 1e-12)
+			require.InDelta(t, tt.cacheWrite, pricing.CacheWrite, 1e-12)
+			require.InDelta(t, tt.cacheRead, pricing.CacheRead, 1e-12)
+			if tt.model == "gpt-6-astra" {
+				require.True(t, pricing.SupportsTier)
+			}
+			if tt.model == "gpt-6-astra" || strings.HasPrefix(tt.model, "gpt-5.6") {
+				require.True(t, pricing.SupportsMax)
+			}
+			if tt.model == "claude-opus-5" {
+				require.True(t, pricing.SupportsSpeed)
+				require.InDelta(t, 2.0, pricing.ProviderSpecific["fast"], 1e-12)
+			}
+			if strings.HasPrefix(tt.model, "claude-") {
+				require.Nil(t, pricing.DeprecationDate)
+			}
+		})
 	}
 }
 
@@ -118,6 +220,31 @@ func TestGetModelPricing_AnthropicFable5UsesStaticFallbackWhenRemoteMissing(t *t
 	require.InDelta(t, 20e-6, pricing.CacheCreationInputTokenCostAbove1hr, 1e-12)
 	require.InDelta(t, 1e-6, pricing.CacheReadInputTokenCost, 1e-12)
 	require.True(t, pricing.SupportsPromptCaching)
+}
+
+func TestGetModelPricing_AnthropicLatestModelsUseDedicatedStaticFallbacks(t *testing.T) {
+	svc := &PricingService{
+		pricingData: map[string]*LiteLLMModelPricing{
+			"claude-fable-5": {InputCostPerToken: 999},
+		},
+	}
+
+	for _, model := range []string{"claude-fable-5-1", "claude-fable-5.1"} {
+		fable := svc.GetModelPricing(model)
+		require.NotNil(t, fable)
+		require.InDelta(t, 10e-6, fable.InputCostPerToken, 1e-12)
+		require.InDelta(t, 50e-6, fable.OutputCostPerToken, 1e-12)
+		require.InDelta(t, 0.25e-6, fable.CacheReadInputTokenCost, 1e-12)
+		require.NotEqual(t, float64(999), fable.InputCostPerToken, "Fable 5.1 must not inherit Fable 5 through prefix matching")
+	}
+
+	opus := svc.GetModelPricing("claude-opus-5")
+	require.NotNil(t, opus)
+	require.InDelta(t, 5e-6, opus.InputCostPerToken, 1e-12)
+	require.InDelta(t, 25e-6, opus.OutputCostPerToken, 1e-12)
+	require.InDelta(t, 6.25e-6, opus.CacheCreationInputTokenCost, 1e-12)
+	require.InDelta(t, 10e-6, opus.CacheCreationInputTokenCostAbove1hr, 1e-12)
+	require.InDelta(t, 0.5e-6, opus.CacheReadInputTokenCost, 1e-12)
 }
 
 func TestParsePricingData_KeepsImageOnlyPricingEntries(t *testing.T) {
@@ -249,6 +376,7 @@ func TestParsePricingData_ParsesPriorityAndServiceTierFields(t *testing.T) {
 			"output_cost_per_token": 0.000015,
 			"output_cost_per_token_priority": 0.00003,
 			"cache_creation_input_token_cost": 0.0000025,
+			"cache_creation_input_token_cost_priority": 0.000005,
 			"cache_read_input_token_cost": 0.00000025,
 			"cache_read_input_token_cost_priority": 0.0000005,
 			"supports_service_tier": true,
@@ -264,6 +392,7 @@ func TestParsePricingData_ParsesPriorityAndServiceTierFields(t *testing.T) {
 	require.NotNil(t, pricing)
 	require.InDelta(t, 5e-6, pricing.InputCostPerTokenPriority, 1e-12)
 	require.InDelta(t, 3e-5, pricing.OutputCostPerTokenPriority, 1e-12)
+	require.InDelta(t, 5e-6, pricing.CacheCreationInputTokenCostPriority, 1e-12)
 	require.InDelta(t, 5e-7, pricing.CacheReadInputTokenCostPriority, 1e-12)
 	require.True(t, pricing.SupportsServiceTier)
 }
@@ -277,8 +406,13 @@ func TestParsePricingData_UsesFirstTierWhenTopLevelPricesMissing(t *testing.T) {
 			"tiered_pricing": [
 				{
 					"input_cost_per_token": 0.000001,
+					"input_cost_per_token_priority": 0.000002,
 					"output_cost_per_token": 0.000005,
-					"cache_read_input_token_cost": 0.0000001
+					"output_cost_per_token_priority": 0.00001,
+					"cache_creation_input_token_cost": 0.00000125,
+					"cache_creation_input_token_cost_priority": 0.0000025,
+					"cache_read_input_token_cost": 0.0000001,
+					"cache_read_input_token_cost_priority": 0.0000002
 				}
 			]
 		}
@@ -289,8 +423,13 @@ func TestParsePricingData_UsesFirstTierWhenTopLevelPricesMissing(t *testing.T) {
 	pricing := data["dashscope/qwen3-coder-plus"]
 	require.NotNil(t, pricing)
 	require.InDelta(t, 1e-6, pricing.InputCostPerToken, 1e-12)
+	require.InDelta(t, 2e-6, pricing.InputCostPerTokenPriority, 1e-12)
 	require.InDelta(t, 5e-6, pricing.OutputCostPerToken, 1e-12)
+	require.InDelta(t, 10e-6, pricing.OutputCostPerTokenPriority, 1e-12)
+	require.InDelta(t, 1.25e-6, pricing.CacheCreationInputTokenCost, 1e-12)
+	require.InDelta(t, 2.5e-6, pricing.CacheCreationInputTokenCostPriority, 1e-12)
 	require.InDelta(t, 1e-7, pricing.CacheReadInputTokenCost, 1e-12)
+	require.InDelta(t, 2e-7, pricing.CacheReadInputTokenCostPriority, 1e-12)
 }
 
 func TestGetModelPricing_ProviderAliases(t *testing.T) {
@@ -387,10 +526,10 @@ func TestGetModelPricing_Gpt56UsesStaticFallbackWhenRemoteMissing(t *testing.T) 
 		cacheWrite  float64
 		cacheRead   float64
 	}{
-		{model: "gpt-5.6", inputPrice: 5e-6, outputPrice: 30e-6, cacheWrite: 6.25e-6, cacheRead: 0.5e-6},
-		{model: "gpt-5.6-sol", inputPrice: 5e-6, outputPrice: 30e-6, cacheWrite: 6.25e-6, cacheRead: 0.5e-6},
-		{model: "gpt-5.6-terra", inputPrice: 2.5e-6, outputPrice: 15e-6, cacheWrite: 3.125e-6, cacheRead: 0.25e-6},
-		{model: "gpt-5.6-luna", inputPrice: 1e-6, outputPrice: 6e-6, cacheWrite: 1.25e-6, cacheRead: 0.1e-6},
+		{model: "gpt-5.6", inputPrice: 4e-6, outputPrice: 20e-6, cacheWrite: 5e-6, cacheRead: 0.4e-6},
+		{model: "gpt-5.6-sol", inputPrice: 4e-6, outputPrice: 20e-6, cacheWrite: 5e-6, cacheRead: 0.4e-6},
+		{model: "gpt-5.6-terra", inputPrice: 2e-6, outputPrice: 12e-6, cacheWrite: 2.5e-6, cacheRead: 0.2e-6},
+		{model: "gpt-5.6-luna", inputPrice: 0.2e-6, outputPrice: 1.2e-6, cacheWrite: 0.25e-6, cacheRead: 0.02e-6},
 	}
 
 	for _, tt := range tests {
@@ -405,6 +544,25 @@ func TestGetModelPricing_Gpt56UsesStaticFallbackWhenRemoteMissing(t *testing.T) 
 			require.True(t, got.SupportsServiceTier)
 		})
 	}
+}
+
+func TestGetModelPricing_Gpt6AstraUsesStaticFallbackWhenRemoteMissing(t *testing.T) {
+	svc := &PricingService{pricingData: map[string]*LiteLLMModelPricing{}}
+
+	got := svc.GetModelPricing("gpt-6-astra-max")
+	require.NotNil(t, got)
+	require.InDelta(t, 10e-6, got.InputCostPerToken, 1e-12)
+	require.InDelta(t, 50e-6, got.OutputCostPerToken, 1e-12)
+	require.InDelta(t, 12.5e-6, got.CacheCreationInputTokenCost, 1e-12)
+	require.InDelta(t, 1e-6, got.CacheReadInputTokenCost, 1e-12)
+	require.InDelta(t, 20e-6, got.InputCostPerTokenPriority, 1e-12)
+	require.InDelta(t, 100e-6, got.OutputCostPerTokenPriority, 1e-12)
+	require.InDelta(t, 25e-6, got.CacheCreationInputTokenCostPriority, 1e-12)
+	require.InDelta(t, 2e-6, got.CacheReadInputTokenCostPriority, 1e-12)
+	require.Equal(t, 272000, got.LongContextInputTokenThreshold)
+	require.InDelta(t, 2.0, got.LongContextInputCostMultiplier, 1e-12)
+	require.InDelta(t, 1.5, got.LongContextOutputCostMultiplier, 1e-12)
+	require.True(t, got.SupportsServiceTier)
 }
 
 func TestGetModelPricing_Gpt54MiniUsesDedicatedStaticFallbackWhenRemoteMissing(t *testing.T) {
@@ -440,16 +598,18 @@ func TestGetModelPricing_Gpt54NanoUsesDedicatedStaticFallbackWhenRemoteMissing(t
 func TestParsePricingData_PreservesPriorityAndServiceTierFields(t *testing.T) {
 	raw := map[string]any{
 		"gpt-5.4": map[string]any{
-			"input_cost_per_token":                 2.5e-6,
-			"input_cost_per_token_priority":        5e-6,
-			"output_cost_per_token":                15e-6,
-			"output_cost_per_token_priority":       30e-6,
-			"cache_read_input_token_cost":          0.25e-6,
-			"cache_read_input_token_cost_priority": 0.5e-6,
-			"supports_service_tier":                true,
-			"supports_prompt_caching":              true,
-			"litellm_provider":                     "openai",
-			"mode":                                 "chat",
+			"input_cost_per_token":                     2.5e-6,
+			"input_cost_per_token_priority":            5e-6,
+			"output_cost_per_token":                    15e-6,
+			"output_cost_per_token_priority":           30e-6,
+			"cache_creation_input_token_cost":          2.5e-6,
+			"cache_creation_input_token_cost_priority": 5e-6,
+			"cache_read_input_token_cost":              0.25e-6,
+			"cache_read_input_token_cost_priority":     0.5e-6,
+			"supports_service_tier":                    true,
+			"supports_prompt_caching":                  true,
+			"litellm_provider":                         "openai",
+			"mode":                                     "chat",
 		},
 	}
 	body, err := json.Marshal(raw)
@@ -465,6 +625,8 @@ func TestParsePricingData_PreservesPriorityAndServiceTierFields(t *testing.T) {
 	require.InDelta(t, 5e-6, pricing.InputCostPerTokenPriority, 1e-12)
 	require.InDelta(t, 15e-6, pricing.OutputCostPerToken, 1e-12)
 	require.InDelta(t, 30e-6, pricing.OutputCostPerTokenPriority, 1e-12)
+	require.InDelta(t, 2.5e-6, pricing.CacheCreationInputTokenCost, 1e-12)
+	require.InDelta(t, 5e-6, pricing.CacheCreationInputTokenCostPriority, 1e-12)
 	require.InDelta(t, 0.25e-6, pricing.CacheReadInputTokenCost, 1e-12)
 	require.InDelta(t, 0.5e-6, pricing.CacheReadInputTokenCostPriority, 1e-12)
 	require.True(t, pricing.SupportsServiceTier)
@@ -478,6 +640,8 @@ func TestParsePricingData_PreservesServiceTierPriorityFields(t *testing.T) {
 			"input_cost_per_token_priority": 0.000005,
 			"output_cost_per_token": 0.000015,
 			"output_cost_per_token_priority": 0.00003,
+			"cache_creation_input_token_cost": 0.0000025,
+			"cache_creation_input_token_cost_priority": 0.000005,
 			"cache_read_input_token_cost": 0.00000025,
 			"cache_read_input_token_cost_priority": 0.0000005,
 			"supports_service_tier": true,
@@ -493,6 +657,8 @@ func TestParsePricingData_PreservesServiceTierPriorityFields(t *testing.T) {
 	require.InDelta(t, 0.000005, pricing.InputCostPerTokenPriority, 1e-12)
 	require.InDelta(t, 0.000015, pricing.OutputCostPerToken, 1e-12)
 	require.InDelta(t, 0.00003, pricing.OutputCostPerTokenPriority, 1e-12)
+	require.InDelta(t, 0.0000025, pricing.CacheCreationInputTokenCost, 1e-12)
+	require.InDelta(t, 0.000005, pricing.CacheCreationInputTokenCostPriority, 1e-12)
 	require.InDelta(t, 0.00000025, pricing.CacheReadInputTokenCost, 1e-12)
 	require.InDelta(t, 0.0000005, pricing.CacheReadInputTokenCostPriority, 1e-12)
 	require.True(t, pricing.SupportsServiceTier)

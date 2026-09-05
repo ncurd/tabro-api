@@ -254,10 +254,7 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 
 	// Propagate ServiceTier and ReasoningEffort to result for billing
 	if handleErr == nil && result != nil {
-		if responsesReq.ServiceTier != "" {
-			st := responsesReq.ServiceTier
-			result.ServiceTier = &st
-		}
+		result.ServiceTier = resolveOpenAIServiceTier(result.Usage.ResponseServiceTier, normalizeOpenAIServiceTier(responsesReq.ServiceTier))
 		if responsesReq.Reasoning != nil && responsesReq.Reasoning.Effort != "" {
 			re := responsesReq.Reasoning.Effort
 			result.ReasoningEffort = &re
@@ -336,13 +333,7 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 			if event.Response != nil {
 				finalResponse = event.Response
 				if event.Response.Usage != nil {
-					usage = OpenAIUsage{
-						InputTokens:  event.Response.Usage.InputTokens,
-						OutputTokens: event.Response.Usage.OutputTokens,
-					}
-					if event.Response.Usage.InputTokensDetails != nil {
-						usage.CacheReadInputTokens = event.Response.Usage.InputTokensDetails.CachedTokens
-					}
+					usage = openAIUsageFromResponsesResponse(event.Response)
 				}
 			}
 		}
@@ -468,13 +459,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 		// Extract usage from completion events
 		if isOpenAIResponseTerminalEventType(event.Type) &&
 			event.Response != nil && event.Response.Usage != nil {
-			usage = OpenAIUsage{
-				InputTokens:  event.Response.Usage.InputTokens,
-				OutputTokens: event.Response.Usage.OutputTokens,
-			}
-			if event.Response.Usage.InputTokensDetails != nil {
-				usage.CacheReadInputTokens = event.Response.Usage.InputTokensDetails.CachedTokens
-			}
+			usage = openAIUsageFromResponsesResponse(event.Response)
 		}
 
 		chunks := apicompat.ResponsesEventToChatChunks(&event, state)

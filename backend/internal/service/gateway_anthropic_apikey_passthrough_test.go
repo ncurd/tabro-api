@@ -1103,7 +1103,7 @@ func TestExtractAnthropicSSEDataLine(t *testing.T) {
 func TestGatewayService_ParseSSEUsagePassthrough_MessageStartFallbacks(t *testing.T) {
 	svc := &GatewayService{}
 	usage := &ClaudeUsage{}
-	data := `{"type":"message_start","message":{"usage":{"input_tokens":12,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"cached_tokens":9,"cache_creation":{"ephemeral_5m_input_tokens":3,"ephemeral_1h_input_tokens":4}}}}`
+	data := `{"type":"message_start","message":{"usage":{"input_tokens":12,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"cached_tokens":9,"speed":"fast","cache_creation":{"ephemeral_5m_input_tokens":3,"ephemeral_1h_input_tokens":4}}}}`
 
 	svc.parseSSEUsagePassthrough(data, usage)
 
@@ -1112,6 +1112,7 @@ func TestGatewayService_ParseSSEUsagePassthrough_MessageStartFallbacks(t *testin
 	require.Equal(t, 7, usage.CacheCreationInputTokens, "聚合字段为空时应从 5m/1h 明细回填")
 	require.Equal(t, 3, usage.CacheCreation5mTokens)
 	require.Equal(t, 4, usage.CacheCreation1hTokens)
+	require.Equal(t, "fast", usage.Speed)
 }
 
 func TestGatewayService_ParseSSEUsagePassthrough_MessageDeltaSelectiveOverwrite(t *testing.T) {
@@ -1173,7 +1174,7 @@ func TestParseClaudeUsageFromResponseBody(t *testing.T) {
 	})
 
 	t.Run("parse all usage fields and fallback", func(t *testing.T) {
-		body := []byte(`{"usage":{"input_tokens":21,"output_tokens":34,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"cached_tokens":13,"cache_creation":{"ephemeral_5m_input_tokens":5,"ephemeral_1h_input_tokens":8}}}`)
+		body := []byte(`{"usage":{"input_tokens":21,"output_tokens":34,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"cached_tokens":13,"speed":"fast","cache_creation":{"ephemeral_5m_input_tokens":5,"ephemeral_1h_input_tokens":8}}}`)
 		got := parseClaudeUsageFromResponseBody(body)
 		require.Equal(t, 21, got.InputTokens)
 		require.Equal(t, 34, got.OutputTokens)
@@ -1181,6 +1182,7 @@ func TestParseClaudeUsageFromResponseBody(t *testing.T) {
 		require.Equal(t, 13, got.CacheCreationInputTokens, "聚合字段为空时应由 5m/1h 回填")
 		require.Equal(t, 5, got.CacheCreation5mTokens)
 		require.Equal(t, 8, got.CacheCreation1hTokens)
+		require.Equal(t, "fast", got.Speed)
 	})
 
 	t.Run("keep explicit aggregate values", func(t *testing.T) {

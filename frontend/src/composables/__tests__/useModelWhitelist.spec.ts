@@ -4,12 +4,45 @@ vi.mock('@/api/admin/accounts', () => ({
   getAntigravityDefaultModelMapping: vi.fn()
 }))
 
-import { buildModelMappingObject, getModelsByPlatform } from '../useModelWhitelist'
+import {
+  buildModelMappingObject,
+  getModelsByPlatform,
+  getPresetMappingsByPlatform
+} from '../useModelWhitelist'
 
 describe('useModelWhitelist', () => {
   it('claude 和 antigravity 模型列表包含 Claude Fable 5', () => {
     expect(getModelsByPlatform('anthropic')).toContain('claude-fable-5')
     expect(getModelsByPlatform('antigravity')).toContain('claude-fable-5')
+  })
+
+  it('直连模型列表包含 GPT-6 Astra、Claude Fable 5.1 和 Claude Opus 5', () => {
+    expect(getModelsByPlatform('openai')).toContain('gpt-6-astra')
+    expect(getModelsByPlatform('anthropic')).toContain('claude-fable-5-1')
+    expect(getModelsByPlatform('anthropic')).toContain('claude-opus-5')
+
+    expect(getModelsByPlatform('antigravity')).not.toContain('claude-fable-5-1')
+    expect(getModelsByPlatform('antigravity')).not.toContain('claude-opus-5')
+  })
+
+  it('直连和 Bedrock 预设包含新模型，Antigravity 预设不包含新 Claude 模型', () => {
+    expect(getPresetMappingsByPlatform('openai')).toContainEqual(expect.objectContaining({
+      label: 'GPT-6 Astra',
+      from: 'gpt-6-astra',
+      to: 'gpt-6-astra'
+    }))
+    expect(getPresetMappingsByPlatform('anthropic')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ from: 'claude-fable-5-1', to: 'claude-fable-5-1' }),
+      expect.objectContaining({ from: 'claude-opus-5', to: 'claude-opus-5' })
+    ]))
+    expect(getPresetMappingsByPlatform('bedrock')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ from: 'claude-fable-5-1', to: 'anthropic.claude-fable-5-1' }),
+      expect.objectContaining({ from: 'claude-opus-5', to: 'anthropic.claude-opus-5' })
+    ]))
+
+    const antigravityModels = getPresetMappingsByPlatform('antigravity').map(({ from }) => from)
+    expect(antigravityModels).not.toContain('claude-fable-5-1')
+    expect(antigravityModels).not.toContain('claude-opus-5')
   })
 
   it('openai 模型列表包含 GPT-5.4 官方快照', () => {
@@ -116,6 +149,16 @@ describe('useModelWhitelist', () => {
       'gpt-5.6-sol': 'gpt-5.6-sol',
       'gpt-5.6-terra': 'gpt-5.6-terra',
       'gpt-5.6-luna': 'gpt-5.6-luna'
+    })
+  })
+
+  it('whitelist 模式会保留新增直连模型的精确映射', () => {
+    const models = ['gpt-6-astra', 'claude-fable-5-1', 'claude-opus-5']
+
+    expect(buildModelMappingObject('whitelist', models, [])).toEqual({
+      'gpt-6-astra': 'gpt-6-astra',
+      'claude-fable-5-1': 'claude-fable-5-1',
+      'claude-opus-5': 'claude-opus-5'
     })
   })
 })

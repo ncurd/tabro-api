@@ -33,12 +33,13 @@ func TestParseSSEUsage_MessageStart(t *testing.T) {
 	svc := newMinimalGatewayService()
 	usage := &ClaudeUsage{}
 
-	data := `{"type":"message_start","message":{"usage":{"input_tokens":100,"cache_creation_input_tokens":50,"cache_read_input_tokens":200}}}`
+	data := `{"type":"message_start","message":{"usage":{"input_tokens":100,"cache_creation_input_tokens":50,"cache_read_input_tokens":200,"speed":"fast"}}}`
 	svc.parseSSEUsage(data, usage)
 
 	require.Equal(t, 100, usage.InputTokens)
 	require.Equal(t, 50, usage.CacheCreationInputTokens)
 	require.Equal(t, 200, usage.CacheReadInputTokens)
+	require.Equal(t, "fast", usage.Speed)
 	require.Equal(t, 0, usage.OutputTokens, "message_start 不应设置 output_tokens")
 }
 
@@ -46,11 +47,12 @@ func TestParseSSEUsage_MessageDelta(t *testing.T) {
 	svc := newMinimalGatewayService()
 	usage := &ClaudeUsage{}
 
-	data := `{"type":"message_delta","usage":{"output_tokens":42}}`
+	data := `{"type":"message_delta","usage":{"output_tokens":42,"speed":"standard"}}`
 	svc.parseSSEUsage(data, usage)
 
 	require.Equal(t, 42, usage.OutputTokens)
 	require.Equal(t, 0, usage.InputTokens, "message_delta 的 output_tokens 不应影响已有的 input_tokens")
+	require.Equal(t, "standard", usage.Speed)
 }
 
 func TestParseSSEUsage_DeltaDoesNotOverwriteStartValues(t *testing.T) {

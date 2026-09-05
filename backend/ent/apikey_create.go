@@ -113,6 +113,20 @@ func (_c *APIKeyCreate) SetNillableStatus(v *string) *APIKeyCreate {
 	return _c
 }
 
+// SetOidcManaged sets the "oidc_managed" field.
+func (_c *APIKeyCreate) SetOidcManaged(v bool) *APIKeyCreate {
+	_c.mutation.SetOidcManaged(v)
+	return _c
+}
+
+// SetNillableOidcManaged sets the "oidc_managed" field if the given value is not nil.
+func (_c *APIKeyCreate) SetNillableOidcManaged(v *bool) *APIKeyCreate {
+	if v != nil {
+		_c.SetOidcManaged(*v)
+	}
+	return _c
+}
+
 // SetLastUsedAt sets the "last_used_at" field.
 func (_c *APIKeyCreate) SetLastUsedAt(v time.Time) *APIKeyCreate {
 	_c.mutation.SetLastUsedAt(v)
@@ -387,6 +401,10 @@ func (_c *APIKeyCreate) defaults() error {
 		v := apikey.DefaultStatus
 		_c.mutation.SetStatus(v)
 	}
+	if _, ok := _c.mutation.OidcManaged(); !ok {
+		v := apikey.DefaultOidcManaged
+		_c.mutation.SetOidcManaged(v)
+	}
 	if _, ok := _c.mutation.Quota(); !ok {
 		v := apikey.DefaultQuota
 		_c.mutation.SetQuota(v)
@@ -456,6 +474,9 @@ func (_c *APIKeyCreate) check() error {
 		if err := apikey.StatusValidator(v); err != nil {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "APIKey.status": %w`, err)}
 		}
+	}
+	if _, ok := _c.mutation.OidcManaged(); !ok {
+		return &ValidationError{Name: "oidc_managed", err: errors.New(`ent: missing required field "APIKey.oidc_managed"`)}
 	}
 	if _, ok := _c.mutation.Quota(); !ok {
 		return &ValidationError{Name: "quota", err: errors.New(`ent: missing required field "APIKey.quota"`)}
@@ -534,6 +555,10 @@ func (_c *APIKeyCreate) createSpec() (*APIKey, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Status(); ok {
 		_spec.SetField(apikey.FieldStatus, field.TypeString, value)
 		_node.Status = value
+	}
+	if value, ok := _c.mutation.OidcManaged(); ok {
+		_spec.SetField(apikey.FieldOidcManaged, field.TypeBool, value)
+		_node.OidcManaged = value
 	}
 	if value, ok := _c.mutation.LastUsedAt(); ok {
 		_spec.SetField(apikey.FieldLastUsedAt, field.TypeTime, value)
@@ -790,6 +815,18 @@ func (u *APIKeyUpsert) SetStatus(v string) *APIKeyUpsert {
 // UpdateStatus sets the "status" field to the value that was provided on create.
 func (u *APIKeyUpsert) UpdateStatus() *APIKeyUpsert {
 	u.SetExcluded(apikey.FieldStatus)
+	return u
+}
+
+// SetOidcManaged sets the "oidc_managed" field.
+func (u *APIKeyUpsert) SetOidcManaged(v bool) *APIKeyUpsert {
+	u.Set(apikey.FieldOidcManaged, v)
+	return u
+}
+
+// UpdateOidcManaged sets the "oidc_managed" field to the value that was provided on create.
+func (u *APIKeyUpsert) UpdateOidcManaged() *APIKeyUpsert {
+	u.SetExcluded(apikey.FieldOidcManaged)
 	return u
 }
 
@@ -1217,6 +1254,20 @@ func (u *APIKeyUpsertOne) SetStatus(v string) *APIKeyUpsertOne {
 func (u *APIKeyUpsertOne) UpdateStatus() *APIKeyUpsertOne {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.UpdateStatus()
+	})
+}
+
+// SetOidcManaged sets the "oidc_managed" field.
+func (u *APIKeyUpsertOne) SetOidcManaged(v bool) *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetOidcManaged(v)
+	})
+}
+
+// UpdateOidcManaged sets the "oidc_managed" field to the value that was provided on create.
+func (u *APIKeyUpsertOne) UpdateOidcManaged() *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateOidcManaged()
 	})
 }
 
@@ -1855,6 +1906,20 @@ func (u *APIKeyUpsertBulk) SetStatus(v string) *APIKeyUpsertBulk {
 func (u *APIKeyUpsertBulk) UpdateStatus() *APIKeyUpsertBulk {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.UpdateStatus()
+	})
+}
+
+// SetOidcManaged sets the "oidc_managed" field.
+func (u *APIKeyUpsertBulk) SetOidcManaged(v bool) *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetOidcManaged(v)
+	})
+}
+
+// UpdateOidcManaged sets the "oidc_managed" field to the value that was provided on create.
+func (u *APIKeyUpsertBulk) UpdateOidcManaged() *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateOidcManaged()
 	})
 }
 

@@ -40,12 +40,16 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		return nil, fmt.Errorf("parse anthropic request: %w", err)
 	}
 	originalModel := anthropicReq.Model
-	applyOpenAICompatModelNormalization(&anthropicReq)
-	normalizedModel := anthropicReq.Model
+	normalizedModel := NormalizeOpenAICompatRequestedModel(originalModel)
+	billingModel := resolveOpenAIForwardModel(account, normalizedModel, defaultMappedModel)
+	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
+	applyOpenAICompatModelNormalizationForTarget(&anthropicReq, upstreamModel)
+	normalizedModel = anthropicReq.Model
 	clientStream := anthropicReq.Stream // client's original stream preference
 
-	// 2. Convert Anthropic → Responses
-	responsesReq, err := apicompat.AnthropicToResponses(&anthropicReq)
+	// 2. Convert Anthropic → Responses using the resolved upstream model so
+	// model-aware reasoning effort mapping does not depend on a client alias.
+	responsesReq, err := anthropicToResponsesForTargetModel(&anthropicReq, upstreamModel)
 	if err != nil {
 		return nil, fmt.Errorf("convert anthropic to responses: %w", err)
 	}
@@ -60,9 +64,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		responsesReq.ServiceTier = "priority"
 	}
 
-	// 3. Model mapping
-	billingModel := resolveOpenAIForwardModel(account, normalizedModel, defaultMappedModel)
-	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
+	// 3. Model mapping was resolved before compatibility conversion.
 	responsesReq.Model = upstreamModel
 
 	logger.L().Debug("openai messages: model mapping applied",
@@ -237,10 +239,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 
 	// Propagate ServiceTier and ReasoningEffort to result for billing
 	if handleErr == nil && result != nil {
-		if responsesReq.ServiceTier != "" {
-			st := responsesReq.ServiceTier
-			result.ServiceTier = &st
-		}
+		result.ServiceTier = resolveOpenAIServiceTier(result.Usage.ResponseServiceTier, normalizeOpenAIServiceTier(responsesReq.ServiceTier))
 		if responsesReq.Reasoning != nil && responsesReq.Reasoning.Effort != "" {
 			re := responsesReq.Reasoning.Effort
 			result.ReasoningEffort = &re
@@ -324,13 +323,7 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 			if event.Response != nil {
 				finalResponse = event.Response
 				if event.Response.Usage != nil {
-					usage = OpenAIUsage{
-						InputTokens:  event.Response.Usage.InputTokens,
-						OutputTokens: event.Response.Usage.OutputTokens,
-					}
-					if event.Response.Usage.InputTokensDetails != nil {
-						usage.CacheReadInputTokens = event.Response.Usage.InputTokensDetails.CachedTokens
-					}
+					usage = openAIUsageFromResponsesResponse(event.Response)
 				}
 			}
 		}
@@ -461,13 +454,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 		// Extract usage from completion events
 		if isOpenAIResponseTerminalEventType(event.Type) &&
 			event.Response != nil && event.Response.Usage != nil {
-			usage = OpenAIUsage{
-				InputTokens:  event.Response.Usage.InputTokens,
-				OutputTokens: event.Response.Usage.OutputTokens,
-			}
-			if event.Response.Usage.InputTokensDetails != nil {
-				usage.CacheReadInputTokens = event.Response.Usage.InputTokensDetails.CachedTokens
-			}
+			usage = openAIUsageFromResponsesResponse(event.Response)
 		}
 
 		// Convert to Anthropic events

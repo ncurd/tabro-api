@@ -53,7 +53,7 @@ func ResponsesToAnthropicRequest(req *ResponsesRequest) (*AnthropicRequest, erro
 
 	// reasoning.effort → output_config.effort + thinking
 	if req.Reasoning != nil && req.Reasoning.Effort != "" {
-		effort := mapResponsesEffortToAnthropic(req.Reasoning.Effort)
+		effort := mapResponsesEffortToAnthropicForModel(req.Reasoning.Effort, req.Model)
 		out.OutputConfig = &AnthropicOutputConfig{Effort: effort}
 		// Enable thinking for non-low efforts
 		if effort != "low" {
@@ -84,17 +84,32 @@ func defaultThinkingBudget(effort string) int {
 }
 
 // mapResponsesEffortToAnthropic converts OpenAI Responses reasoning effort to
-// Anthropic effort levels. Reverse of mapAnthropicEffortToResponses.
+// legacy Anthropic effort levels. Model-aware callers preserve xhigh and max
+// separately for Claude Fable 5.1 and Opus 5.
 //
 //	low    → low
 //	medium → medium
 //	high   → high
-//	xhigh  → max
+//	xhigh  → max (legacy models)
 func mapResponsesEffortToAnthropic(effort string) string {
+	return mapResponsesEffortToAnthropicForModel(effort, "")
+}
+
+func mapResponsesEffortToAnthropicForModel(effort, model string) string {
+	if supportsIndependentAnthropicXHighAndMax(model) && (effort == "xhigh" || effort == "max") {
+		return effort
+	}
 	if effort == "xhigh" {
 		return "max"
 	}
 	return effort // low→low, medium→medium, high→high, unknown→passthrough
+}
+
+func supportsIndependentAnthropicXHighAndMax(model string) bool {
+	model = strings.ToLower(strings.TrimSpace(model))
+	return strings.Contains(model, "claude-fable-5-1") ||
+		strings.Contains(model, "claude-fable-5.1") ||
+		strings.Contains(model, "claude-opus-5")
 }
 
 // convertResponsesInputToAnthropic extracts system prompt and messages from

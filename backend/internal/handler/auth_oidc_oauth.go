@@ -212,6 +212,10 @@ func (h *AuthHandler) OIDCOAuthCallback(c *gin.Context) {
 	if redirectTo == "" {
 		redirectTo = oidcOAuthDefaultRedirectTo
 	}
+	backendMode := h.settingSvc != nil && h.settingSvc.IsBackendModeEnabled(c.Request.Context())
+	if backendMode && redirectTo == oidcOAuthDefaultRedirectTo {
+		redirectTo = "/admin/dashboard"
+	}
 
 	codeVerifier := ""
 	if cfg.UsePKCE {
@@ -277,9 +281,10 @@ func (h *AuthHandler) OIDCOAuthCallback(c *gin.Context) {
 		return
 	}
 
-	subject := strings.TrimSpace(idClaims.Subject)
-	if subject == "" {
-		subject = strings.TrimSpace(userInfoClaims.Subject)
+	subject, err := oidcSelectSubject(idClaims.Subject, userInfoClaims.Subject)
+	if err != nil {
+		redirectOAuthError(c, frontendCallback, "invalid_subject", "OIDC subject mismatch", "")
+		return
 	}
 	if subject == "" {
 		redirectOAuthError(c, frontendCallback, "missing_subject", "missing subject claim", "")
@@ -294,19 +299,24 @@ func (h *AuthHandler) OIDCOAuthCallback(c *gin.Context) {
 		return
 	}
 
-	emailVerified := userInfoClaims.EmailVerified
-	if emailVerified == nil {
-		emailVerified = idClaims.EmailVerified
-	}
-	if cfg.RequireEmailVerified {
-		if emailVerified == nil || !*emailVerified {
-			redirectOAuthError(c, frontendCallback, "email_not_verified", "email is not verified", "")
-			return
-		}
+	// Backend mode exposes administrative functionality only and therefore
+	// requires cryptographic ID-token validation in addition to a verified
+	// email selected below.
+	if backendMode && !cfg.ValidateIDToken {
+		redirectOAuthError(c, frontendCallback, "email_not_verified", "verified email is required for backend mode", "")
+		return
 	}
 
 	identityKey := oidcIdentityKey(issuer, subject)
 	email := oidcSelectLoginEmail(userInfoClaims.Email, idClaims.Email, identityKey)
+	if cfg.RequireEmailVerified || backendMode {
+		verifiedEmail, ok := oidcSelectVerifiedLoginEmail(userInfoClaims, idClaims)
+		if !ok {
+			redirectOAuthError(c, frontendCallback, "email_not_verified", "email is not verified", "")
+			return
+		}
+		email = verifiedEmail
+	}
 	username := firstNonEmpty(
 		userInfoClaims.Username,
 		idClaims.PreferredUsername,
@@ -314,8 +324,10 @@ func (h *AuthHandler) OIDCOAuthCallback(c *gin.Context) {
 		oidcFallbackUsername(subject),
 	)
 
-	// 传入空邀请码；如果需要邀请码，服务层返回 ErrOAuthInvitationRequired
-	tokenPair, _, err := h.authService.LoginOrRegisterOAuthWithTokenPair(c.Request.Context(), email, username, "")
+	// 传入空邀请码；如果需要邀请码，服务层返回 ErrOAuthInvitationRequired。
+	// Backend mode never enters the registration path and only permits an
+	// already-existing active administrator.
+	tokenPair, _, err := h.loginOIDCWithTokenPair(c.Request.Context(), email, username, "", backendMode)
 	if err != nil {
 		if errors.Is(err, service.ErrOAuthInvitationRequired) {
 			pendingToken, tokenErr := h.authService.CreatePendingOAuthToken(email, username)
@@ -352,6 +364,11 @@ type completeOIDCOAuthRequest struct {
 // the invitation code and creating the user account.
 // POST /api/v1/auth/oauth/oidc/complete-registration
 func (h *AuthHandler) CompleteOIDCOAuthRegistration(c *gin.Context) {
+	if h.settingSvc != nil && h.settingSvc.IsBackendModeEnabled(c.Request.Context()) {
+		response.Forbidden(c, "Backend mode is active. OAuth registration is disabled.")
+		return
+	}
+
 	var req completeOIDCOAuthRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "INVALID_REQUEST", "message": err.Error()})
@@ -364,7 +381,7 @@ func (h *AuthHandler) CompleteOIDCOAuthRegistration(c *gin.Context) {
 		return
 	}
 
-	tokenPair, _, err := h.authService.LoginOrRegisterOAuthWithTokenPair(c.Request.Context(), email, username, req.InvitationCode)
+	tokenPair, _, err := h.loginOIDCWithTokenPair(c.Request.Context(), email, username, req.InvitationCode, false)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -376,6 +393,35 @@ func (h *AuthHandler) CompleteOIDCOAuthRegistration(c *gin.Context) {
 		"expires_in":    tokenPair.ExpiresIn,
 		"token_type":    "Bearer",
 	})
+}
+
+func (h *AuthHandler) loginOIDCWithTokenPair(ctx context.Context, email, username, invitationCode string, backendMode bool) (*service.TokenPair, *service.User, error) {
+	if h == nil || h.authService == nil || h.apiKeyService == nil {
+		return nil, nil, infraerrors.ServiceUnavailable("AUTH_SERVICE_NOT_READY", "authentication service is not ready")
+	}
+
+	var (
+		user *service.User
+		err  error
+	)
+	if backendMode {
+		user, err = h.authService.LoginExistingAdminOAuthUser(ctx, email)
+	} else {
+		user, err = h.authService.LoginOrRegisterOAuthUser(ctx, email, username, invitationCode)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+
+	billingKey, err := h.apiKeyService.EnsureOIDCGatewayKey(ctx, user.ID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("ensure oidc gateway billing key: %w", err)
+	}
+	tokenPair, err := h.authService.GenerateOIDCTokenPair(ctx, user, billingKey.ID, "")
+	if err != nil {
+		return nil, nil, fmt.Errorf("generate oidc token pair: %w", err)
+	}
+	return tokenPair, user, nil
 }
 
 func (h *AuthHandler) getOIDCOAuthConfig(ctx context.Context) (config.OIDCConnectConfig, error) {
@@ -837,6 +883,32 @@ func oidcSelectLoginEmail(userInfoEmail, idTokenEmail, identityKey string) strin
 		return email
 	}
 	return oidcSyntheticEmailFromIdentityKey(identityKey)
+}
+
+func oidcSelectSubject(idTokenSubject, userInfoSubject string) (string, error) {
+	idTokenSubject = strings.TrimSpace(idTokenSubject)
+	userInfoSubject = strings.TrimSpace(userInfoSubject)
+	if idTokenSubject != "" && userInfoSubject != "" && idTokenSubject != userInfoSubject {
+		return "", errors.New("id_token and userinfo subject mismatch")
+	}
+	return firstNonEmpty(idTokenSubject, userInfoSubject), nil
+}
+
+// oidcSelectVerifiedLoginEmail keeps the verification bit attached to the
+// email source that asserted it. In particular, an ID token's verified flag
+// must never be used to bless a different email returned by userinfo.
+func oidcSelectVerifiedLoginEmail(userInfo *oidcUserInfoClaims, idToken *oidcIDTokenClaims) (string, bool) {
+	if userInfo != nil && userInfo.EmailVerified != nil && *userInfo.EmailVerified {
+		if email := strings.TrimSpace(userInfo.Email); email != "" {
+			return email, true
+		}
+	}
+	if idToken != nil && idToken.EmailVerified != nil && *idToken.EmailVerified {
+		if email := strings.TrimSpace(idToken.Email); email != "" {
+			return email, true
+		}
+	}
+	return "", false
 }
 
 func oidcFallbackUsername(subject string) string {

@@ -38,3 +38,17 @@ func TestAPIKeyFromService_MapsNilLastUsedAt(t *testing.T) {
 	require.NotNil(t, out)
 	require.Nil(t, out.LastUsedAt)
 }
+
+func TestAPIKeyFromService_RedactsOIDCManagedBillingKey(t *testing.T) {
+	src := &service.APIKey{
+		ID:          42,
+		Key:         "oidc-internal:opaque-persistent-value",
+		OIDCManaged: true,
+		Name:        "OIDC Access Token",
+	}
+
+	out := APIKeyFromService(src)
+	require.NotNil(t, out)
+	require.True(t, out.OIDCManaged)
+	require.Empty(t, out.Key)
+}

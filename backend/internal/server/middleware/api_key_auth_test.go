@@ -15,8 +15,371 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/require"
 )
+
+func TestGatewayAuthAcceptsOIDCLocalTokenAsPersistentBillingKey(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cfg := &config.Config{RunMode: config.RunModeSimple}
+	cfg.JWT.Secret = "gateway-oidc-token-test-secret"
+	cfg.JWT.AccessTokenExpireMinutes = 60
+
+	user := &service.User{
+		ID:           77,
+		Email:        "oidc@example.com",
+		Role:         service.RoleUser,
+		Status:       service.StatusActive,
+		Concurrency:  4,
+		TokenVersion: 3,
+	}
+	groupID := int64(8)
+	billingKey := &service.APIKey{
+		ID:          501,
+		UserID:      user.ID,
+		Key:         "hidden-oidc-billing-key",
+		OIDCManaged: true,
+		Status:      service.StatusAPIKeyActive,
+		GroupID:     &groupID,
+		User:        user,
+		Group: &service.Group{
+			ID:       groupID,
+			Status:   service.StatusActive,
+			Platform: service.PlatformAnthropic,
+			Hydrated: true,
+		},
+	}
+	getByKeyCalls := 0
+	repo := &stubApiKeyRepo{
+		getByKey: func(context.Context, string) (*service.APIKey, error) {
+			getByKeyCalls++
+			return nil, service.ErrAPIKeyNotFound
+		},
+		getByID: func(_ context.Context, id int64) (*service.APIKey, error) {
+			if id != billingKey.ID {
+				return nil, service.ErrAPIKeyNotFound
+			}
+			clone := *billingKey
+			return &clone, nil
+		},
+	}
+	apiKeyService := service.NewAPIKeyService(repo, nil, nil, nil, nil, nil, cfg)
+	authService := service.NewAuthService(nil, nil, nil, nil, cfg, nil, nil, nil, nil, nil, nil)
+	token := signOIDCGatewayToken(t, cfg.JWT.Secret, user.ID, billingKey.ID, user.TokenVersion, service.AuthMethodOIDC)
+
+	for name, setHeader := range map[string]func(*http.Request){
+		"authorization_bearer": func(req *http.Request) { req.Header.Set("Authorization", "Bearer "+token) },
+		"x_api_key":            func(req *http.Request) { req.Header.Set("x-api-key", token) },
+		"x_goog_api_key":       func(req *http.Request) { req.Header.Set("x-goog-api-key", token) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			router := gin.New()
+			router.Use(gin.HandlerFunc(NewGatewayAuthMiddleware(apiKeyService, nil, authService, cfg)))
+			router.GET("/t", func(c *gin.Context) {
+				resolved, ok := GetAPIKeyFromContext(c)
+				require.True(t, ok)
+				require.Equal(t, billingKey.ID, resolved.ID)
+				c.Status(http.StatusNoContent)
+			})
+
+			w := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/t", nil)
+			setHeader(req)
+			router.ServeHTTP(w, req)
+			require.Equal(t, http.StatusNoContent, w.Code)
+		})
+	}
+	require.Zero(t, getByKeyCalls, "valid OIDC JWT must not be queried as an API key")
+}
+
+func TestGatewayAuthFallsBackToImportedDottedAPIKey(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cfg := &config.Config{RunMode: config.RunModeSimple}
+	cfg.JWT.Secret = "gateway-dotted-key-fallback-secret"
+	user := &service.User{ID: 20, Role: service.RoleUser, Status: service.StatusActive, Balance: 10}
+	legacyKey := &service.APIKey{
+		ID:     200,
+		UserID: user.ID,
+		Key:    "legacy.dotted.api-key",
+		Status: service.StatusAPIKeyActive,
+		User:   user,
+	}
+	repo := &stubApiKeyRepo{
+		getByKey: func(_ context.Context, key string) (*service.APIKey, error) {
+			if key != legacyKey.Key {
+				return nil, service.ErrAPIKeyNotFound
+			}
+			clone := *legacyKey
+			return &clone, nil
+		},
+	}
+	apiKeyService := service.NewAPIKeyService(repo, nil, nil, nil, nil, nil, cfg)
+	authService := service.NewAuthService(nil, nil, nil, nil, cfg, nil, nil, nil, nil, nil, nil)
+
+	router := gin.New()
+	router.Use(gin.HandlerFunc(NewGatewayAuthMiddleware(apiKeyService, nil, authService, cfg)))
+	router.GET("/t", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/t", nil)
+	req.Header.Set("Authorization", "Bearer "+legacyKey.Key)
+	router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusNoContent, w.Code)
+}
+
+func TestGatewayAuthRejectsOIDCBillingKeyValueAsStandaloneCredential(t *testing.T) {
+	var getByKeyCalls int
+	repo := &stubApiKeyRepo{
+		getByKey: func(_ context.Context, key string) (*service.APIKey, error) {
+			getByKeyCalls++
+			return &service.APIKey{
+				ID:          701,
+				UserID:      70,
+				Key:         key,
+				OIDCManaged: true,
+				Status:      service.StatusAPIKeyActive,
+				User:        &service.User{ID: 70, Status: service.StatusActive},
+			}, nil
+		},
+	}
+	apiKeyService := service.NewAPIKeyService(repo, nil, nil, nil, nil, nil, &config.Config{})
+
+	_, err := resolveGatewayAPIKey(context.Background(), "oidc-internal:opaque-value", true, apiKeyService, nil)
+	require.ErrorIs(t, err, errInvalidGatewayCredential)
+	require.Equal(t, 1, getByKeyCalls)
+}
+
+func TestGatewayAuthAllowsOrdinaryKeyUsingOIDCLookingConfiguredPrefix(t *testing.T) {
+	repo := &stubApiKeyRepo{
+		getByKey: func(_ context.Context, key string) (*service.APIKey, error) {
+			return &service.APIKey{
+				ID:          702,
+				UserID:      71,
+				Key:         key,
+				OIDCManaged: false,
+				Status:      service.StatusAPIKeyActive,
+				User:        &service.User{ID: 71, Status: service.StatusActive},
+			}, nil
+		},
+	}
+	apiKeyService := service.NewAPIKeyService(repo, nil, nil, nil, nil, nil, &config.Config{})
+
+	got, err := resolveGatewayAPIKey(context.Background(), "oidc-internal:ordinary-configured-prefix", true, apiKeyService, nil)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.False(t, got.OIDCManaged)
+}
+
+func TestGatewayAuthRejectsNonOIDCOrMismatchedLocalTokens(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cfg := &config.Config{RunMode: config.RunModeSimple}
+	cfg.JWT.Secret = "gateway-oidc-token-test-secret"
+	cfg.JWT.AccessTokenExpireMinutes = 60
+
+	user := &service.User{ID: 7, Email: "user@example.com", Role: service.RoleUser, Status: service.StatusActive, TokenVersion: 2}
+	billingKey := &service.APIKey{ID: 80, UserID: user.ID, Key: "billing", OIDCManaged: true, Status: service.StatusAPIKeyActive, User: user}
+	repo := &stubApiKeyRepo{
+		getByKey: func(context.Context, string) (*service.APIKey, error) { return nil, service.ErrAPIKeyNotFound },
+		getByID: func(_ context.Context, id int64) (*service.APIKey, error) {
+			clone := *billingKey
+			if id == billingKey.ID+1 {
+				clone.ID = id
+				clone.OIDCManaged = false
+			}
+			return &clone, nil
+		},
+	}
+	apiKeyService := service.NewAPIKeyService(repo, nil, nil, nil, nil, nil, cfg)
+	authService := service.NewAuthService(nil, nil, nil, nil, cfg, nil, nil, nil, nil, nil, nil)
+
+	passwordToken, err := authService.GenerateToken(user)
+	require.NoError(t, err)
+	tests := map[string]string{
+		"password_access_token": passwordToken,
+		"wrong_owner":           signOIDCGatewayToken(t, cfg.JWT.Secret, 999, billingKey.ID, user.TokenVersion, service.AuthMethodOIDC),
+		"revoked_version":       signOIDCGatewayToken(t, cfg.JWT.Secret, user.ID, billingKey.ID, user.TokenVersion-1, service.AuthMethodOIDC),
+		"missing_billing_key":   signOIDCGatewayToken(t, cfg.JWT.Secret, user.ID, 0, user.TokenVersion, service.AuthMethodOIDC),
+		"ordinary_key_binding":  signOIDCGatewayToken(t, cfg.JWT.Secret, user.ID, billingKey.ID+1, user.TokenVersion, service.AuthMethodOIDC),
+	}
+
+	for name, token := range tests {
+		t.Run(name, func(t *testing.T) {
+			router := gin.New()
+			router.Use(gin.HandlerFunc(NewGatewayAuthMiddleware(apiKeyService, nil, authService, cfg)))
+			router.GET("/t", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+
+			w := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/t", nil)
+			req.Header.Set("Authorization", "Bearer "+token)
+			router.ServeHTTP(w, req)
+			require.Equal(t, http.StatusUnauthorized, w.Code)
+			require.Contains(t, w.Body.String(), "INVALID_API_KEY")
+		})
+	}
+}
+
+func TestGatewayAuthOIDCTokenUsesBoundAPIKeyBillingPolicy(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cfg := &config.Config{RunMode: config.RunModeStandard}
+	cfg.JWT.Secret = "gateway-oidc-billing-policy-secret"
+	cfg.JWT.AccessTokenExpireMinutes = 60
+
+	user := &service.User{
+		ID:           18,
+		Email:        "billing@example.com",
+		Role:         service.RoleUser,
+		Status:       service.StatusActive,
+		Balance:      10,
+		TokenVersion: 6,
+	}
+	billingKey := &service.APIKey{
+		ID:          180,
+		UserID:      user.ID,
+		Key:         "persistent-billing-policy-key",
+		OIDCManaged: true,
+		Status:      service.StatusAPIKeyActive,
+		Quota:       1,
+		QuotaUsed:   1,
+		User:        user,
+	}
+	ordinaryKey := *billingKey
+	ordinaryKey.ID = 181
+	ordinaryKey.Key = "ordinary-billing-policy-key"
+	ordinaryKey.OIDCManaged = false
+	repo := &stubApiKeyRepo{
+		getByKey: func(_ context.Context, key string) (*service.APIKey, error) {
+			if key != ordinaryKey.Key {
+				return nil, service.ErrAPIKeyNotFound
+			}
+			clone := ordinaryKey
+			return &clone, nil
+		},
+		getByID: func(_ context.Context, id int64) (*service.APIKey, error) {
+			if id != billingKey.ID {
+				return nil, service.ErrAPIKeyNotFound
+			}
+			clone := *billingKey
+			return &clone, nil
+		},
+	}
+	apiKeyService := service.NewAPIKeyService(repo, nil, nil, nil, nil, nil, cfg)
+	authService := service.NewAuthService(nil, nil, nil, nil, cfg, nil, nil, nil, nil, nil, nil)
+	oidcToken := signOIDCGatewayToken(t, cfg.JWT.Secret, user.ID, billingKey.ID, user.TokenVersion, service.AuthMethodOIDC)
+
+	for name, credential := range map[string]string{
+		"oidc_access_token": oidcToken,
+		"api_key":           ordinaryKey.Key,
+	} {
+		t.Run(name, func(t *testing.T) {
+			router := gin.New()
+			router.Use(gin.HandlerFunc(NewGatewayAuthMiddleware(apiKeyService, nil, authService, cfg)))
+			router.GET("/t", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+
+			w := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/t", nil)
+			req.Header.Set("Authorization", "Bearer "+credential)
+			router.ServeHTTP(w, req)
+
+			require.Equal(t, http.StatusTooManyRequests, w.Code)
+			require.Contains(t, w.Body.String(), "API_KEY_QUOTA_EXHAUSTED")
+		})
+	}
+}
+
+func TestGatewayAuthUsageAliasesSkipBillingPolicy(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cfg := &config.Config{RunMode: config.RunModeStandard}
+	user := &service.User{ID: 22, Status: service.StatusActive}
+	apiKey := &service.APIKey{
+		ID:     220,
+		UserID: user.ID,
+		Key:    "expired-usage-inspection-key",
+		Status: service.StatusAPIKeyExpired,
+		User:   user,
+	}
+	repo := &stubApiKeyRepo{getByKey: func(_ context.Context, key string) (*service.APIKey, error) {
+		if key != apiKey.Key {
+			return nil, service.ErrAPIKeyNotFound
+		}
+		clone := *apiKey
+		return &clone, nil
+	}}
+	apiKeyService := service.NewAPIKeyService(repo, nil, nil, nil, nil, nil, cfg)
+
+	router := gin.New()
+	router.Use(gin.HandlerFunc(NewGatewayAuthMiddleware(apiKeyService, nil, nil, cfg)))
+	for _, path := range []string{"/v1/usage", "/antigravity/v1/usage", "/v1/models"} {
+		router.GET(path, func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	}
+
+	for _, tc := range []struct {
+		path string
+		want int
+	}{
+		{path: "/v1/usage", want: http.StatusNoContent},
+		{path: "/antigravity/v1/usage", want: http.StatusNoContent},
+		{path: "/v1/models", want: http.StatusForbidden},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+			req.Header.Set("Authorization", "Bearer "+apiKey.Key)
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+			require.Equal(t, tc.want, rec.Code)
+		})
+	}
+}
+
+func TestGatewayAuthOIDCKeyLookupFailureReturnsInternalError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cfg := &config.Config{RunMode: config.RunModeSimple}
+	cfg.JWT.Secret = "gateway-oidc-lookup-error-secret"
+	user := &service.User{ID: 19, Status: service.StatusActive, TokenVersion: 1}
+
+	repo := &stubApiKeyRepo{
+		getByKey: func(context.Context, string) (*service.APIKey, error) {
+			return nil, service.ErrAPIKeyNotFound
+		},
+		getByID: func(context.Context, int64) (*service.APIKey, error) {
+			return nil, errors.New("database unavailable")
+		},
+	}
+	apiKeyService := service.NewAPIKeyService(repo, nil, nil, nil, nil, nil, cfg)
+	authService := service.NewAuthService(nil, nil, nil, nil, cfg, nil, nil, nil, nil, nil, nil)
+	token := signOIDCGatewayToken(t, cfg.JWT.Secret, user.ID, 190, user.TokenVersion, service.AuthMethodOIDC)
+
+	router := gin.New()
+	router.Use(gin.HandlerFunc(NewGatewayAuthMiddleware(apiKeyService, nil, authService, cfg)))
+	router.GET("/t", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/t", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+	require.Contains(t, w.Body.String(), "INTERNAL_ERROR")
+}
+
+func signOIDCGatewayToken(t *testing.T, secret string, userID, billingAPIKeyID, tokenVersion int64, authMethod string) string {
+	t.Helper()
+	now := time.Now()
+	claims := service.JWTClaims{
+		UserID:          userID,
+		AuthMethod:      authMethod,
+		BillingAPIKeyID: billingAPIKeyID,
+		TokenVersion:    tokenVersion,
+		RegisteredClaims: jwt.RegisteredClaims{
+			IssuedAt:  jwt.NewNumericDate(now),
+			NotBefore: jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(time.Hour)),
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	signed, err := token.SignedString([]byte(secret))
+	require.NoError(t, err)
+	return signed
+}
 
 func TestSimpleModeBypassesQuotaCheck(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -503,6 +866,7 @@ func newAuthTestRouter(apiKeyService *service.APIKeyService, subscriptionService
 
 type stubApiKeyRepo struct {
 	getByKey       func(ctx context.Context, key string) (*service.APIKey, error)
+	getByID        func(ctx context.Context, id int64) (*service.APIKey, error)
 	updateLastUsed func(ctx context.Context, id int64, usedAt time.Time) error
 }
 
@@ -511,6 +875,9 @@ func (r *stubApiKeyRepo) Create(ctx context.Context, key *service.APIKey) error 
 }
 
 func (r *stubApiKeyRepo) GetByID(ctx context.Context, id int64) (*service.APIKey, error) {
+	if r.getByID != nil {
+		return r.getByID(ctx, id)
+	}
 	return nil, errors.New("not implemented")
 }
 

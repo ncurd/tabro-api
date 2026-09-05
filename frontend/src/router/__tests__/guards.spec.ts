@@ -54,6 +54,14 @@ interface MockAuthState {
   backendModeEnabled: boolean
 }
 
+const BACKEND_MODE_ALLOWED_PATHS = ['/login', '/key-usage', '/setup', '/docs']
+const BACKEND_MODE_OIDC_CALLBACK_PATH = '/auth/oidc/callback'
+
+function isBackendModeAllowedPath(path: string): boolean {
+  return path === BACKEND_MODE_OIDC_CALLBACK_PATH
+    || BACKEND_MODE_ALLOWED_PATHS.some((allowedPath) => path === allowedPath || path.startsWith(allowedPath))
+}
+
 /**
  * 将 router/index.ts 中 beforeEach 守卫的核心逻辑提取为可测试的函数
  */
@@ -77,8 +85,7 @@ function simulateGuard(
       return authState.isAdmin ? '/admin/dashboard' : '/dashboard'
     }
     if (authState.backendModeEnabled && !authState.isAuthenticated) {
-      const allowed = ['/login', '/key-usage', '/setup', '/docs']
-      if (!allowed.some((path) => toPath === path || toPath.startsWith(path))) {
+      if (!isBackendModeAllowedPath(toPath)) {
         return '/login'
       }
     }
@@ -114,8 +121,7 @@ function simulateGuard(
     if (authState.isAuthenticated && authState.isAdmin) {
       return null
     }
-    const allowed = ['/login', '/key-usage', '/setup', '/docs']
-    if (!allowed.some((path) => toPath === path || toPath.startsWith(path))) {
+    if (!isBackendModeAllowedPath(toPath)) {
       return '/login'
     }
   }
@@ -338,6 +344,36 @@ describe('路由守卫逻辑', () => {
       }
       const redirect = simulateGuard('/setup', { requiresAuth: false }, authState)
       expect(redirect).toBeNull()
+    })
+
+    it('unauthenticated: OIDC callback is allowed', () => {
+      const authState: MockAuthState = {
+        isAuthenticated: false,
+        isAdmin: false,
+        isSimpleMode: false,
+        backendModeEnabled: true,
+      }
+      const redirect = simulateGuard(
+        '/auth/oidc/callback',
+        { requiresAuth: false },
+        authState
+      )
+      expect(redirect).toBeNull()
+    })
+
+    it('unauthenticated: OIDC callback subpaths remain blocked', () => {
+      const authState: MockAuthState = {
+        isAuthenticated: false,
+        isAdmin: false,
+        isSimpleMode: false,
+        backendModeEnabled: true,
+      }
+      const redirect = simulateGuard(
+        '/auth/oidc/callback/unexpected',
+        { requiresAuth: false },
+        authState
+      )
+      expect(redirect).toBe('/login')
     })
 
     it('admin: /admin/dashboard is allowed', () => {

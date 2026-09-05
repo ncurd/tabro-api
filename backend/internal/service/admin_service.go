@@ -607,6 +607,7 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 		if err := user.SetPassword(input.Password); err != nil {
 			return nil, err
 		}
+		user.TokenVersion++
 	}
 
 	if input.Username != nil {

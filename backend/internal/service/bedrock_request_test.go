@@ -178,6 +178,8 @@ func TestIsBedrockClaude45OrNewer(t *testing.T) {
 		{"us.anthropic.claude-sonnet-4-5-20250929-v1:0", true},
 		{"us.anthropic.claude-opus-4-5-20251101-v1:0", true},
 		{"us.anthropic.claude-haiku-4-5-20251001-v1:0", true},
+		{"anthropic.claude-fable-5-1", true},
+		{"anthropic.claude-opus-5", true},
 		{"anthropic.claude-3-5-sonnet-20241022-v2:0", false},
 		{"anthropic.claude-3-opus-20240229-v1:0", false},
 		{"anthropic.claude-3-haiku-20240307-v1:0", false},

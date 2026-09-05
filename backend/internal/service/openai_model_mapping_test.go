@@ -87,6 +87,8 @@ func TestResolveOpenAIForwardModel_PreventsClaudeModelFromFallingBackToGpt51(t *
 
 func TestNormalizeCodexModel(t *testing.T) {
 	cases := map[string]string{
+		"gpt-6-astra":               "gpt-6-astra",
+		"gpt-6-astra-max":           "gpt-6-astra",
 		"gpt-5.6":                   "gpt-5.6-sol",
 		"gpt-5.6-sol-high":          "gpt-5.6-sol",
 		"gpt-5.6-terra":             "gpt-5.6-terra",
@@ -131,6 +133,12 @@ func TestNormalizeOpenAIModelForUpstream(t *testing.T) {
 			account: &Account{Type: AccountTypeAPIKey},
 			model:   "gpt-4.1",
 			want:    "gpt-4.1",
+		},
+		{
+			name:    "oauth preserves gpt 6 astra",
+			account: &Account{Type: AccountTypeOAuth},
+			model:   "gpt-6-astra-max",
+			want:    "gpt-6-astra",
 		},
 	}
 

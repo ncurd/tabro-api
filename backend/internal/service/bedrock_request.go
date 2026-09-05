@@ -326,16 +326,23 @@ func removeCustomFieldFromTools(body []byte) []byte {
 // 支持 claude-{tier}-{major}-{minor} 和 claude-{tier}-{major}.{minor} 格式
 var claudeVersionRe = regexp.MustCompile(`claude-(?:haiku|sonnet|opus)-(\d+)[-.](\d+)`)
 
+// bedrockClaudeCacheVersionRe additionally supports Fable and major-only model IDs
+// such as claude-fable-5-1 and claude-opus-5.
+var bedrockClaudeCacheVersionRe = regexp.MustCompile(`claude-(?:fable|haiku|sonnet|opus)-(\d+)(?:[-.](\d+))?`)
+
 // isBedrockClaude45OrNewer 判断 Bedrock 模型 ID 是否为 Claude 4.5 或更新版本
 // Claude 4.5+ 支持 cache_control 中的 ttl 字段（"5m" 和 "1h"）
 func isBedrockClaude45OrNewer(modelID string) bool {
 	lower := strings.ToLower(modelID)
-	matches := claudeVersionRe.FindStringSubmatch(lower)
+	matches := bedrockClaudeCacheVersionRe.FindStringSubmatch(lower)
 	if matches == nil {
 		return false
 	}
 	major, _ := strconv.Atoi(matches[1])
-	minor, _ := strconv.Atoi(matches[2])
+	minor := 0
+	if matches[2] != "" {
+		minor, _ = strconv.Atoi(matches[2])
+	}
 	return major > 4 || (major == 4 && minor >= 5)
 }
 
