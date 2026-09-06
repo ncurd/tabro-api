@@ -26,29 +26,55 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 }
 
 // GatewayAuthWithSubscriptionGoogle is the production Gemini middleware. It
-// adds OIDC-issued local access tokens while retaining the legacy constructor
-// above for callers that only need API-key authentication.
-func GatewayAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subscriptionService *service.SubscriptionService, authService *service.AuthService, cfg *config.Config) gin.HandlerFunc {
-	return gatewayAuthWithSubscriptionGoogle(apiKeyService, subscriptionService, authService, cfg)
+// accepts gateway-specific external OAuth access tokens while retaining the
+// legacy constructor above for callers that only need API-key authentication.
+func GatewayAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subscriptionService *service.SubscriptionService, _ *service.AuthService, cfg *config.Config) gin.HandlerFunc {
+	resourceServer := service.NewGatewayResourceServer(cfg, apiKeyService)
+	return gatewayAuthWithSubscriptionGoogle(apiKeyService, subscriptionService, resourceServer, cfg)
 }
 
-func gatewayAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subscriptionService *service.SubscriptionService, authService *service.AuthService, cfg *config.Config) gin.HandlerFunc {
+func gatewayAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subscriptionService *service.SubscriptionService, resourceServer *service.GatewayResourceServer, cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if v := strings.TrimSpace(c.Query("api_key")); v != "" {
 			abortWithGoogleError(c, 400, "Query parameter api_key is deprecated. Use Authorization header or key instead.")
 			return
 		}
-		apiKeyString := extractAPIKeyForGoogle(c)
+		credential, extractErr := extractGatewayCredentialInput(c, allowGoogleQueryKey(c.Request.URL.Path))
+		if extractErr != nil {
+			c.Header("WWW-Authenticate", `Bearer error="invalid_token"`)
+			abortWithGoogleError(c, 401, "Invalid or conflicting authentication credentials")
+			return
+		}
+		apiKeyString := credential.value
 		if apiKeyString == "" {
 			abortWithGoogleError(c, 401, "API key is required")
 			return
 		}
 
-		allowOIDCToken := googleCredentialCameFromHeader(c)
-		apiKey, err := resolveGatewayAPIKey(c.Request.Context(), apiKeyString, allowOIDCToken, apiKeyService, authService)
+		apiKey, oidcPrincipal, err := resolveGatewayCredential(c.Request.Context(), apiKeyString, credential.fromAuthorization, apiKeyService, resourceServer)
 		if err != nil {
+			if errors.Is(err, service.ErrGatewayOIDCScopeDenied) {
+				requiredScopes := gatewayRequiredScopeChallenge(cfg)
+				c.Header("WWW-Authenticate", `Bearer error="insufficient_scope", scope="`+requiredScopes+`"`)
+				abortWithGoogleError(c, 403, "Token does not grant the required gateway scope")
+				return
+			}
+			if errors.Is(err, service.ErrGatewayOIDCIdentityNotBound) {
+				abortWithGoogleError(c, 403, "OIDC identity is not linked to a gateway billing account")
+				return
+			}
+			if errors.Is(err, service.ErrGatewayOIDCUnavailable) {
+				abortWithGoogleError(c, 503, "OIDC token validation is temporarily unavailable")
+				return
+			}
 			if errors.Is(err, service.ErrAPIKeyNotFound) || errors.Is(err, errInvalidGatewayCredential) || errors.Is(err, service.ErrTokenRevoked) {
+				c.Header("WWW-Authenticate", `Bearer error="invalid_token"`)
 				abortWithGoogleError(c, 401, "Invalid API key")
+				return
+			}
+			if errors.Is(err, service.ErrGatewayOIDCTokenInvalid) {
+				c.Header("WWW-Authenticate", `Bearer error="invalid_token"`)
+				abortWithGoogleError(c, 401, "Invalid OAuth access token")
 				return
 			}
 			abortWithGoogleError(c, 500, "Failed to validate API key")
@@ -79,6 +105,10 @@ func gatewayAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, sub
 		}
 		if !apiKey.User.IsActive() {
 			abortWithGoogleError(c, 401, "User account is not active")
+			return
+		}
+		if err := attachGatewayRequestIdentity(c, apiKey, oidcPrincipal); err != nil {
+			abortWithGoogleError(c, 400, "Idempotency-Key must be at most 128 visible ASCII characters without spaces")
 			return
 		}
 

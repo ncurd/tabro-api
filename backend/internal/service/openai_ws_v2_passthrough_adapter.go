@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
@@ -151,6 +153,32 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		return errors.New("openai ws passthrough upstream connection does not support frame relay")
 	}
 
+	type passthroughTurnMetadata struct {
+		serviceTier     *string
+		reasoningEffort *string
+	}
+	var turnMetadataMu sync.Mutex
+	turnMetadata := make(map[int]passthroughTurnMetadata, 4)
+	rememberTurnMetadata := func(turn int, prepared *OpenAIWSPreparedTurn) {
+		if prepared == nil {
+			return
+		}
+		metadata := passthroughTurnMetadata{
+			serviceTier:     extractOpenAIServiceTierFromBody(prepared.Payload),
+			reasoningEffort: extractOpenAIReasoningEffortFromBody(prepared.Payload, prepared.RequestModel),
+		}
+		turnMetadataMu.Lock()
+		turnMetadata[turn] = metadata
+		turnMetadataMu.Unlock()
+	}
+	takeTurnMetadata := func(turn int) passthroughTurnMetadata {
+		turnMetadataMu.Lock()
+		metadata := turnMetadata[turn]
+		delete(turnMetadata, turn)
+		turnMetadataMu.Unlock()
+		return metadata
+	}
+
 	completedTurns := atomic.Int32{}
 	relayResult, relayExit := openaiwsv2.RunEntry(openaiwsv2.EntryInput{
 		Ctx:                ctx,
@@ -158,9 +186,40 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		UpstreamConn:       upstreamFrameConn,
 		FirstClientMessage: firstClientMessage,
 		Options: openaiwsv2.RelayOptions{
-			WriteTimeout:     s.openAIWSWriteTimeout(),
-			IdleTimeout:      s.openAIWSPassthroughIdleTimeout(),
-			FirstMessageType: coderws.MessageText,
+			WriteTimeout:         s.openAIWSWriteTimeout(),
+			IdleTimeout:          s.openAIWSPassthroughIdleTimeout(),
+			UpstreamDrainTimeout: openAIWSUpstreamDrainTimeoutDefault,
+			SessionExpiresAt:     hooksSessionExpiresAt(hooks),
+			FirstMessageType:     coderws.MessageText,
+			OnPrepareTurn: func(turn int, _ coderws.MessageType, payload []byte) (openaiwsv2.RelayPreparedTurn, error) {
+				prepared := &OpenAIWSPreparedTurn{
+					Payload:       payload,
+					RequestModel:  strings.TrimSpace(gjson.GetBytes(payload, "model").String()),
+					UpstreamModel: strings.TrimSpace(gjson.GetBytes(payload, "model").String()),
+				}
+				if hooks != nil && hooks.PrepareTurn != nil {
+					var prepareErr error
+					prepared, prepareErr = hooks.PrepareTurn(turn, payload)
+					if prepareErr != nil {
+						return openaiwsv2.RelayPreparedTurn{}, prepareErr
+					}
+					if prepared == nil {
+						return openaiwsv2.RelayPreparedTurn{}, errors.New("websocket turn preparation returned nil")
+					}
+				}
+				rememberTurnMetadata(turn, prepared)
+				return openaiwsv2.RelayPreparedTurn{
+					Payload:       prepared.Payload,
+					RequestModel:  prepared.RequestModel,
+					UpstreamModel: prepared.UpstreamModel,
+				}, nil
+			},
+			OnBeforeTurn: func(turn int) error {
+				if hooks == nil || hooks.BeforeTurn == nil {
+					return nil
+				}
+				return hooks.BeforeTurn(turn)
+			},
 			OnUsageParseFailure: func(eventType string, usageRaw string) {
 				logOpenAIWSV2Passthrough(
 					"usage_parse_failed event_type=%s usage_raw=%s",
@@ -169,7 +228,9 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 				)
 			},
 			OnTurnComplete: func(turn openaiwsv2.RelayTurnResult) {
-				turnNo := int(completedTurns.Add(1))
+				completedTurns.Add(1)
+				turnNo := turn.Turn
+				metadata := takeTurnMetadata(turnNo)
 				turnResult := &OpenAIForwardResult{
 					RequestID: turn.RequestID,
 					Usage: OpenAIUsage{
@@ -179,7 +240,9 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 						CacheReadInputTokens:     turn.Usage.CacheReadInputTokens,
 					},
 					Model:           turn.RequestModel,
-					ServiceTier:     resolveOpenAIServiceTier(turn.Usage.ServiceTier, requestServiceTier),
+					UpstreamModel:   turn.UpstreamModel,
+					ServiceTier:     resolveOpenAIServiceTier(turn.Usage.ServiceTier, metadata.serviceTier),
+					ReasoningEffort: metadata.reasoningEffort,
 					Stream:          true,
 					OpenAIWSMode:    true,
 					ResponseHeaders: cloneHeader(handshakeHeaders),
@@ -269,7 +332,19 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	)
 
 	relayErr := relayExit.Err
-	if relayExit.Stage == "idle_timeout" {
+	if errors.Is(relayExit.Err, openaiwsv2.ErrMaxActiveTurnsExceeded) {
+		relayErr = NewOpenAIWSClientCloseError(
+			coderws.StatusTryAgainLater,
+			"too many active websocket turns, please retry later",
+			relayExit.Err,
+		)
+	} else if errors.Is(relayExit.Err, openaiwsv2.ErrSessionExpired) {
+		relayErr = NewOpenAIWSClientCloseError(
+			coderws.StatusPolicyViolation,
+			"gateway access token expired",
+			relayExit.Err,
+		)
+	} else if relayExit.Stage == "idle_timeout" {
 		relayErr = NewOpenAIWSClientCloseError(
 			coderws.StatusPolicyViolation,
 			"client websocket idle timeout",
@@ -281,10 +356,18 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		relayErr,
 		relayExit.WroteDownstream,
 	)
-	if hooks != nil && hooks.AfterTurn != nil {
-		hooks.AfterTurn(turnCount+1, nil, turnErr)
+	if relayExit.Turn > 0 && hooks != nil && hooks.AfterTurn != nil {
+		takeTurnMetadata(relayExit.Turn)
+		hooks.AfterTurn(relayExit.Turn, nil, turnErr)
 	}
 	return turnErr
+}
+
+func hooksSessionExpiresAt(hooks *OpenAIWSIngressHooks) time.Time {
+	if hooks == nil {
+		return time.Time{}
+	}
+	return hooks.SessionExpiresAt
 }
 
 func (s *OpenAIGatewayService) mapOpenAIWSPassthroughDialError(

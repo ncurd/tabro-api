@@ -104,9 +104,9 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	}
 
 	// 10. Build upstream request
-	upstreamCtx, releaseUpstreamCtx := detachStreamUpstreamContext(ctx, reqStream)
+	upstreamCtx, releaseUpstreamCtx := detachedCancelableStreamContext(ctx)
+	defer releaseUpstreamCtx()
 	upstreamReq, err := s.buildUpstreamRequest(upstreamCtx, c, account, anthropicBody, token, tokenType, mappedModel, reqStream, shouldMimicClaudeCode)
-	releaseUpstreamCtx()
 	if err != nil {
 		return nil, fmt.Errorf("build upstream request: %w", err)
 	}
@@ -351,6 +351,7 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 
 	var usage ClaudeUsage
 	var firstTokenMs *int
+	sawTerminalUsage := false
 	firstChunk := true
 	oauthToolNamesReverseMap := getClaudeOAuthToolNamesReverseMap(c)
 
@@ -360,27 +361,48 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 		maxLineSize = s.cfg.Gateway.MaxLineSize
 	}
 	scanner.Buffer(make([]byte, 0, 64*1024), maxLineSize)
+	drain := newClientDisconnectUsageDrain(streamClientContext(c), resp.Body)
+	defer drain.stop()
 
 	resultWithUsage := func() *ForwardResult {
 		return &ForwardResult{
-			RequestID:       requestID,
-			Usage:           usage,
-			Model:           originalModel,
-			UpstreamModel:   mappedModel,
-			ReasoningEffort: reasoningEffort,
-			Stream:          true,
-			Duration:        time.Since(startTime),
-			FirstTokenMs:    firstTokenMs,
+			RequestID:        requestID,
+			Usage:            usage,
+			Model:            originalModel,
+			UpstreamModel:    mappedModel,
+			ReasoningEffort:  reasoningEffort,
+			Stream:           true,
+			Duration:         time.Since(startTime),
+			FirstTokenMs:     firstTokenMs,
+			ClientDisconnect: drain.isDisconnected(),
 		}
+	}
+	warnIncompleteDrain := func() {
+		if !drain.isDisconnected() || sawTerminalUsage {
+			return
+		}
+		message := "forward_as_cc stream: upstream ended without terminal usage after client disconnect"
+		if drain.didTimeOut() {
+			message = "forward_as_cc stream: usage drain timed out after client disconnect"
+		}
+		logger.L().Warn(message,
+			zap.String("request_id", requestID),
+			zap.Int("input_tokens", usage.InputTokens),
+			zap.Int("output_tokens", usage.OutputTokens),
+		)
 	}
 
 	writeChunk := func(chunk apicompat.ChatCompletionsChunk) bool {
+		if drain.isDisconnected() {
+			return true
+		}
 		sse, err := apicompat.ChatChunkToSSE(chunk)
 		if err != nil {
 			return false
 		}
 		if _, err := fmt.Fprint(c.Writer, sse); err != nil {
-			return true // client disconnected
+			drain.markDisconnected()
+			return true
 		}
 		return false
 	}
@@ -393,12 +415,17 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 		}
 
 		// Extract usage from message_delta
-		if event.Type == "message_delta" && event.Usage != nil {
+		terminalUsage := event.Type == "message_delta" && event.Usage != nil
+		if terminalUsage {
 			mergeAnthropicUsage(&usage, *event.Usage)
+			sawTerminalUsage = true
 		}
 		// Also capture usage from message_start (carries cache fields)
 		if event.Type == "message_start" && event.Message != nil {
 			mergeAnthropicUsage(&usage, event.Message.Usage)
+		}
+		if drain.isDisconnected() {
+			return terminalUsage
 		}
 
 		// Chain: Anthropic event → Responses events → CC chunks
@@ -407,12 +434,14 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 			ccChunks := apicompat.ResponsesEventToChatChunks(&resEvt, ccState)
 			for _, chunk := range ccChunks {
 				if disconnected := writeChunk(chunk); disconnected {
-					return true
+					return terminalUsage
 				}
 			}
 		}
-		c.Writer.Flush()
-		return false
+		if !drain.isDisconnected() {
+			c.Writer.Flush()
+		}
+		return terminalUsage && drain.isDisconnected()
 	}
 
 	for scanner.Scan() {
@@ -442,12 +471,16 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 	}
 
 	if err := scanner.Err(); err != nil {
-		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+		if !drain.isDisconnected() && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 			logger.L().Warn("forward_as_cc stream: read error",
 				zap.Error(err),
 				zap.String("request_id", requestID),
 			)
 		}
+	}
+	if drain.isDisconnected() {
+		warnIncompleteDrain()
+		return resultWithUsage(), nil
 	}
 
 	// Finalize both state machines
@@ -455,17 +488,27 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 	for _, resEvt := range finalResEvents {
 		ccChunks := apicompat.ResponsesEventToChatChunks(&resEvt, ccState)
 		for _, chunk := range ccChunks {
-			writeChunk(chunk) //nolint:errcheck
+			if writeChunk(chunk) {
+				warnIncompleteDrain()
+				return resultWithUsage(), nil
+			}
 		}
 	}
 	finalCCChunks := apicompat.FinalizeResponsesChatStream(ccState)
 	for _, chunk := range finalCCChunks {
-		writeChunk(chunk) //nolint:errcheck
+		if writeChunk(chunk) {
+			warnIncompleteDrain()
+			return resultWithUsage(), nil
+		}
 	}
 
 	// Write [DONE] marker
-	fmt.Fprint(c.Writer, "data: [DONE]\n\n") //nolint:errcheck
-	c.Writer.Flush()
+	if _, err := fmt.Fprint(c.Writer, "data: [DONE]\n\n"); err == nil {
+		c.Writer.Flush()
+	} else {
+		drain.markDisconnected()
+		warnIncompleteDrain()
+	}
 
 	return resultWithUsage(), nil
 }

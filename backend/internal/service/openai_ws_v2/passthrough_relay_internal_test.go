@@ -354,10 +354,11 @@ func TestEmitTurnCompleteCoverage(t *testing.T) {
 		called++
 		got = turn
 	}, nil, observedUpstreamEvent{
-		terminal:   true,
-		eventType:  "response.completed",
-		responseID: "resp_emit",
-		usage:      Usage{InputTokens: 2, OutputTokens: 3},
+		terminal:      true,
+		completedTurn: true,
+		eventType:     "response.completed",
+		responseID:    "resp_emit",
+		usage:         Usage{InputTokens: 2, OutputTokens: 3},
 	})
 	require.Equal(t, 1, called)
 	require.Equal(t, "resp_emit", got.RequestID)

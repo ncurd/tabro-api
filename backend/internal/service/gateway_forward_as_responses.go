@@ -101,9 +101,9 @@ func (s *GatewayService) ForwardAsResponses(
 	}
 
 	// 10. Build upstream request
-	upstreamCtx, releaseUpstreamCtx := detachStreamUpstreamContext(ctx, reqStream)
+	upstreamCtx, releaseUpstreamCtx := detachedCancelableStreamContext(ctx)
+	defer releaseUpstreamCtx()
 	upstreamReq, err := s.buildUpstreamRequest(upstreamCtx, c, account, anthropicBody, token, tokenType, mappedModel, reqStream, shouldMimicClaudeCode)
-	releaseUpstreamCtx()
 	if err != nil {
 		return nil, fmt.Errorf("build upstream request: %w", err)
 	}
@@ -367,6 +367,7 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 	state.Model = originalModel
 	var usage ClaudeUsage
 	var firstTokenMs *int
+	sawTerminalUsage := false
 	firstChunk := true
 	oauthToolNamesReverseMap := getClaudeOAuthToolNamesReverseMap(c)
 
@@ -376,21 +377,39 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 		maxLineSize = s.cfg.Gateway.MaxLineSize
 	}
 	scanner.Buffer(make([]byte, 0, 64*1024), maxLineSize)
+	drain := newClientDisconnectUsageDrain(streamClientContext(c), resp.Body)
+	defer drain.stop()
 
 	resultWithUsage := func() *ForwardResult {
 		return &ForwardResult{
-			RequestID:       requestID,
-			Usage:           usage,
-			Model:           originalModel,
-			UpstreamModel:   mappedModel,
-			ReasoningEffort: reasoningEffort,
-			Stream:          true,
-			Duration:        time.Since(startTime),
-			FirstTokenMs:    firstTokenMs,
+			RequestID:        requestID,
+			Usage:            usage,
+			Model:            originalModel,
+			UpstreamModel:    mappedModel,
+			ReasoningEffort:  reasoningEffort,
+			Stream:           true,
+			Duration:         time.Since(startTime),
+			FirstTokenMs:     firstTokenMs,
+			ClientDisconnect: drain.isDisconnected(),
 		}
 	}
+	warnIncompleteDrain := func() {
+		if !drain.isDisconnected() || sawTerminalUsage {
+			return
+		}
+		message := "forward_as_responses stream: upstream ended without terminal usage after client disconnect"
+		if drain.didTimeOut() {
+			message = "forward_as_responses stream: usage drain timed out after client disconnect"
+		}
+		logger.L().Warn(message,
+			zap.String("request_id", requestID),
+			zap.Int("input_tokens", usage.InputTokens),
+			zap.Int("output_tokens", usage.OutputTokens),
+		)
+	}
 
-	// processEvent handles a single parsed Anthropic SSE event.
+	// processEvent handles a single parsed Anthropic SSE event. It returns true
+	// once a disconnected client's terminal usage was captured.
 	processEvent := func(event *apicompat.AnthropicStreamEvent) bool {
 		if firstChunk {
 			firstChunk = false
@@ -399,12 +418,17 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 		}
 
 		// Extract usage from message_delta
-		if event.Type == "message_delta" && event.Usage != nil {
+		terminalUsage := event.Type == "message_delta" && event.Usage != nil
+		if terminalUsage {
 			mergeAnthropicUsage(&usage, *event.Usage)
+			sawTerminalUsage = true
 		}
 		// Also capture usage from message_start
 		if event.Type == "message_start" && event.Message != nil {
 			mergeAnthropicUsage(&usage, event.Message.Usage)
+		}
+		if drain.isDisconnected() {
+			return terminalUsage
 		}
 
 		// Convert to Responses events
@@ -422,23 +446,32 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 				logger.L().Info("forward_as_responses stream: client disconnected",
 					zap.String("request_id", requestID),
 				)
-				return true // client disconnected
+				drain.markDisconnected()
+				return terminalUsage
 			}
 		}
-		if len(events) > 0 {
+		if len(events) > 0 && !drain.isDisconnected() {
 			c.Writer.Flush()
 		}
-		return false
+		return terminalUsage && drain.isDisconnected()
 	}
 
 	finalizeStream := func() (*ForwardResult, error) {
+		if drain.isDisconnected() {
+			warnIncompleteDrain()
+			return resultWithUsage(), nil
+		}
 		if finalEvents := apicompat.FinalizeAnthropicResponsesStream(state); len(finalEvents) > 0 {
 			for _, evt := range finalEvents {
 				sse, err := apicompat.ResponsesEventToSSE(evt)
 				if err != nil {
 					continue
 				}
-				fmt.Fprint(c.Writer, sse) //nolint:errcheck
+				if _, err := fmt.Fprint(c.Writer, sse); err != nil {
+					drain.markDisconnected()
+					warnIncompleteDrain()
+					return resultWithUsage(), nil
+				}
 			}
 			c.Writer.Flush()
 		}
@@ -480,7 +513,7 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 	}
 
 	if err := scanner.Err(); err != nil {
-		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+		if !drain.isDisconnected() && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 			logger.L().Warn("forward_as_responses stream: read error",
 				zap.Error(err),
 				zap.String("request_id", requestID),

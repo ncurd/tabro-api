@@ -45,6 +45,11 @@ func TestUsageLogRepositoryCreateSyncRequestTypeAndLegacyFields(t *testing.T) {
 			log.APIKeyID,
 			log.AccountID,
 			log.RequestID,
+			sqlmock.AnyArg(), // oidc_issuer
+			sqlmock.AnyArg(), // oidc_subject
+			sqlmock.AnyArg(), // oidc_tenant
+			sqlmock.AnyArg(), // tabro_run_id
+			sqlmock.AnyArg(), // tabro_project_id
 			log.Model,
 			log.RequestedModel,
 			sqlmock.AnyArg(), // upstream_model
@@ -124,6 +129,11 @@ func TestUsageLogRepositoryCreate_PersistsServiceTier(t *testing.T) {
 			log.APIKeyID,
 			log.AccountID,
 			log.RequestID,
+			sqlmock.AnyArg(),
+			sqlmock.AnyArg(),
+			sqlmock.AnyArg(),
+			sqlmock.AnyArg(),
+			sqlmock.AnyArg(),
 			log.Model,
 			log.RequestedModel,
 			sqlmock.AnyArg(),
@@ -190,7 +200,7 @@ func TestBuildUsageLogBestEffortInsertQuery_IncludesRequestedModelColumn(t *test
 
 	require.Contains(t, query, "INSERT INTO usage_logs (")
 	require.Contains(t, query, "\n\t\t\tmodel,\n\t\t\trequested_model,\n\t\t\tupstream_model,")
-	require.Contains(t, query, "\n\t\t\trequest_id,\n\t\t\tmodel,\n\t\t\trequested_model,\n\t\t\tupstream_model,")
+	require.Contains(t, query, "\n\t\t\trequest_id,\n\t\t\toidc_issuer,\n\t\t\toidc_subject,\n\t\t\toidc_tenant,\n\t\t\ttabro_run_id,\n\t\t\ttabro_project_id,\n\t\t\tmodel,\n\t\t\trequested_model,\n\t\t\tupstream_model,")
 	require.Len(t, args, len(prepared.args))
 	require.Equal(t, prepared.args[5], args[5])
 }
@@ -228,6 +238,32 @@ func TestPrepareUsageLogInsert_ArgCountMatchesTypes(t *testing.T) {
 	})
 
 	require.Len(t, prepared.args, len(usageLogInsertArgTypes))
+}
+
+func TestPrepareUsageLogInsert_IncludesGatewayIdentityMetadata(t *testing.T) {
+	issuer := "https://issuer.example"
+	subject := "subject-1"
+	tenant := "tenant-1"
+	runID := "run-1"
+	projectID := "project-1"
+	prepared := prepareUsageLogInsert(&service.UsageLog{
+		UserID:         1,
+		APIKeyID:       2,
+		AccountID:      3,
+		RequestID:      "req-gateway-metadata",
+		OIDCIssuer:     &issuer,
+		OIDCSubject:    &subject,
+		OIDCTenant:     &tenant,
+		TabroRunID:     &runID,
+		TabroProjectID: &projectID,
+		Model:          "gpt-5",
+	})
+
+	require.Equal(t, sql.NullString{String: issuer, Valid: true}, prepared.args[4])
+	require.Equal(t, sql.NullString{String: subject, Valid: true}, prepared.args[5])
+	require.Equal(t, sql.NullString{String: tenant, Valid: true}, prepared.args[6])
+	require.Equal(t, sql.NullString{String: runID, Valid: true}, prepared.args[7])
+	require.Equal(t, sql.NullString{String: projectID, Valid: true}, prepared.args[8])
 }
 
 func TestCoalesceTrimmedString(t *testing.T) {
@@ -536,7 +572,12 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			int64(20), // api_key_id
 			int64(30), // account_id
 			sql.NullString{Valid: true, String: "req-1"},
-			"gpt-5", // model
+			sql.NullString{}, // oidc_issuer
+			sql.NullString{}, // oidc_subject
+			sql.NullString{}, // oidc_tenant
+			sql.NullString{}, // tabro_run_id
+			sql.NullString{}, // tabro_project_id
+			"gpt-5",          // model
 			sql.NullString{Valid: true, String: "gpt-5"}, // requested_model
 			sql.NullString{},  // upstream_model
 			sql.NullInt64{},   // group_id
@@ -595,6 +636,11 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			int64(21),
 			int64(31),
 			sql.NullString{Valid: true, String: "req-2"},
+			sql.NullString{},
+			sql.NullString{},
+			sql.NullString{},
+			sql.NullString{},
+			sql.NullString{},
 			"gpt-5",
 			sql.NullString{Valid: true, String: "gpt-5"},
 			sql.NullString{},
@@ -643,6 +689,11 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			int64(22),
 			int64(32),
 			sql.NullString{Valid: true, String: "req-3"},
+			sql.NullString{Valid: true, String: "https://issuer.example"},
+			sql.NullString{Valid: true, String: "subject-3"},
+			sql.NullString{Valid: true, String: "tenant-3"},
+			sql.NullString{Valid: true, String: "run-3"},
+			sql.NullString{Valid: true, String: "project-3"},
 			"gpt-5.4",
 			sql.NullString{Valid: true, String: "gpt-5.4"},
 			sql.NullString{},
@@ -678,6 +729,11 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, log.ServiceTier)
 		require.Equal(t, "priority", *log.ServiceTier)
+		require.Equal(t, "https://issuer.example", *log.OIDCIssuer)
+		require.Equal(t, "subject-3", *log.OIDCSubject)
+		require.Equal(t, "tenant-3", *log.OIDCTenant)
+		require.Equal(t, "run-3", *log.TabroRunID)
+		require.Equal(t, "project-3", *log.TabroProjectID)
 	})
 
 }

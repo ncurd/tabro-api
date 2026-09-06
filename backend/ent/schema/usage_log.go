@@ -38,6 +38,26 @@ func (UsageLog) Fields() []ent.Field {
 		field.String("request_id").
 			MaxLen(64).
 			NotEmpty(),
+		field.String("oidc_issuer").
+			Optional().
+			Nillable().
+			Comment("Exact issuer of the verified OAuth access token"),
+		field.String("oidc_subject").
+			Optional().
+			Nillable().
+			Comment("Stable subject of the verified OAuth access token"),
+		field.String("oidc_tenant").
+			Optional().
+			Nillable().
+			Comment("Tenant derived from the verified OAuth access token"),
+		field.String("tabro_run_id").
+			Optional().
+			Nillable().
+			Comment("Untrusted Tabro run correlation identifier"),
+		field.String("tabro_project_id").
+			Optional().
+			Nillable().
+			Comment("Untrusted Tabro project correlation identifier"),
 		field.String("model").
 			MaxLen(100).
 			NotEmpty(),

@@ -151,8 +151,11 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		return nil, fmt.Errorf("get access token: %w", err)
 	}
 
-	// 6. Build upstream request
-	upstreamReq, err := s.buildUpstreamRequest(ctx, c, account, responsesBody, token, isStream, promptCacheKey, false)
+	// 6. Build upstream request. The provider stream must outlive cancellation
+	// of the downstream request long enough to collect its terminal usage.
+	upstreamCtx, cancelUpstream := detachedCancelableStreamContext(ctx)
+	defer cancelUpstream()
+	upstreamReq, err := s.buildUpstreamRequest(upstreamCtx, c, account, responsesBody, token, isStream, promptCacheKey, false)
 	if err != nil {
 		return nil, fmt.Errorf("build upstream request: %w", err)
 	}
@@ -410,6 +413,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 	state.Model = originalModel
 	var usage OpenAIUsage
 	var firstTokenMs *int
+	sawTerminalUsage := false
 	firstChunk := true
 
 	scanner := bufio.NewScanner(resp.Body)
@@ -418,6 +422,8 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 		maxLineSize = s.cfg.Gateway.MaxLineSize
 	}
 	scanner.Buffer(make([]byte, 0, 64*1024), maxLineSize)
+	drain := newClientDisconnectUsageDrain(streamClientContext(c), resp.Body)
+	defer drain.stop()
 
 	// resultWithUsage builds the final result snapshot.
 	resultWithUsage := func() *OpenAIForwardResult {
@@ -432,9 +438,23 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 			FirstTokenMs:  firstTokenMs,
 		}
 	}
+	warnIncompleteDrain := func() {
+		if !drain.isDisconnected() || sawTerminalUsage {
+			return
+		}
+		message := "openai messages stream: upstream ended without terminal usage after client disconnect"
+		if drain.didTimeOut() {
+			message = "openai messages stream: usage drain timed out after client disconnect"
+		}
+		logger.L().Warn(message,
+			zap.String("request_id", requestID),
+			zap.Int("input_tokens", usage.InputTokens),
+			zap.Int("output_tokens", usage.OutputTokens),
+		)
+	}
 
 	// processDataLine handles a single "data: ..." SSE line from upstream.
-	// Returns (clientDisconnected bool).
+	// It returns true once a disconnected client's terminal usage was captured.
 	processDataLine := func(payload string) bool {
 		if firstChunk {
 			firstChunk = false
@@ -452,9 +472,14 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 		}
 
 		// Extract usage from completion events
-		if isOpenAIResponseTerminalEventType(event.Type) &&
-			event.Response != nil && event.Response.Usage != nil {
+		terminalUsage := isOpenAIResponseTerminalEventType(event.Type) &&
+			event.Response != nil && event.Response.Usage != nil
+		if terminalUsage {
 			usage = openAIUsageFromResponsesResponse(event.Response)
+			sawTerminalUsage = true
+		}
+		if drain.isDisconnected() {
+			return terminalUsage
 		}
 
 		// Convert to Anthropic events
@@ -472,33 +497,44 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 				logger.L().Info("openai messages stream: client disconnected",
 					zap.String("request_id", requestID),
 				)
-				return true
+				drain.markDisconnected()
+				return terminalUsage
 			}
 		}
-		if len(events) > 0 {
+		if len(events) > 0 && !drain.isDisconnected() {
 			c.Writer.Flush()
 		}
-		return false
+		return terminalUsage && drain.isDisconnected()
 	}
 
 	// finalizeStream sends any remaining Anthropic events and returns the result.
 	finalizeStream := func() (*OpenAIForwardResult, error) {
+		if drain.isDisconnected() {
+			warnIncompleteDrain()
+			return resultWithUsage(), nil
+		}
 		if finalEvents := apicompat.FinalizeResponsesAnthropicStream(state); len(finalEvents) > 0 {
 			for _, evt := range finalEvents {
 				sse, err := apicompat.ResponsesAnthropicEventToSSE(evt)
 				if err != nil {
 					continue
 				}
-				fmt.Fprint(c.Writer, sse) //nolint:errcheck
+				if _, err := fmt.Fprint(c.Writer, sse); err != nil {
+					drain.markDisconnected()
+					warnIncompleteDrain()
+					return resultWithUsage(), nil
+				}
 			}
-			c.Writer.Flush()
+			if !drain.isDisconnected() {
+				c.Writer.Flush()
+			}
 		}
 		return resultWithUsage(), nil
 	}
 
 	// handleScanErr logs scanner errors if meaningful.
 	handleScanErr := func(err error) {
-		if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+		if err != nil && !drain.isDisconnected() && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 			logger.L().Warn("openai messages stream: read error",
 				zap.Error(err),
 				zap.String("request_id", requestID),
@@ -582,6 +618,9 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 			}
 
 		case <-keepaliveTicker.C:
+			if drain.isDisconnected() {
+				continue
+			}
 			if time.Since(lastDataAt) < keepaliveInterval {
 				continue
 			}
@@ -591,7 +630,8 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 				logger.L().Info("openai messages stream: client disconnected during keepalive",
 					zap.String("request_id", requestID),
 				)
-				return resultWithUsage(), nil
+				drain.markDisconnected()
+				continue
 			}
 			c.Writer.Flush()
 		}

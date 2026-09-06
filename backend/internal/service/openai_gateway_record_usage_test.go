@@ -591,6 +591,8 @@ func TestOpenAIGatewayServiceRecordUsage_PrefersClientRequestIDOverUpstreamReque
 	svc := newOpenAIRecordUsageServiceWithBillingRepoForTest(usageRepo, billingRepo, userRepo, subRepo, nil)
 
 	ctx := context.WithValue(context.Background(), ctxkey.ClientRequestID, "openai-client-stable-123")
+	ctx = context.WithValue(ctx, ctxkey.OIDCSubject, "openai-tabro-user")
+	ctx = context.WithValue(ctx, ctxkey.OIDCTenant, "openai-tenant")
 	err := svc.RecordUsage(ctx, &OpenAIRecordUsageInput{
 		Result: &OpenAIForwardResult{
 			RequestID: "upstream-openai-volatile-456",
@@ -611,6 +613,8 @@ func TestOpenAIGatewayServiceRecordUsage_PrefersClientRequestIDOverUpstreamReque
 	require.Equal(t, "client:openai-client-stable-123", billingRepo.lastCmd.RequestID)
 	require.NotNil(t, usageRepo.lastLog)
 	require.Equal(t, "client:openai-client-stable-123", usageRepo.lastLog.RequestID)
+	require.Equal(t, "openai-tabro-user", *usageRepo.lastLog.OIDCSubject)
+	require.Equal(t, "openai-tenant", *usageRepo.lastLog.OIDCTenant)
 }
 
 func TestOpenAIGatewayServiceRecordUsage_GeneratesRequestIDWhenAllSourcesMissing(t *testing.T) {

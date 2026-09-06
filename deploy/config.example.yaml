@@ -146,6 +146,38 @@ security:
 # 网关配置
 # =============================================================================
 gateway:
+  # OAuth 2.0 Resource Server for LLM gateway requests. This is separate from
+  # oidc_connect below: oidc_connect signs users into the Tabro UI, while this
+  # block validates access tokens whose aud is the LLM gateway itself.
+  # LLM 网关 OAuth Resource Server。不要复用 Tabro API/UI 的 audience。
+  resource_server:
+    enabled: false
+    # Exact `iss` claim. Never derived from an unverified token.
+    issuer_url: "https://idp.example.com/realms/production"
+    # Optional explicit discovery/JWKS endpoints. If both are empty, discovery
+    # defaults to <issuer_url>/.well-known/openid-configuration.
+    discovery_url: ""
+    jwks_url: ""
+    # Dedicated API resource/audience configured at the authorization server.
+    audience: "llm-gateway-api"
+    required_scopes: "llm.invoke"
+    # Tabro OAuth client(s), comma or space separated. `azp`/`client_id` must
+    # match one of these values; this check never replaces audience validation.
+    allowed_client_ids: "tabro-agent"
+    allowed_signing_algs: "RS256,ES256,PS256"
+    clock_skew_seconds: 120
+    jwks_cache_ttl_seconds: 300
+    # Signed tenant claim recorded for billing/audit correlation.
+    tenant_claim: "tenant_id"
+    require_tenant: false
+    token_exchange:
+      # Any token declaring the token-exchange grant must contain a valid actor
+      # even when this flag is false. Enable it to require act on every token.
+      require_actor: false
+      actor_claim: "act"
+      allowed_actor_client_ids: ""
+      max_delegation_depth: 4
+
   # Timeout for waiting upstream response headers (seconds)
   # 等待上游响应头超时时间（秒）
   response_header_timeout: 600
@@ -340,6 +372,10 @@ gateway:
   # Stream keepalive interval (seconds), 0=disable
   # 流式 keepalive 间隔（秒），0=禁用
   stream_keepalive_interval: 10
+  # Billing-critical usage tasks run synchronously after provider usage is known.
+  # 计费关键任务在取得供应商实际 usage 后同步执行；需覆盖定价解析和计费事务重试。
+  usage_record:
+    task_timeout_seconds: 30
   # SSE max line size in bytes (default: 40MB)
   # SSE 单行最大字节数（默认 40MB）
   max_line_size: 41943040

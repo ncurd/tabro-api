@@ -33,6 +33,10 @@ const (
 	FieldStatus = "status"
 	// FieldOidcManaged holds the string denoting the oidc_managed field in the database.
 	FieldOidcManaged = "oidc_managed"
+	// FieldOidcIssuer holds the string denoting the oidc_issuer field in the database.
+	FieldOidcIssuer = "oidc_issuer"
+	// FieldOidcSubject holds the string denoting the oidc_subject field in the database.
+	FieldOidcSubject = "oidc_subject"
 	// FieldLastUsedAt holds the string denoting the last_used_at field in the database.
 	FieldLastUsedAt = "last_used_at"
 	// FieldIPWhitelist holds the string denoting the ip_whitelist field in the database.
@@ -106,6 +110,8 @@ var Columns = []string{
 	FieldGroupID,
 	FieldStatus,
 	FieldOidcManaged,
+	FieldOidcIssuer,
+	FieldOidcSubject,
 	FieldLastUsedAt,
 	FieldIPWhitelist,
 	FieldIPBlacklist,
@@ -157,6 +163,10 @@ var (
 	StatusValidator func(string) error
 	// DefaultOidcManaged holds the default value on creation for the "oidc_managed" field.
 	DefaultOidcManaged bool
+	// OidcIssuerValidator is a validator for the "oidc_issuer" field. It is called by the builders before save.
+	OidcIssuerValidator func(string) error
+	// OidcSubjectValidator is a validator for the "oidc_subject" field. It is called by the builders before save.
+	OidcSubjectValidator func(string) error
 	// DefaultQuota holds the default value on creation for the "quota" field.
 	DefaultQuota float64
 	// DefaultQuotaUsed holds the default value on creation for the "quota_used" field.
@@ -226,6 +236,16 @@ func ByStatus(opts ...sql.OrderTermOption) OrderOption {
 // ByOidcManaged orders the results by the oidc_managed field.
 func ByOidcManaged(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldOidcManaged, opts...).ToFunc()
+}
+
+// ByOidcIssuer orders the results by the oidc_issuer field.
+func ByOidcIssuer(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldOidcIssuer, opts...).ToFunc()
+}
+
+// ByOidcSubject orders the results by the oidc_subject field.
+func ByOidcSubject(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldOidcSubject, opts...).ToFunc()
 }
 
 // ByLastUsedAt orders the results by the last_used_at field.

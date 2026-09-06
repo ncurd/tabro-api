@@ -2,17 +2,32 @@ package openai_ws_v2
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	coderws "github.com/coder/websocket"
 	"github.com/tidwall/gjson"
 )
+
+const (
+	defaultUpstreamDrainTimeout = 30 * time.Second
+	defaultMaxActiveTurns       = 16
+)
+
+// ErrMaxActiveTurnsExceeded indicates that a single relay connection already
+// has the maximum number of provider turns in flight.
+var ErrMaxActiveTurnsExceeded = errors.New("maximum active websocket turns exceeded")
+
+// ErrSessionExpired indicates that the authenticated websocket session may no
+// longer send frames to the provider.
+var ErrSessionExpired = errors.New("websocket session expired")
 
 type FrameConn interface {
 	ReadFrame(ctx context.Context) (coderws.MessageType, []byte, error)
@@ -28,6 +43,15 @@ type Usage struct {
 	ServiceTier              string
 }
 
+// RelayPreparedTurn is the validated, optionally rewritten response.create
+// frame that will be sent upstream. RequestModel remains the client-facing
+// model while UpstreamModel records the model after routing/mapping.
+type RelayPreparedTurn struct {
+	Payload       []byte
+	RequestModel  string
+	UpstreamModel string
+}
+
 type RelayResult struct {
 	RequestModel            string
 	Usage                   Usage
@@ -41,7 +65,9 @@ type RelayResult struct {
 }
 
 type RelayTurnResult struct {
+	Turn              int
 	RequestModel      string
+	UpstreamModel     string
 	Usage             Usage
 	RequestID         string
 	TerminalEventType string
@@ -50,6 +76,7 @@ type RelayTurnResult struct {
 }
 
 type RelayExit struct {
+	Turn            int
 	Stage           string
 	Err             error
 	WroteDownstream bool
@@ -59,7 +86,11 @@ type RelayOptions struct {
 	WriteTimeout         time.Duration
 	IdleTimeout          time.Duration
 	UpstreamDrainTimeout time.Duration
+	MaxActiveTurns       int
+	SessionExpiresAt     time.Time
 	FirstMessageType     coderws.MessageType
+	OnPrepareTurn        func(turn int, msgType coderws.MessageType, payload []byte) (RelayPreparedTurn, error)
+	OnBeforeTurn         func(turn int) error
 	OnUsageParseFailure  func(eventType string, usageRaw string)
 	OnTurnComplete       func(turn RelayTurnResult)
 	OnTrace              func(event RelayTraceEvent)
@@ -77,15 +108,39 @@ type RelayTraceEvent struct {
 }
 
 type relayState struct {
+	aggregatesMu      sync.Mutex
 	usage             Usage
 	requestModel      string
 	lastResponseID    string
 	terminalEventType string
 	firstTokenMs      *int
 	turnTimingByID    map[string]*relayTurnTiming
+
+	turnsMu              sync.Mutex
+	activeTurns          map[int]*relayActiveTurn
+	pendingTurns         []int
+	activeResponseTurns  map[string]int
+	completedResponseIDs map[string]struct{}
+	drainRequested       atomic.Bool
+}
+
+type relayActiveTurn struct {
+	turn          int
+	requestModel  string
+	upstreamModel string
+	startedAt     time.Time
+	firstTokenMs  *int
+	responseID    string
+}
+
+type relaySessionGate struct {
+	expiresAt time.Time
+	mu        sync.Mutex
+	expired   atomic.Bool
 }
 
 type relayExitSignal struct {
+	turn            int
 	stage           string
 	err             error
 	graceful        bool
@@ -93,17 +148,84 @@ type relayExitSignal struct {
 }
 
 type observedUpstreamEvent struct {
-	terminal   bool
-	eventType  string
-	responseID string
-	usage      Usage
-	duration   time.Duration
-	firstToken *int
+	terminal         bool
+	completedTurn    bool
+	allTurnsTerminal bool
+	turn             int
+	eventType        string
+	responseID       string
+	requestModel     string
+	upstreamModel    string
+	usage            Usage
+	duration         time.Duration
+	firstToken       *int
+}
+
+type relayTurnWriteError struct {
+	turn  int
+	stage string
+	err   error
+}
+
+func (e *relayTurnWriteError) Error() string {
+	if e == nil || e.err == nil {
+		return "websocket turn was not written upstream"
+	}
+	return e.err.Error()
+}
+
+func (e *relayTurnWriteError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.err
 }
 
 type relayTurnTiming struct {
 	startAt      time.Time
 	firstTokenMs *int
+}
+
+func (g *relaySessionGate) checkValid() error {
+	if g == nil || g.expiresAt.IsZero() {
+		return nil
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.expired.Load() || !time.Now().Before(g.expiresAt) {
+		g.expired.Store(true)
+		return ErrSessionExpired
+	}
+	return nil
+}
+
+func (g *relaySessionGate) writeIfValid(write func(expiresAt time.Time) error) error {
+	if write == nil {
+		return nil
+	}
+	if g == nil || g.expiresAt.IsZero() {
+		return write(time.Time{})
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.expired.Load() || !time.Now().Before(g.expiresAt) {
+		g.expired.Store(true)
+		return ErrSessionExpired
+	}
+	return write(g.expiresAt)
+}
+
+func (g *relaySessionGate) expire() bool {
+	if g == nil || g.expiresAt.IsZero() {
+		return false
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.expired.Load() {
+		return false
+	}
+	g.expired.Store(true)
+	return true
 }
 
 func Relay(
@@ -131,12 +253,29 @@ func Relay(
 	}
 	drainTimeout := options.UpstreamDrainTimeout
 	if drainTimeout <= 0 {
-		drainTimeout = 1200 * time.Millisecond
+		drainTimeout = defaultUpstreamDrainTimeout
+	}
+	maxActiveTurns := options.MaxActiveTurns
+	if maxActiveTurns <= 0 {
+		maxActiveTurns = defaultMaxActiveTurns
 	}
 	firstMessageType := options.FirstMessageType
 	if firstMessageType != coderws.MessageBinary {
 		firstMessageType = coderws.MessageText
 	}
+	sessionGate := &relaySessionGate{expiresAt: options.SessionExpiresAt}
+	if err := sessionGate.checkValid(); err != nil {
+		return result, &RelayExit{Turn: 1, Stage: "session_expired", Err: err}
+	}
+	firstPrepared, err := prepareRelayTurn(options.OnPrepareTurn, 1, firstMessageType, firstClientMessage)
+	if err != nil {
+		return result, &RelayExit{Turn: 1, Stage: "prepare_turn", Err: err}
+	}
+	if err := sessionGate.checkValid(); err != nil {
+		return result, &RelayExit{Turn: 1, Stage: "session_expired", Err: err}
+	}
+	firstClientMessage = firstPrepared.Payload
+	result.RequestModel = firstPrepared.RequestModel
 	startAt := nowFn()
 	state := &relayState{requestModel: result.RequestModel}
 	onTrace := options.OnTrace
@@ -151,9 +290,15 @@ func Relay(
 	}
 
 	writeUpstream := func(msgType coderws.MessageType, payload []byte) error {
-		writeCtx, cancel := context.WithTimeout(relayCtx, writeTimeout)
-		defer cancel()
-		return upstreamConn.WriteFrame(writeCtx, msgType, payload)
+		return sessionGate.writeIfValid(func(expiresAt time.Time) error {
+			writeDeadline := time.Now().Add(writeTimeout)
+			if !expiresAt.IsZero() && expiresAt.Before(writeDeadline) {
+				writeDeadline = expiresAt
+			}
+			writeCtx, cancel := context.WithDeadline(relayCtx, writeDeadline)
+			defer cancel()
+			return upstreamConn.WriteFrame(writeCtx, msgType, payload)
+		})
 	}
 	writeClient := func(msgType coderws.MessageType, payload []byte) error {
 		writeCtx, cancel := context.WithTimeout(relayCtx, writeTimeout)
@@ -170,8 +315,29 @@ func Relay(
 		MessageType:  relayMessageTypeString(firstMessageType),
 	})
 
-	if err := writeUpstream(firstMessageType, firstClientMessage); err != nil {
+	if options.OnBeforeTurn != nil {
+		if err := options.OnBeforeTurn(1); err != nil {
+			result.Duration = nowFn().Sub(startAt)
+			emitRelayTrace(onTrace, RelayTraceEvent{
+				Stage:     "before_turn_failed",
+				Direction: "client_to_upstream",
+				Error:     err.Error(),
+			})
+			return result, &RelayExit{Turn: 1, Stage: "before_turn", Err: err}
+		}
+	}
+	if err := sessionGate.checkValid(); err != nil {
 		result.Duration = nowFn().Sub(startAt)
+		return result, &RelayExit{Turn: 1, Stage: "session_expired", Err: err}
+	}
+	state.markTurnStarted(1, firstPrepared, startAt)
+	if err := writeUpstream(firstMessageType, firstClientMessage); err != nil {
+		state.markTurnAborted(1)
+		result.Duration = nowFn().Sub(startAt)
+		stage := "write_upstream"
+		if errors.Is(err, ErrSessionExpired) {
+			stage = "session_expired"
+		}
 		emitRelayTrace(onTrace, RelayTraceEvent{
 			Stage:        "write_first_message_failed",
 			Direction:    "client_to_upstream",
@@ -179,7 +345,7 @@ func Relay(
 			PayloadBytes: len(firstClientMessage),
 			Error:        err.Error(),
 		})
-		return result, &RelayExit{Stage: "write_upstream", Err: err}
+		return result, &RelayExit{Turn: 1, Stage: stage, Err: err}
 	}
 	clientToUpstreamFrames.Add(1)
 	emitRelayTrace(onTrace, RelayTraceEvent{
@@ -190,9 +356,55 @@ func Relay(
 	})
 	markActivity()
 
-	exitCh := make(chan relayExitSignal, 3)
+	exitCh := make(chan relayExitSignal, 8)
 	dropDownstreamWrites := atomic.Bool{}
-	go runClientToUpstream(relayCtx, clientConn, writeUpstream, markActivity, clientToUpstreamFrames, onTrace, exitCh)
+	startedTurns := atomic.Int32{}
+	startedTurns.Store(1)
+	writeClientFrameUpstream := func(msgType coderws.MessageType, payload []byte) error {
+		if err := sessionGate.checkValid(); err != nil {
+			return &relayTurnWriteError{stage: "session_expired", err: err}
+		}
+		if isResponseCreateClientFrame(msgType, payload) {
+			turn := int(startedTurns.Load()) + 1
+			if state.activeTurnCount() >= maxActiveTurns {
+				return &relayTurnWriteError{turn: turn, stage: "active_turn_limit", err: ErrMaxActiveTurnsExceeded}
+			}
+			prepared, err := prepareRelayTurn(options.OnPrepareTurn, turn, msgType, payload)
+			if err != nil {
+				return &relayTurnWriteError{turn: turn, stage: "prepare_turn", err: err}
+			}
+			if err := sessionGate.checkValid(); err != nil {
+				return &relayTurnWriteError{turn: turn, stage: "session_expired", err: err}
+			}
+			if options.OnBeforeTurn != nil {
+				if err := options.OnBeforeTurn(turn); err != nil {
+					return &relayTurnWriteError{turn: turn, stage: "before_turn", err: err}
+				}
+			}
+			if err := sessionGate.checkValid(); err != nil {
+				return &relayTurnWriteError{turn: turn, stage: "session_expired", err: err}
+			}
+			state.markTurnStarted(turn, prepared, nowFn())
+			if err := writeUpstream(msgType, prepared.Payload); err != nil {
+				state.markTurnAborted(turn)
+				stage := "write_upstream"
+				if errors.Is(err, ErrSessionExpired) {
+					stage = "session_expired"
+				}
+				return &relayTurnWriteError{turn: turn, stage: stage, err: err}
+			}
+			startedTurns.Add(1)
+			return nil
+		}
+		if err := writeUpstream(msgType, payload); err != nil {
+			if errors.Is(err, ErrSessionExpired) {
+				return &relayTurnWriteError{stage: "session_expired", err: err}
+			}
+			return err
+		}
+		return nil
+	}
+	go runClientToUpstream(relayCtx, clientConn, writeClientFrameUpstream, markActivity, clientToUpstreamFrames, onTrace, exitCh)
 	go runUpstreamToClient(
 		relayCtx,
 		upstreamConn,
@@ -210,6 +422,7 @@ func Relay(
 		exitCh,
 	)
 	go runIdleWatchdog(relayCtx, nowFn, options.IdleTimeout, &lastActivity, onTrace, exitCh)
+	go runSessionExpiryWatchdog(relayCtx, sessionGate, state, &dropDownstreamWrites, exitCh)
 
 	firstExit := <-exitCh
 	emitRelayTrace(onTrace, RelayTraceEvent{
@@ -223,10 +436,17 @@ func Relay(
 	secondExit := relayExitSignal{graceful: true}
 	hasSecondExit := false
 
-	// 客户端断开后尽力继续读取上游短窗口，捕获延迟 usage/terminal 事件用于计费。
-	if firstExit.stage == "read_client" && firstExit.graceful {
-		dropDownstreamWrites.Store(true)
-		secondExit, hasSecondExit = waitRelayExit(exitCh, drainTimeout)
+	// 客户端断开或后续 turn 被拒绝后，在有界时间内继续读取上游，
+	// 直到所有已经写入上游的 turn 都收到 terminal 事件，避免丢失 usage。
+	drainAfterFirstExit := shouldDrainActiveTurns(firstExit)
+	if drainAfterFirstExit {
+		state.requestDrain()
+		if isClientDisconnectExit(firstExit) {
+			dropDownstreamWrites.Store(true)
+		}
+		var extraWroteDownstream bool
+		secondExit, hasSecondExit, extraWroteDownstream = waitRelayDrainExit(exitCh, state, drainTimeout)
+		combinedWroteDownstream = combinedWroteDownstream || extraWroteDownstream
 	} else {
 		relayCancel()
 		_ = upstreamConn.Close()
@@ -250,11 +470,16 @@ func Relay(
 	result.ClientToUpstreamFrames = clientToUpstreamFrames.Load()
 	result.UpstreamToClientFrames = upstreamToClientFrames.Load()
 	result.DroppedDownstreamFrames = droppedDownstreamFrames.Load()
-	if firstExit.stage == "read_client" && firstExit.graceful {
-		stage := "client_disconnected"
+	if drainAfterFirstExit {
+		stage := firstExit.stage
+		exitTurn := firstExit.turn
+		if isClientDisconnectExit(firstExit) {
+			stage = "client_disconnected"
+		}
 		exitErr := firstExit.err
-		if hasSecondExit && !secondExit.graceful {
+		if hasSecondExit && !secondExit.graceful && !isRejectedTurnExit(firstExit) {
 			stage = secondExit.stage
+			exitTurn = secondExit.turn
 			exitErr = secondExit.err
 		}
 		if exitErr == nil {
@@ -268,6 +493,7 @@ func Relay(
 			Error:           relayErrorString(exitErr),
 		})
 		return result, &RelayExit{
+			Turn:            exitTurn,
 			Stage:           stage,
 			Err:             exitErr,
 			WroteDownstream: combinedWroteDownstream,
@@ -291,6 +517,7 @@ func Relay(
 			Error:           relayErrorString(firstExit.err),
 		})
 		return result, &RelayExit{
+			Turn:            firstExit.turn,
 			Stage:           firstExit.stage,
 			Err:             firstExit.err,
 			WroteDownstream: combinedWroteDownstream,
@@ -305,6 +532,7 @@ func Relay(
 			Error:           relayErrorString(secondExit.err),
 		})
 		return result, &RelayExit{
+			Turn:            secondExit.turn,
 			Stage:           secondExit.stage,
 			Err:             secondExit.err,
 			WroteDownstream: combinedWroteDownstream,
@@ -342,14 +570,21 @@ func runClientToUpstream(
 		}
 		markActivity()
 		if err := writeUpstream(msgType, payload); err != nil {
+			stage := "write_upstream"
+			turn := 0
+			var turnWriteErr *relayTurnWriteError
+			if errors.As(err, &turnWriteErr) {
+				stage = turnWriteErr.stage
+				turn = turnWriteErr.turn
+			}
 			emitRelayTrace(onTrace, RelayTraceEvent{
-				Stage:        "write_upstream_failed",
+				Stage:        stage + "_failed",
 				Direction:    "client_to_upstream",
 				MessageType:  relayMessageTypeString(msgType),
 				PayloadBytes: len(payload),
 				Error:        err.Error(),
 			})
-			exitCh <- relayExitSignal{stage: "write_upstream", err: err}
+			exitCh <- relayExitSignal{turn: turn, stage: stage, err: err}
 			return
 		}
 		if forwardedFrames != nil {
@@ -414,7 +649,7 @@ func runUpstreamToClient(
 				PayloadBytes:    len(payload),
 				WroteDownstream: wroteDownstream,
 			})
-			if observedEvent.terminal {
+			if observedEvent.terminal && observedEvent.allTurnsTerminal {
 				exitCh <- relayExitSignal{
 					stage:           "drain_terminal",
 					graceful:        true,
@@ -426,6 +661,7 @@ func runUpstreamToClient(
 			continue
 		}
 		if err := writeClient(msgType, payload); err != nil {
+			graceful := isDisconnectError(err)
 			emitRelayTrace(onTrace, RelayTraceEvent{
 				Stage:           "write_client_failed",
 				Direction:       "upstream_to_client",
@@ -433,15 +669,33 @@ func runUpstreamToClient(
 				PayloadBytes:    len(payload),
 				WroteDownstream: wroteDownstream,
 				Error:           err.Error(),
+				Graceful:        graceful,
 			})
-			exitCh <- relayExitSignal{stage: "write_client", err: err, wroteDownstream: wroteDownstream}
-			return
+			if dropDownstreamWrites != nil {
+				dropDownstreamWrites.Store(true)
+			}
+			if state != nil {
+				state.requestDrain()
+			}
+			exitCh <- relayExitSignal{stage: "write_client", err: err, graceful: graceful, wroteDownstream: wroteDownstream}
+			if state == nil || state.activeTurnCount() == 0 || (observedEvent.terminal && observedEvent.allTurnsTerminal) {
+				return
+			}
+			continue
 		}
 		wroteDownstream = true
 		if forwardedFrames != nil {
 			forwardedFrames.Add(1)
 		}
 		markActivity()
+		if observedEvent.terminal && observedEvent.allTurnsTerminal && state != nil && state.shouldDrain() {
+			exitCh <- relayExitSignal{
+				stage:           "drain_terminal",
+				graceful:        true,
+				wroteDownstream: wroteDownstream,
+			}
+			return
+		}
 	}
 }
 
@@ -483,6 +737,41 @@ func runIdleWatchdog(
 	}
 }
 
+func runSessionExpiryWatchdog(
+	ctx context.Context,
+	sessionGate *relaySessionGate,
+	state *relayState,
+	dropDownstreamWrites *atomic.Bool,
+	exitCh chan<- relayExitSignal,
+) {
+	if sessionGate == nil || sessionGate.expiresAt.IsZero() {
+		return
+	}
+	wait := time.Until(sessionGate.expiresAt)
+	if wait > 0 {
+		timer := time.NewTimer(wait)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+		}
+	}
+	if !sessionGate.expire() {
+		return
+	}
+	if dropDownstreamWrites != nil {
+		dropDownstreamWrites.Store(true)
+	}
+	if state != nil {
+		state.requestDrain()
+	}
+	select {
+	case exitCh <- relayExitSignal{stage: "session_expired", err: ErrSessionExpired}:
+	case <-ctx.Done():
+	}
+}
+
 func emitRelayTrace(onTrace func(event RelayTraceEvent), event RelayTraceEvent) {
 	if onTrace == nil {
 		return
@@ -501,14 +790,58 @@ func relayMessageTypeString(msgType coderws.MessageType) string {
 	}
 }
 
+func isResponseCreateClientFrame(msgType coderws.MessageType, payload []byte) bool {
+	if msgType != coderws.MessageText && msgType != coderws.MessageBinary {
+		return false
+	}
+	var envelope struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(payload, &envelope); err != nil {
+		return false
+	}
+	return strings.TrimSpace(envelope.Type) == "response.create"
+}
+
+func prepareRelayTurn(
+	onPrepare func(turn int, msgType coderws.MessageType, payload []byte) (RelayPreparedTurn, error),
+	turn int,
+	msgType coderws.MessageType,
+	payload []byte,
+) (RelayPreparedTurn, error) {
+	prepared := RelayPreparedTurn{Payload: payload}
+	if onPrepare != nil {
+		var err error
+		prepared, err = onPrepare(turn, msgType, payload)
+		if err != nil {
+			return RelayPreparedTurn{}, err
+		}
+		if prepared.Payload == nil {
+			prepared.Payload = payload
+		}
+	}
+	if prepared.RequestModel == "" {
+		prepared.RequestModel = strings.TrimSpace(gjson.GetBytes(payload, "model").String())
+	}
+	if prepared.UpstreamModel == "" {
+		prepared.UpstreamModel = strings.TrimSpace(gjson.GetBytes(prepared.Payload, "model").String())
+	}
+	if prepared.UpstreamModel == "" {
+		prepared.UpstreamModel = prepared.RequestModel
+	}
+	return prepared, nil
+}
+
 func relayDirectionFromStage(stage string) string {
 	switch stage {
-	case "read_client", "write_upstream":
+	case "read_client", "write_upstream", "prepare_turn", "before_turn", "active_turn_limit":
 		return "client_to_upstream"
 	case "read_upstream", "write_client", "drain_terminal":
 		return "upstream_to_client"
 	case "idle_timeout":
 		return "watchdog"
+	case "session_expired":
+		return "session"
 	default:
 		return ""
 	}
@@ -519,6 +852,181 @@ func relayErrorString(err error) string {
 		return ""
 	}
 	return err.Error()
+}
+
+type relayObservedTurn struct {
+	turn             int
+	requestModel     string
+	upstreamModel    string
+	duration         time.Duration
+	firstTokenMs     *int
+	completed        bool
+	allTurnsTerminal bool
+}
+
+func (s *relayState) markTurnStarted(turn int, prepared RelayPreparedTurn, startedAt time.Time) {
+	if s == nil || turn <= 0 {
+		return
+	}
+	s.turnsMu.Lock()
+	defer s.turnsMu.Unlock()
+	if s.activeTurns == nil {
+		s.activeTurns = make(map[int]*relayActiveTurn, 4)
+	}
+	if s.activeResponseTurns == nil {
+		s.activeResponseTurns = make(map[string]int, 4)
+	}
+	if _, exists := s.activeTurns[turn]; exists {
+		return
+	}
+	s.activeTurns[turn] = &relayActiveTurn{
+		turn:          turn,
+		requestModel:  strings.TrimSpace(prepared.RequestModel),
+		upstreamModel: strings.TrimSpace(prepared.UpstreamModel),
+		startedAt:     startedAt,
+	}
+	s.pendingTurns = append(s.pendingTurns, turn)
+}
+
+func (s *relayState) markTurnAborted(turn int) {
+	if s == nil || turn <= 0 {
+		return
+	}
+	s.turnsMu.Lock()
+	defer s.turnsMu.Unlock()
+	active := s.activeTurns[turn]
+	if active == nil {
+		return
+	}
+	delete(s.activeTurns, turn)
+	if active.responseID != "" {
+		delete(s.activeResponseTurns, active.responseID)
+	}
+	s.removePendingTurnLocked(turn)
+}
+
+func (s *relayState) requestDrain() {
+	if s != nil {
+		s.drainRequested.Store(true)
+	}
+}
+
+func (s *relayState) shouldDrain() bool {
+	return s != nil && s.drainRequested.Load()
+}
+
+func (s *relayState) activeTurnCount() int {
+	if s == nil {
+		return 0
+	}
+	s.turnsMu.Lock()
+	defer s.turnsMu.Unlock()
+	return len(s.activeTurns)
+}
+
+func (s *relayState) observeTurnEvent(responseID string, tokenEvent bool, terminal bool, now time.Time) relayObservedTurn {
+	observed := relayObservedTurn{}
+	if s == nil {
+		observed.allTurnsTerminal = true
+		return observed
+	}
+	responseID = strings.TrimSpace(responseID)
+	s.turnsMu.Lock()
+	defer s.turnsMu.Unlock()
+
+	if terminal && responseID != "" {
+		if _, duplicate := s.completedResponseIDs[responseID]; duplicate {
+			observed.allTurnsTerminal = len(s.activeTurns) == 0
+			return observed
+		}
+	}
+
+	active := s.activeTurnForResponseLocked(responseID)
+	if active == nil && (responseID != "" || terminal) {
+		active = s.bindOldestPendingTurnLocked(responseID)
+	}
+	if active != nil {
+		observed.turn = active.turn
+		observed.requestModel = active.requestModel
+		observed.upstreamModel = active.upstreamModel
+		if tokenEvent && active.firstTokenMs == nil && !active.startedAt.IsZero() {
+			ms := int(now.Sub(active.startedAt).Milliseconds())
+			if ms >= 0 {
+				active.firstTokenMs = &ms
+			}
+		}
+		observed.firstTokenMs = openAIWSRelayCloneIntPtr(active.firstTokenMs)
+	}
+
+	if terminal {
+		if responseID != "" {
+			if s.completedResponseIDs == nil {
+				s.completedResponseIDs = make(map[string]struct{}, 4)
+			}
+			s.completedResponseIDs[responseID] = struct{}{}
+		}
+		if active != nil {
+			if !active.startedAt.IsZero() {
+				observed.duration = now.Sub(active.startedAt)
+				if observed.duration < 0 {
+					observed.duration = 0
+				}
+			}
+			delete(s.activeTurns, active.turn)
+			if active.responseID != "" {
+				delete(s.activeResponseTurns, active.responseID)
+			}
+			s.removePendingTurnLocked(active.turn)
+			observed.completed = true
+		}
+	}
+	observed.allTurnsTerminal = len(s.activeTurns) == 0
+	return observed
+}
+
+func (s *relayState) activeTurnForResponseLocked(responseID string) *relayActiveTurn {
+	if s == nil || responseID == "" {
+		return nil
+	}
+	turn := s.activeResponseTurns[responseID]
+	if turn <= 0 {
+		return nil
+	}
+	return s.activeTurns[turn]
+}
+
+func (s *relayState) bindOldestPendingTurnLocked(responseID string) *relayActiveTurn {
+	if s == nil {
+		return nil
+	}
+	for len(s.pendingTurns) > 0 {
+		turn := s.pendingTurns[0]
+		s.pendingTurns = s.pendingTurns[1:]
+		active := s.activeTurns[turn]
+		if active == nil || active.responseID != "" {
+			continue
+		}
+		if responseID != "" {
+			active.responseID = responseID
+			if s.activeResponseTurns == nil {
+				s.activeResponseTurns = make(map[string]int, 4)
+			}
+			s.activeResponseTurns[responseID] = turn
+		}
+		return active
+	}
+	return nil
+}
+
+func (s *relayState) removePendingTurnLocked(turn int) {
+	for i, pendingTurn := range s.pendingTurns {
+		if pendingTurn != turn {
+			continue
+		}
+		copy(s.pendingTurns[i:], s.pendingTurns[i+1:])
+		s.pendingTurns = s.pendingTurns[:len(s.pendingTurns)-1]
+		return
+	}
 }
 
 func observeUpstreamMessage(
@@ -545,45 +1053,58 @@ func observeUpstreamMessage(
 		responseID = strings.TrimSpace(values[3].String())
 	}
 	now := nowFn()
+	tokenEvent := isTokenEvent(eventType)
+	terminalEvent := isTerminalEvent(eventType)
 
-	if state.firstTokenMs == nil && isTokenEvent(eventType) {
-		ms := int(now.Sub(startAt).Milliseconds())
-		if ms >= 0 {
-			state.firstTokenMs = &ms
-		}
-	}
+	state.observeAggregateMetadata(eventType, responseID, tokenEvent, terminalEvent, startAt, now)
 	parsedUsage := parseUsageAndAccumulate(state, message, eventType, onUsageParseFailure)
+	turnObservation := state.observeTurnEvent(responseID, tokenEvent, terminalEvent, now)
 	observed := observedUpstreamEvent{
-		eventType:  eventType,
-		responseID: responseID,
-		usage:      parsedUsage,
+		terminal:         terminalEvent,
+		completedTurn:    turnObservation.completed,
+		allTurnsTerminal: turnObservation.allTurnsTerminal,
+		turn:             turnObservation.turn,
+		eventType:        eventType,
+		responseID:       responseID,
+		requestModel:     turnObservation.requestModel,
+		upstreamModel:    turnObservation.upstreamModel,
+		usage:            parsedUsage,
+		duration:         turnObservation.duration,
+		firstToken:       openAIWSRelayCloneIntPtr(turnObservation.firstTokenMs),
 	}
-	if responseID != "" {
-		turnTiming := openAIWSRelayGetOrInitTurnTiming(state, responseID, now)
-		if turnTiming != nil && turnTiming.firstTokenMs == nil && isTokenEvent(eventType) {
-			ms := int(now.Sub(turnTiming.startAt).Milliseconds())
-			if ms >= 0 {
-				turnTiming.firstTokenMs = &ms
-			}
-		}
-	}
-	if !isTerminalEvent(eventType) {
+	if !terminalEvent {
 		return observed
 	}
-	observed.terminal = true
-	state.terminalEventType = eventType
-	if responseID != "" {
-		state.lastResponseID = responseID
-		if turnTiming, ok := openAIWSRelayDeleteTurnTiming(state, responseID); ok {
-			duration := now.Sub(turnTiming.startAt)
-			if duration < 0 {
-				duration = 0
-			}
-			observed.duration = duration
-			observed.firstToken = openAIWSRelayCloneIntPtr(turnTiming.firstTokenMs)
+	return observed
+}
+
+func (s *relayState) observeAggregateMetadata(
+	eventType string,
+	responseID string,
+	tokenEvent bool,
+	terminalEvent bool,
+	startAt time.Time,
+	now time.Time,
+) {
+	if s == nil {
+		return
+	}
+	s.aggregatesMu.Lock()
+	defer s.aggregatesMu.Unlock()
+
+	if s.firstTokenMs == nil && tokenEvent {
+		ms := int(now.Sub(startAt).Milliseconds())
+		if ms >= 0 {
+			s.firstTokenMs = &ms
 		}
 	}
-	return observed
+	if !terminalEvent {
+		return
+	}
+	s.terminalEventType = eventType
+	if responseID != "" {
+		s.lastResponseID = responseID
+	}
 }
 
 func emitTurnComplete(
@@ -591,19 +1112,17 @@ func emitTurnComplete(
 	state *relayState,
 	observed observedUpstreamEvent,
 ) {
-	if onTurnComplete == nil || !observed.terminal {
+	if onTurnComplete == nil || !observed.terminal || !observed.completedTurn {
 		return
 	}
 	responseID := strings.TrimSpace(observed.responseID)
 	if responseID == "" {
 		return
 	}
-	requestModel := ""
-	if state != nil {
-		requestModel = state.requestModel
-	}
 	onTurnComplete(RelayTurnResult{
-		RequestModel:      requestModel,
+		Turn:              observed.turn,
+		RequestModel:      observed.requestModel,
+		UpstreamModel:     observed.upstreamModel,
 		Usage:             observed.usage,
 		RequestID:         responseID,
 		TerminalEventType: observed.eventType,
@@ -696,6 +1215,8 @@ func parseUsageAndAccumulate(
 		ServiceTier:              serviceTier,
 	}
 
+	state.aggregatesMu.Lock()
+	defer state.aggregatesMu.Unlock()
 	state.usage.InputTokens += parsedUsage.InputTokens
 	state.usage.OutputTokens += parsedUsage.OutputTokens
 	state.usage.CacheReadInputTokens += parsedUsage.CacheReadInputTokens
@@ -724,11 +1245,13 @@ func enrichResult(result *RelayResult, state *relayState, duration time.Duration
 	if state == nil {
 		return
 	}
+	state.aggregatesMu.Lock()
+	defer state.aggregatesMu.Unlock()
 	result.RequestModel = state.requestModel
 	result.Usage = state.usage
 	result.RequestID = state.lastResponseID
 	result.TerminalEventType = state.terminalEventType
-	result.FirstTokenMs = state.firstTokenMs
+	result.FirstTokenMs = openAIWSRelayCloneIntPtr(state.firstTokenMs)
 }
 
 func isDisconnectError(err error) bool {
@@ -797,6 +1320,70 @@ func minDuration(a, b time.Duration) time.Duration {
 		return a
 	}
 	return b
+}
+
+func shouldDrainActiveTurns(exit relayExitSignal) bool {
+	if isClientDisconnectExit(exit) {
+		return true
+	}
+	switch exit.stage {
+	case "write_upstream", "write_client", "prepare_turn", "before_turn", "active_turn_limit", "session_expired":
+		return true
+	default:
+		return false
+	}
+}
+
+func isRejectedTurnExit(exit relayExitSignal) bool {
+	return exit.stage == "prepare_turn" || exit.stage == "before_turn" || exit.stage == "active_turn_limit" || exit.stage == "session_expired"
+}
+
+func isClientDisconnectExit(exit relayExitSignal) bool {
+	if !exit.graceful {
+		return false
+	}
+	return exit.stage == "read_client" || exit.stage == "write_client"
+}
+
+func waitRelayDrainExit(
+	exitCh <-chan relayExitSignal,
+	state *relayState,
+	timeout time.Duration,
+) (relayExitSignal, bool, bool) {
+	if state == nil || state.activeTurnCount() == 0 {
+		return relayExitSignal{stage: "drain_terminal", graceful: true}, true, false
+	}
+	if timeout <= 0 {
+		timeout = 200 * time.Millisecond
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	wroteDownstream := false
+	for {
+		select {
+		case exit := <-exitCh:
+			wroteDownstream = wroteDownstream || exit.wroteDownstream
+			switch exit.stage {
+			case "drain_terminal", "read_upstream", "idle_timeout":
+				return exit, true, wroteDownstream
+			case "write_client":
+				// Downstream writes are disabled after the first failure. Keep
+				// reading upstream until every provider turn is terminal.
+			case "read_client", "write_upstream", "prepare_turn", "before_turn", "active_turn_limit", "session_expired":
+				// These are client-side exits. The upstream reader remains active
+				// until every accepted turn reaches a terminal event.
+			default:
+				if !exit.graceful {
+					return exit, true, wroteDownstream
+				}
+			}
+			if state.activeTurnCount() == 0 {
+				return relayExitSignal{stage: "drain_terminal", graceful: true, wroteDownstream: wroteDownstream}, true, wroteDownstream
+			}
+		case <-timer.C:
+			return relayExitSignal{}, false, wroteDownstream
+		}
+	}
 }
 
 func waitRelayExit(exitCh <-chan relayExitSignal, timeout time.Duration) (relayExitSignal, bool) {

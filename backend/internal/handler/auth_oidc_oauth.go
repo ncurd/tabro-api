@@ -55,7 +55,6 @@ type oidcTokenExchangeError struct {
 	StatusCode          int
 	ProviderError       string
 	ProviderDescription string
-	Body                string
 }
 
 func (e *oidcTokenExchangeError) Error() string {
@@ -247,11 +246,10 @@ func (h *AuthHandler) OIDCOAuthCallback(c *gin.Context) {
 		var exchangeErr *oidcTokenExchangeError
 		if errors.As(err, &exchangeErr) && exchangeErr != nil {
 			log.Printf(
-				"[OIDC OAuth] token exchange failed: status=%d provider_error=%q provider_description=%q body=%s",
+				"[OIDC OAuth] token exchange failed: status=%d provider_error=%q provider_description=%q",
 				exchangeErr.StatusCode,
 				exchangeErr.ProviderError,
 				exchangeErr.ProviderDescription,
-				truncateLogValue(exchangeErr.Body, 2048),
 			)
 			description = exchangeErr.Error()
 		} else {
@@ -298,6 +296,20 @@ func (h *AuthHandler) OIDCOAuthCallback(c *gin.Context) {
 		redirectOAuthError(c, frontendCallback, "missing_issuer", "missing issuer claim", "")
 		return
 	}
+	identityAlreadyBound := false
+	if h.apiKeyService != nil {
+		_, lookupErr := h.apiKeyService.GetOIDCGatewayKeyByIdentity(c.Request.Context(), issuer, subject)
+		switch {
+		case lookupErr == nil:
+			identityAlreadyBound = true
+		case errors.Is(lookupErr, service.ErrAPIKeyNotFound):
+			// A first login may establish the immutable binding below, but only
+			// after a verified email has been obtained.
+		default:
+			redirectOAuthError(c, frontendCallback, "login_failed", "service_error", "")
+			return
+		}
+	}
 
 	// Backend mode exposes administrative functionality only and therefore
 	// requires cryptographic ID-token validation in addition to a verified
@@ -309,13 +321,17 @@ func (h *AuthHandler) OIDCOAuthCallback(c *gin.Context) {
 
 	identityKey := oidcIdentityKey(issuer, subject)
 	email := oidcSelectLoginEmail(userInfoClaims.Email, idClaims.Email, identityKey)
-	if cfg.RequireEmailVerified || backendMode {
-		verifiedEmail, ok := oidcSelectVerifiedLoginEmail(userInfoClaims, idClaims)
-		if !ok {
-			redirectOAuthError(c, frontendCallback, "email_not_verified", "email is not verified", "")
-			return
-		}
+	verifiedEmail, emailVerified := oidcSelectVerifiedLoginEmail(userInfoClaims, idClaims)
+	if emailVerified {
 		email = verifiedEmail
+	}
+	// Never create or select a local account by an unverified email. An
+	// existing immutable (iss, sub) binding can authenticate by owner ID on
+	// subsequent non-admin logins; backend mode and explicit strict policy
+	// continue to require a verified email as an additional safeguard.
+	if !emailVerified && (!identityAlreadyBound || cfg.RequireEmailVerified || backendMode) {
+		redirectOAuthError(c, frontendCallback, "email_not_verified", "email is not verified", "")
+		return
 	}
 	username := firstNonEmpty(
 		userInfoClaims.Username,
@@ -327,10 +343,10 @@ func (h *AuthHandler) OIDCOAuthCallback(c *gin.Context) {
 	// 传入空邀请码；如果需要邀请码，服务层返回 ErrOAuthInvitationRequired。
 	// Backend mode never enters the registration path and only permits an
 	// already-existing active administrator.
-	tokenPair, _, err := h.loginOIDCWithTokenPair(c.Request.Context(), email, username, "", backendMode)
+	tokenPair, _, err := h.loginOIDCWithTokenPair(c.Request.Context(), email, username, "", backendMode, issuer, subject)
 	if err != nil {
 		if errors.Is(err, service.ErrOAuthInvitationRequired) {
-			pendingToken, tokenErr := h.authService.CreatePendingOAuthToken(email, username)
+			pendingToken, tokenErr := h.authService.CreatePendingOIDCToken(email, username, issuer, subject)
 			if tokenErr != nil {
 				redirectOAuthError(c, frontendCallback, "login_failed", "service_error", "")
 				return
@@ -375,13 +391,21 @@ func (h *AuthHandler) CompleteOIDCOAuthRegistration(c *gin.Context) {
 		return
 	}
 
-	email, username, err := h.authService.VerifyPendingOAuthToken(req.PendingOAuthToken)
+	identity, err := h.authService.VerifyPendingOIDCToken(req.PendingOAuthToken)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "INVALID_TOKEN", "message": "invalid or expired registration token"})
 		return
 	}
 
-	tokenPair, _, err := h.loginOIDCWithTokenPair(c.Request.Context(), email, username, req.InvitationCode, false)
+	tokenPair, _, err := h.loginOIDCWithTokenPair(
+		c.Request.Context(),
+		identity.Email,
+		identity.Username,
+		req.InvitationCode,
+		false,
+		identity.Issuer,
+		identity.Subject,
+	)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -395,9 +419,25 @@ func (h *AuthHandler) CompleteOIDCOAuthRegistration(c *gin.Context) {
 	})
 }
 
-func (h *AuthHandler) loginOIDCWithTokenPair(ctx context.Context, email, username, invitationCode string, backendMode bool) (*service.TokenPair, *service.User, error) {
+func (h *AuthHandler) loginOIDCWithTokenPair(ctx context.Context, email, username, invitationCode string, backendMode bool, issuer, subject string) (*service.TokenPair, *service.User, error) {
 	if h == nil || h.authService == nil || h.apiKeyService == nil {
 		return nil, nil, infraerrors.ServiceUnavailable("AUTH_SERVICE_NOT_READY", "authentication service is not ready")
+	}
+
+	boundKey, lookupErr := h.apiKeyService.GetOIDCGatewayKeyByIdentity(ctx, issuer, subject)
+	if lookupErr == nil {
+		user, err := h.authService.LoginExistingOIDCIdentityUser(ctx, boundKey.UserID, backendMode)
+		if err != nil {
+			return nil, nil, err
+		}
+		tokenPair, err := h.authService.GenerateOIDCTokenPair(ctx, user, boundKey.ID, "")
+		if err != nil {
+			return nil, nil, fmt.Errorf("generate oidc token pair: %w", err)
+		}
+		return tokenPair, user, nil
+	}
+	if !errors.Is(lookupErr, service.ErrAPIKeyNotFound) {
+		return nil, nil, fmt.Errorf("resolve oidc gateway identity: %w", lookupErr)
 	}
 
 	var (
@@ -416,6 +456,9 @@ func (h *AuthHandler) loginOIDCWithTokenPair(ctx context.Context, email, usernam
 	billingKey, err := h.apiKeyService.EnsureOIDCGatewayKey(ctx, user.ID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("ensure oidc gateway billing key: %w", err)
+	}
+	if err := h.apiKeyService.BindOIDCGatewayIdentity(ctx, billingKey.ID, issuer, subject); err != nil {
+		return nil, nil, fmt.Errorf("bind oidc gateway identity: %w", err)
 	}
 	tokenPair, err := h.authService.GenerateOIDCTokenPair(ctx, user, billingKey.ID, "")
 	if err != nil {
@@ -480,19 +523,18 @@ func oidcExchangeCode(
 			StatusCode:          resp.StatusCode,
 			ProviderError:       providerErr,
 			ProviderDescription: providerDesc,
-			Body:                body,
 		}
 	}
 
 	tokenResp, ok := oidcParseTokenResponse(body)
 	if !ok {
-		return nil, &oidcTokenExchangeError{StatusCode: resp.StatusCode, Body: body}
+		return nil, &oidcTokenExchangeError{StatusCode: resp.StatusCode}
 	}
 	if strings.TrimSpace(tokenResp.TokenType) == "" {
 		tokenResp.TokenType = "Bearer"
 	}
 	if strings.TrimSpace(tokenResp.AccessToken) == "" && strings.TrimSpace(tokenResp.IDToken) == "" {
-		return nil, &oidcTokenExchangeError{StatusCode: resp.StatusCode, Body: body}
+		return nil, &oidcTokenExchangeError{StatusCode: resp.StatusCode}
 	}
 	return tokenResp, nil
 }

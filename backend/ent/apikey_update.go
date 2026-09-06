@@ -148,6 +148,46 @@ func (_u *APIKeyUpdate) SetNillableOidcManaged(v *bool) *APIKeyUpdate {
 	return _u
 }
 
+// SetOidcIssuer sets the "oidc_issuer" field.
+func (_u *APIKeyUpdate) SetOidcIssuer(v string) *APIKeyUpdate {
+	_u.mutation.SetOidcIssuer(v)
+	return _u
+}
+
+// SetNillableOidcIssuer sets the "oidc_issuer" field if the given value is not nil.
+func (_u *APIKeyUpdate) SetNillableOidcIssuer(v *string) *APIKeyUpdate {
+	if v != nil {
+		_u.SetOidcIssuer(*v)
+	}
+	return _u
+}
+
+// ClearOidcIssuer clears the value of the "oidc_issuer" field.
+func (_u *APIKeyUpdate) ClearOidcIssuer() *APIKeyUpdate {
+	_u.mutation.ClearOidcIssuer()
+	return _u
+}
+
+// SetOidcSubject sets the "oidc_subject" field.
+func (_u *APIKeyUpdate) SetOidcSubject(v string) *APIKeyUpdate {
+	_u.mutation.SetOidcSubject(v)
+	return _u
+}
+
+// SetNillableOidcSubject sets the "oidc_subject" field if the given value is not nil.
+func (_u *APIKeyUpdate) SetNillableOidcSubject(v *string) *APIKeyUpdate {
+	if v != nil {
+		_u.SetOidcSubject(*v)
+	}
+	return _u
+}
+
+// ClearOidcSubject clears the value of the "oidc_subject" field.
+func (_u *APIKeyUpdate) ClearOidcSubject() *APIKeyUpdate {
+	_u.mutation.ClearOidcSubject()
+	return _u
+}
+
 // SetLastUsedAt sets the "last_used_at" field.
 func (_u *APIKeyUpdate) SetLastUsedAt(v time.Time) *APIKeyUpdate {
 	_u.mutation.SetLastUsedAt(v)
@@ -574,6 +614,16 @@ func (_u *APIKeyUpdate) check() error {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "APIKey.status": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.OidcIssuer(); ok {
+		if err := apikey.OidcIssuerValidator(v); err != nil {
+			return &ValidationError{Name: "oidc_issuer", err: fmt.Errorf(`ent: validator failed for field "APIKey.oidc_issuer": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.OidcSubject(); ok {
+		if err := apikey.OidcSubjectValidator(v); err != nil {
+			return &ValidationError{Name: "oidc_subject", err: fmt.Errorf(`ent: validator failed for field "APIKey.oidc_subject": %w`, err)}
+		}
+	}
 	if _u.mutation.UserCleared() && len(_u.mutation.UserIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "APIKey.user"`)
 	}
@@ -612,6 +662,18 @@ func (_u *APIKeyUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.OidcManaged(); ok {
 		_spec.SetField(apikey.FieldOidcManaged, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.OidcIssuer(); ok {
+		_spec.SetField(apikey.FieldOidcIssuer, field.TypeString, value)
+	}
+	if _u.mutation.OidcIssuerCleared() {
+		_spec.ClearField(apikey.FieldOidcIssuer, field.TypeString)
+	}
+	if value, ok := _u.mutation.OidcSubject(); ok {
+		_spec.SetField(apikey.FieldOidcSubject, field.TypeString, value)
+	}
+	if _u.mutation.OidcSubjectCleared() {
+		_spec.ClearField(apikey.FieldOidcSubject, field.TypeString)
 	}
 	if value, ok := _u.mutation.LastUsedAt(); ok {
 		_spec.SetField(apikey.FieldLastUsedAt, field.TypeTime, value)
@@ -949,6 +1011,46 @@ func (_u *APIKeyUpdateOne) SetNillableOidcManaged(v *bool) *APIKeyUpdateOne {
 	if v != nil {
 		_u.SetOidcManaged(*v)
 	}
+	return _u
+}
+
+// SetOidcIssuer sets the "oidc_issuer" field.
+func (_u *APIKeyUpdateOne) SetOidcIssuer(v string) *APIKeyUpdateOne {
+	_u.mutation.SetOidcIssuer(v)
+	return _u
+}
+
+// SetNillableOidcIssuer sets the "oidc_issuer" field if the given value is not nil.
+func (_u *APIKeyUpdateOne) SetNillableOidcIssuer(v *string) *APIKeyUpdateOne {
+	if v != nil {
+		_u.SetOidcIssuer(*v)
+	}
+	return _u
+}
+
+// ClearOidcIssuer clears the value of the "oidc_issuer" field.
+func (_u *APIKeyUpdateOne) ClearOidcIssuer() *APIKeyUpdateOne {
+	_u.mutation.ClearOidcIssuer()
+	return _u
+}
+
+// SetOidcSubject sets the "oidc_subject" field.
+func (_u *APIKeyUpdateOne) SetOidcSubject(v string) *APIKeyUpdateOne {
+	_u.mutation.SetOidcSubject(v)
+	return _u
+}
+
+// SetNillableOidcSubject sets the "oidc_subject" field if the given value is not nil.
+func (_u *APIKeyUpdateOne) SetNillableOidcSubject(v *string) *APIKeyUpdateOne {
+	if v != nil {
+		_u.SetOidcSubject(*v)
+	}
+	return _u
+}
+
+// ClearOidcSubject clears the value of the "oidc_subject" field.
+func (_u *APIKeyUpdateOne) ClearOidcSubject() *APIKeyUpdateOne {
+	_u.mutation.ClearOidcSubject()
 	return _u
 }
 
@@ -1391,6 +1493,16 @@ func (_u *APIKeyUpdateOne) check() error {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "APIKey.status": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.OidcIssuer(); ok {
+		if err := apikey.OidcIssuerValidator(v); err != nil {
+			return &ValidationError{Name: "oidc_issuer", err: fmt.Errorf(`ent: validator failed for field "APIKey.oidc_issuer": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.OidcSubject(); ok {
+		if err := apikey.OidcSubjectValidator(v); err != nil {
+			return &ValidationError{Name: "oidc_subject", err: fmt.Errorf(`ent: validator failed for field "APIKey.oidc_subject": %w`, err)}
+		}
+	}
 	if _u.mutation.UserCleared() && len(_u.mutation.UserIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "APIKey.user"`)
 	}
@@ -1446,6 +1558,18 @@ func (_u *APIKeyUpdateOne) sqlSave(ctx context.Context) (_node *APIKey, err erro
 	}
 	if value, ok := _u.mutation.OidcManaged(); ok {
 		_spec.SetField(apikey.FieldOidcManaged, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.OidcIssuer(); ok {
+		_spec.SetField(apikey.FieldOidcIssuer, field.TypeString, value)
+	}
+	if _u.mutation.OidcIssuerCleared() {
+		_spec.ClearField(apikey.FieldOidcIssuer, field.TypeString)
+	}
+	if value, ok := _u.mutation.OidcSubject(); ok {
+		_spec.SetField(apikey.FieldOidcSubject, field.TypeString, value)
+	}
+	if _u.mutation.OidcSubjectCleared() {
+		_spec.ClearField(apikey.FieldOidcSubject, field.TypeString)
 	}
 	if value, ok := _u.mutation.LastUsedAt(); ok {
 		_spec.SetField(apikey.FieldLastUsedAt, field.TypeTime, value)

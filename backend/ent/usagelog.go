@@ -30,6 +30,16 @@ type UsageLog struct {
 	AccountID int64 `json:"account_id,omitempty"`
 	// RequestID holds the value of the "request_id" field.
 	RequestID string `json:"request_id,omitempty"`
+	// Exact issuer of the verified OAuth access token
+	OidcIssuer *string `json:"oidc_issuer,omitempty"`
+	// Stable subject of the verified OAuth access token
+	OidcSubject *string `json:"oidc_subject,omitempty"`
+	// Tenant derived from the verified OAuth access token
+	OidcTenant *string `json:"oidc_tenant,omitempty"`
+	// Untrusted Tabro run correlation identifier
+	TabroRunID *string `json:"tabro_run_id,omitempty"`
+	// Untrusted Tabro project correlation identifier
+	TabroProjectID *string `json:"tabro_project_id,omitempty"`
 	// Model holds the value of the "model" field.
 	Model string `json:"model,omitempty"`
 	// RequestedModel holds the value of the "requested_model" field.
@@ -185,7 +195,7 @@ func (*UsageLog) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullFloat64)
 		case usagelog.FieldID, usagelog.FieldUserID, usagelog.FieldAPIKeyID, usagelog.FieldAccountID, usagelog.FieldChannelID, usagelog.FieldGroupID, usagelog.FieldSubscriptionID, usagelog.FieldInputTokens, usagelog.FieldOutputTokens, usagelog.FieldCacheCreationTokens, usagelog.FieldCacheReadTokens, usagelog.FieldCacheCreation5mTokens, usagelog.FieldCacheCreation1hTokens, usagelog.FieldBillingType, usagelog.FieldDurationMs, usagelog.FieldFirstTokenMs, usagelog.FieldImageCount:
 			values[i] = new(sql.NullInt64)
-		case usagelog.FieldRequestID, usagelog.FieldModel, usagelog.FieldRequestedModel, usagelog.FieldUpstreamModel, usagelog.FieldModelMappingChain, usagelog.FieldBillingTier, usagelog.FieldBillingMode, usagelog.FieldUserAgent, usagelog.FieldIPAddress, usagelog.FieldImageSize:
+		case usagelog.FieldRequestID, usagelog.FieldOidcIssuer, usagelog.FieldOidcSubject, usagelog.FieldOidcTenant, usagelog.FieldTabroRunID, usagelog.FieldTabroProjectID, usagelog.FieldModel, usagelog.FieldRequestedModel, usagelog.FieldUpstreamModel, usagelog.FieldModelMappingChain, usagelog.FieldBillingTier, usagelog.FieldBillingMode, usagelog.FieldUserAgent, usagelog.FieldIPAddress, usagelog.FieldImageSize:
 			values[i] = new(sql.NullString)
 		case usagelog.FieldCreatedAt:
 			values[i] = new(sql.NullTime)
@@ -233,6 +243,41 @@ func (_m *UsageLog) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field request_id", values[i])
 			} else if value.Valid {
 				_m.RequestID = value.String
+			}
+		case usagelog.FieldOidcIssuer:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field oidc_issuer", values[i])
+			} else if value.Valid {
+				_m.OidcIssuer = new(string)
+				*_m.OidcIssuer = value.String
+			}
+		case usagelog.FieldOidcSubject:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field oidc_subject", values[i])
+			} else if value.Valid {
+				_m.OidcSubject = new(string)
+				*_m.OidcSubject = value.String
+			}
+		case usagelog.FieldOidcTenant:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field oidc_tenant", values[i])
+			} else if value.Valid {
+				_m.OidcTenant = new(string)
+				*_m.OidcTenant = value.String
+			}
+		case usagelog.FieldTabroRunID:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field tabro_run_id", values[i])
+			} else if value.Valid {
+				_m.TabroRunID = new(string)
+				*_m.TabroRunID = value.String
+			}
+		case usagelog.FieldTabroProjectID:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field tabro_project_id", values[i])
+			} else if value.Valid {
+				_m.TabroProjectID = new(string)
+				*_m.TabroProjectID = value.String
 			}
 		case usagelog.FieldModel:
 			if value, ok := values[i].(*sql.NullString); !ok {
@@ -518,6 +563,31 @@ func (_m *UsageLog) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("request_id=")
 	builder.WriteString(_m.RequestID)
+	builder.WriteString(", ")
+	if v := _m.OidcIssuer; v != nil {
+		builder.WriteString("oidc_issuer=")
+		builder.WriteString(*v)
+	}
+	builder.WriteString(", ")
+	if v := _m.OidcSubject; v != nil {
+		builder.WriteString("oidc_subject=")
+		builder.WriteString(*v)
+	}
+	builder.WriteString(", ")
+	if v := _m.OidcTenant; v != nil {
+		builder.WriteString("oidc_tenant=")
+		builder.WriteString(*v)
+	}
+	builder.WriteString(", ")
+	if v := _m.TabroRunID; v != nil {
+		builder.WriteString("tabro_run_id=")
+		builder.WriteString(*v)
+	}
+	builder.WriteString(", ")
+	if v := _m.TabroProjectID; v != nil {
+		builder.WriteString("tabro_project_id=")
+		builder.WriteString(*v)
+	}
 	builder.WriteString(", ")
 	builder.WriteString("model=")
 	builder.WriteString(_m.Model)

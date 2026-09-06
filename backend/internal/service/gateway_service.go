@@ -201,14 +201,30 @@ func redactAuthHeaderValue(v string) string {
 	return "[redacted]"
 }
 
-func safeHeaderValueForLog(key string, v string) string {
+func isSensitiveHeaderForLog(key string) bool {
 	key = strings.ToLower(strings.TrimSpace(key))
 	switch key {
-	case "authorization", "x-api-key":
-		return redactAuthHeaderValue(v)
+	case "authorization",
+		"proxy-authorization",
+		"cookie",
+		"set-cookie",
+		"x-api-key",
+		"x-goog-api-key",
+		"api-key",
+		"x-auth-token",
+		"x-openai-api-key",
+		"idempotency-key":
+		return true
 	default:
-		return strings.TrimSpace(v)
+		return false
 	}
+}
+
+func safeHeaderValueForLog(key string, v string) string {
+	if isSensitiveHeaderForLog(key) {
+		return redactAuthHeaderValue(v)
+	}
+	return strings.TrimSpace(v)
 }
 
 func extractSystemPreviewFromBody(body []byte) string {
@@ -260,8 +276,6 @@ func buildClaudeMimicDebugLine(req *http.Request, body []byte, account *Account,
 		"x-stainless-runtime-version",
 		"x-stainless-retry-count",
 		"x-stainless-timeout",
-		"authorization",
-		"x-api-key",
 		"content-type",
 		"accept",
 		"x-stainless-helper-method",
@@ -269,6 +283,9 @@ func buildClaudeMimicDebugLine(req *http.Request, body []byte, account *Account,
 
 	h := make([]string, 0, len(interesting))
 	for _, k := range interesting {
+		if isSensitiveHeaderForLog(k) {
+			continue
+		}
 		if v := req.Header.Get(k); v != "" {
 			h = append(h, fmt.Sprintf("%s=%q", k, safeHeaderValueForLog(k, v)))
 		}
@@ -7394,6 +7411,7 @@ type postUsageBillingParams struct {
 	APIKey                *APIKey
 	Account               *Account
 	Subscription          *UserSubscription
+	UpstreamRequestID     string
 	RequestPayloadHash    string
 	IsSubscriptionBill    bool
 	AccountRateMultiplier float64
@@ -7462,6 +7480,9 @@ func postUsageBilling(ctx context.Context, p *postUsageBillingParams, deps *bill
 
 func resolveUsageBillingRequestID(ctx context.Context, upstreamRequestID string) string {
 	if ctx != nil {
+		if billingRequestID, _ := ctx.Value(ctxkey.GatewayBillingRequestID).(string); strings.TrimSpace(billingRequestID) != "" {
+			return strings.TrimSpace(billingRequestID)
+		}
 		if clientRequestID, _ := ctx.Value(ctxkey.ClientRequestID).(string); strings.TrimSpace(clientRequestID) != "" {
 			return "client:" + strings.TrimSpace(clientRequestID)
 		}
@@ -7497,6 +7518,7 @@ func buildUsageBillingCommand(requestID string, usageLog *UsageLog, p *postUsage
 
 	cmd := &UsageBillingCommand{
 		RequestID:          requestID,
+		UpstreamRequestID:  strings.TrimSpace(p.UpstreamRequestID),
 		APIKeyID:           p.APIKey.ID,
 		UserID:             p.User.ID,
 		AccountID:          p.Account.ID,
@@ -7504,13 +7526,32 @@ func buildUsageBillingCommand(requestID string, usageLog *UsageLog, p *postUsage
 		RequestPayloadHash: strings.TrimSpace(p.RequestPayloadHash),
 	}
 	if usageLog != nil {
+		cmd.OIDCIssuer = usageLog.OIDCIssuer
+		cmd.OIDCSubject = usageLog.OIDCSubject
+		cmd.OIDCTenant = usageLog.OIDCTenant
+		cmd.TabroRunID = usageLog.TabroRunID
+		cmd.TabroProjectID = usageLog.TabroProjectID
 		cmd.Model = usageLog.Model
+		cmd.RequestedModel = usageLog.RequestedModel
+		cmd.UpstreamModel = usageLog.UpstreamModel
 		cmd.BillingType = usageLog.BillingType
 		cmd.InputTokens = usageLog.InputTokens
 		cmd.OutputTokens = usageLog.OutputTokens
 		cmd.CacheCreationTokens = usageLog.CacheCreationTokens
 		cmd.CacheReadTokens = usageLog.CacheReadTokens
+		cmd.CacheCreation5mTokens = usageLog.CacheCreation5mTokens
+		cmd.CacheCreation1hTokens = usageLog.CacheCreation1hTokens
+		cmd.ImageOutputTokens = usageLog.ImageOutputTokens
 		cmd.ImageCount = usageLog.ImageCount
+		cmd.InputCost = usageLog.InputCost
+		cmd.OutputCost = usageLog.OutputCost
+		cmd.CacheCreationCost = usageLog.CacheCreationCost
+		cmd.CacheReadCost = usageLog.CacheReadCost
+		cmd.ImageOutputCost = usageLog.ImageOutputCost
+		cmd.TotalCost = usageLog.TotalCost
+		cmd.ActualCost = usageLog.ActualCost
+		cmd.RateMultiplier = usageLog.RateMultiplier
+		cmd.AccountRateMultiplier = usageLog.AccountRateMultiplier
 		if usageLog.ServiceTier != nil {
 			cmd.ServiceTier = *usageLog.ServiceTier
 		}
@@ -7519,6 +7560,12 @@ func buildUsageBillingCommand(requestID string, usageLog *UsageLog, p *postUsage
 		}
 		if usageLog.SubscriptionID != nil {
 			cmd.SubscriptionID = usageLog.SubscriptionID
+		}
+		if usageLog.BillingMode != nil {
+			cmd.BillingMode = *usageLog.BillingMode
+		}
+		if usageLog.MediaType != nil {
+			cmd.MediaType = *usageLog.MediaType
 		}
 	}
 
@@ -7678,6 +7725,12 @@ func detachedBillingContext(ctx context.Context) (context.Context, context.Cance
 	base := context.Background()
 	if ctx != nil {
 		base = context.WithoutCancel(ctx)
+		// Ignore client/request cancellation after provider usage is known, but
+		// preserve the billing task's own deadline so retries share one bounded
+		// total budget instead of receiving a fresh timeout per attempt.
+		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < postUsageBillingTimeout {
+			return context.WithDeadline(base, deadline)
+		}
 	}
 	return context.WithTimeout(base, postUsageBillingTimeout)
 }
@@ -7930,6 +7983,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 		APIKey:                apiKey,
 		Account:               account,
 		Subscription:          subscription,
+		UpstreamRequestID:     result.RequestID,
 		RequestPayloadHash:    resolveUsageBillingPayloadFingerprint(ctx, input.RequestPayloadHash),
 		IsSubscriptionBill:    isSubscriptionBilling,
 		AccountRateMultiplier: accountRateMultiplier,
@@ -8131,6 +8185,7 @@ func (s *GatewayService) buildRecordUsageLog(
 		SubscriptionID:        optionalSubscriptionID(subscription),
 		CreatedAt:             time.Now(),
 	}
+	usageLog.ApplyGatewayUsageContext(ctx)
 	if cost != nil {
 		usageLog.InputCost = cost.InputCost
 		usageLog.OutputCost = cost.OutputCost
@@ -8987,15 +9042,20 @@ func (s *GatewayService) initDebugGatewayBodyFile(path string) {
 
 	// 确保父目录存在
 	if dir := filepath.Dir(path); dir != "." {
-		if err := os.MkdirAll(dir, 0755); err != nil {
+		if err := os.MkdirAll(dir, 0700); err != nil {
 			slog.Error("failed to create gateway debug log directory", "dir", dir, "error", err)
 			return
 		}
 	}
 
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	if err != nil {
 		slog.Error("failed to open gateway debug log file", "path", path, "error", err)
+		return
+	}
+	if err := f.Chmod(0600); err != nil {
+		_ = f.Close()
+		slog.Error("failed to secure gateway debug log file", "path", path, "error", err)
 		return
 	}
 	s.debugGatewayBodyFile.Store(f)
@@ -9034,9 +9094,14 @@ func (s *GatewayService) debugLogGatewaySnapshot(tag string, headers http.Header
 		}
 	}
 
-	// 2. headers（按真实 Claude CLI wire 顺序排列，便于与抓包对比；auth 脱敏）
+	// 2. headers（按真实 Claude CLI wire 顺序排列，便于与抓包对比）。
+	// Authorization/API key/cookie/idempotency headers are omitted entirely:
+	// neither their values nor their names may enter logs.
 	fmt.Fprint(&buf, "--- headers ---\n")
 	for _, k := range sortHeadersByWireOrder(headers) {
+		if isSensitiveHeaderForLog(k) {
+			continue
+		}
 		for _, v := range headers[k] {
 			fmt.Fprintf(&buf, "  %s: %s\n", k, safeHeaderValueForLog(k, v))
 		}

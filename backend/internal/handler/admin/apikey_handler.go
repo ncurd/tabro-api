@@ -27,6 +27,11 @@ type AdminUpdateAPIKeyGroupRequest struct {
 	GroupID *int64 `json:"group_id"` // nil=不修改, 0=解绑, >0=绑定到目标分组
 }
 
+type AdminBindAPIKeyOIDCIdentityRequest struct {
+	Issuer  string `json:"issuer" binding:"required"`
+	Subject string `json:"subject" binding:"required"`
+}
+
 // UpdateGroup handles updating an API key's group binding
 // PUT /api/v1/admin/api-keys/:id
 func (h *AdminAPIKeyHandler) UpdateGroup(c *gin.Context) {
@@ -60,4 +65,30 @@ func (h *AdminAPIKeyHandler) UpdateGroup(c *gin.Context) {
 		GrantedGroupName:       result.GrantedGroupName,
 	}
 	response.Success(c, resp)
+}
+
+// BindOIDCIdentity provisions an immutable (issuer, subject) mapping for the
+// selected billing key.
+// PUT /api/v1/admin/api-keys/:id/oidc-identity
+func (h *AdminAPIKeyHandler) BindOIDCIdentity(c *gin.Context) {
+	keyID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || keyID <= 0 {
+		response.BadRequest(c, "Invalid API key ID")
+		return
+	}
+	var req AdminBindAPIKeyOIDCIdentityRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	apiKey, err := h.adminService.AdminBindAPIKeyOIDCIdentity(c.Request.Context(), keyID, req.Issuer, req.Subject)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{
+		"api_key": dto.APIKeyFromService(apiKey),
+		"issuer":  apiKey.OIDCIssuer,
+		"subject": apiKey.OIDCSubject,
+	})
 }

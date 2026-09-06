@@ -21,14 +21,15 @@ import (
 )
 
 var (
-	ErrAPIKeyNotFound         = infraerrors.NotFound("API_KEY_NOT_FOUND", "api key not found")
-	ErrGroupNotAllowed        = infraerrors.Forbidden("GROUP_NOT_ALLOWED", "user is not allowed to bind this group")
-	ErrAPIKeyExists           = infraerrors.Conflict("API_KEY_EXISTS", "api key already exists")
-	ErrAPIKeyTooShort         = infraerrors.BadRequest("API_KEY_TOO_SHORT", "api key must be at least 16 characters")
-	ErrAPIKeyInvalidChars     = infraerrors.BadRequest("API_KEY_INVALID_CHARS", "api key can only contain letters, numbers, underscores, and hyphens")
-	ErrAPIKeyRateLimited      = infraerrors.TooManyRequests("API_KEY_RATE_LIMITED", "too many failed attempts, please try again later")
-	ErrInvalidIPPattern       = infraerrors.BadRequest("INVALID_IP_PATTERN", "invalid IP or CIDR pattern")
-	ErrOIDCGatewayKeyConflict = infraerrors.Conflict("OIDC_GATEWAY_KEY_CONFLICT", "oidc gateway billing key belongs to another user")
+	ErrAPIKeyNotFound              = infraerrors.NotFound("API_KEY_NOT_FOUND", "api key not found")
+	ErrGroupNotAllowed             = infraerrors.Forbidden("GROUP_NOT_ALLOWED", "user is not allowed to bind this group")
+	ErrAPIKeyExists                = infraerrors.Conflict("API_KEY_EXISTS", "api key already exists")
+	ErrAPIKeyTooShort              = infraerrors.BadRequest("API_KEY_TOO_SHORT", "api key must be at least 16 characters")
+	ErrAPIKeyInvalidChars          = infraerrors.BadRequest("API_KEY_INVALID_CHARS", "api key can only contain letters, numbers, underscores, and hyphens")
+	ErrAPIKeyRateLimited           = infraerrors.TooManyRequests("API_KEY_RATE_LIMITED", "too many failed attempts, please try again later")
+	ErrInvalidIPPattern            = infraerrors.BadRequest("INVALID_IP_PATTERN", "invalid IP or CIDR pattern")
+	ErrOIDCGatewayKeyConflict      = infraerrors.Conflict("OIDC_GATEWAY_KEY_CONFLICT", "oidc gateway billing key belongs to another user")
+	ErrOIDCGatewayIdentityConflict = infraerrors.Conflict("OIDC_GATEWAY_IDENTITY_CONFLICT", "oidc identity is already bound or the billing key has a different identity")
 	// ErrAPIKeyExpired        = infraerrors.Forbidden("API_KEY_EXPIRED", "api key has expired")
 	ErrAPIKeyExpired = infraerrors.Forbidden("API_KEY_EXPIRED", "api key 已过期")
 	// ErrAPIKeyQuotaExhausted = infraerrors.TooManyRequests("API_KEY_QUOTA_EXHAUSTED", "api key quota exhausted")
@@ -82,6 +83,11 @@ type APIKeyRepository interface {
 	IncrementRateLimitUsage(ctx context.Context, id int64, cost float64) error
 	ResetRateLimitWindows(ctx context.Context, id int64) error
 	GetRateLimitData(ctx context.Context, id int64) (*APIKeyRateLimitData, error)
+}
+
+type oidcGatewayIdentityRepository interface {
+	GetByOIDCIdentity(ctx context.Context, issuer, subject string) (*APIKey, error)
+	BindOIDCIdentity(ctx context.Context, id int64, issuer, subject string) error
 }
 
 // APIKeyRateLimitData holds rate limit usage and window state for an API key.
@@ -294,6 +300,56 @@ func (s *APIKeyService) EnsureOIDCGatewayKey(ctx context.Context, userID int64) 
 	if !ok || apiKey == nil {
 		return nil, fmt.Errorf("ensure oidc gateway key: invalid result")
 	}
+	return apiKey, nil
+}
+
+// BindOIDCGatewayIdentity binds a cryptographically verified (issuer, subject)
+// pair to an administrator-selected or internally managed billing key. The repository operation is
+// compare-and-set and unique, so neither concurrent logins nor reused email
+// addresses can move an external identity between users.
+func (s *APIKeyService) BindOIDCGatewayIdentity(ctx context.Context, apiKeyID int64, issuer, subject string) error {
+	if s == nil || s.apiKeyRepo == nil {
+		return fmt.Errorf("bind oidc gateway identity: service is not configured")
+	}
+	issuer = strings.TrimSpace(issuer)
+	subject = strings.TrimSpace(subject)
+	if apiKeyID <= 0 || issuer == "" || subject == "" {
+		return ErrOIDCGatewayIdentityConflict
+	}
+	identityRepo, ok := s.apiKeyRepo.(oidcGatewayIdentityRepository)
+	if !ok {
+		return fmt.Errorf("bind oidc gateway identity: repository does not support external identities")
+	}
+	if err := identityRepo.BindOIDCIdentity(ctx, apiKeyID, issuer, subject); err != nil {
+		return err
+	}
+	return nil
+}
+
+// GetOIDCGatewayKeyByIdentity resolves only an explicitly bound external
+// identity. It never falls back to email, username, headers, or a token-carried
+// local API-key ID.
+func (s *APIKeyService) GetOIDCGatewayKeyByIdentity(ctx context.Context, issuer, subject string) (*APIKey, error) {
+	if s == nil || s.apiKeyRepo == nil {
+		return nil, fmt.Errorf("resolve oidc gateway identity: service is not configured")
+	}
+	issuer = strings.TrimSpace(issuer)
+	subject = strings.TrimSpace(subject)
+	if issuer == "" || subject == "" {
+		return nil, ErrAPIKeyNotFound
+	}
+	identityRepo, ok := s.apiKeyRepo.(oidcGatewayIdentityRepository)
+	if !ok {
+		return nil, fmt.Errorf("resolve oidc gateway identity: repository does not support external identities")
+	}
+	apiKey, err := identityRepo.GetByOIDCIdentity(ctx, issuer, subject)
+	if err != nil {
+		return nil, err
+	}
+	if apiKey == nil || apiKey.OIDCIssuer != issuer || apiKey.OIDCSubject != subject {
+		return nil, ErrAPIKeyNotFound
+	}
+	s.compileAPIKeyIPRules(apiKey)
 	return apiKey, nil
 }
 

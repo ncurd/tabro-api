@@ -51,6 +51,76 @@ func (_c *UsageLogCreate) SetRequestID(v string) *UsageLogCreate {
 	return _c
 }
 
+// SetOidcIssuer sets the "oidc_issuer" field.
+func (_c *UsageLogCreate) SetOidcIssuer(v string) *UsageLogCreate {
+	_c.mutation.SetOidcIssuer(v)
+	return _c
+}
+
+// SetNillableOidcIssuer sets the "oidc_issuer" field if the given value is not nil.
+func (_c *UsageLogCreate) SetNillableOidcIssuer(v *string) *UsageLogCreate {
+	if v != nil {
+		_c.SetOidcIssuer(*v)
+	}
+	return _c
+}
+
+// SetOidcSubject sets the "oidc_subject" field.
+func (_c *UsageLogCreate) SetOidcSubject(v string) *UsageLogCreate {
+	_c.mutation.SetOidcSubject(v)
+	return _c
+}
+
+// SetNillableOidcSubject sets the "oidc_subject" field if the given value is not nil.
+func (_c *UsageLogCreate) SetNillableOidcSubject(v *string) *UsageLogCreate {
+	if v != nil {
+		_c.SetOidcSubject(*v)
+	}
+	return _c
+}
+
+// SetOidcTenant sets the "oidc_tenant" field.
+func (_c *UsageLogCreate) SetOidcTenant(v string) *UsageLogCreate {
+	_c.mutation.SetOidcTenant(v)
+	return _c
+}
+
+// SetNillableOidcTenant sets the "oidc_tenant" field if the given value is not nil.
+func (_c *UsageLogCreate) SetNillableOidcTenant(v *string) *UsageLogCreate {
+	if v != nil {
+		_c.SetOidcTenant(*v)
+	}
+	return _c
+}
+
+// SetTabroRunID sets the "tabro_run_id" field.
+func (_c *UsageLogCreate) SetTabroRunID(v string) *UsageLogCreate {
+	_c.mutation.SetTabroRunID(v)
+	return _c
+}
+
+// SetNillableTabroRunID sets the "tabro_run_id" field if the given value is not nil.
+func (_c *UsageLogCreate) SetNillableTabroRunID(v *string) *UsageLogCreate {
+	if v != nil {
+		_c.SetTabroRunID(*v)
+	}
+	return _c
+}
+
+// SetTabroProjectID sets the "tabro_project_id" field.
+func (_c *UsageLogCreate) SetTabroProjectID(v string) *UsageLogCreate {
+	_c.mutation.SetTabroProjectID(v)
+	return _c
+}
+
+// SetNillableTabroProjectID sets the "tabro_project_id" field if the given value is not nil.
+func (_c *UsageLogCreate) SetNillableTabroProjectID(v *string) *UsageLogCreate {
+	if v != nil {
+		_c.SetTabroProjectID(*v)
+	}
+	return _c
+}
+
 // SetModel sets the "model" field.
 func (_c *UsageLogCreate) SetModel(v string) *UsageLogCreate {
 	_c.mutation.SetModel(v)
@@ -800,6 +870,26 @@ func (_c *UsageLogCreate) createSpec() (*UsageLog, *sqlgraph.CreateSpec) {
 		_spec.SetField(usagelog.FieldRequestID, field.TypeString, value)
 		_node.RequestID = value
 	}
+	if value, ok := _c.mutation.OidcIssuer(); ok {
+		_spec.SetField(usagelog.FieldOidcIssuer, field.TypeString, value)
+		_node.OidcIssuer = &value
+	}
+	if value, ok := _c.mutation.OidcSubject(); ok {
+		_spec.SetField(usagelog.FieldOidcSubject, field.TypeString, value)
+		_node.OidcSubject = &value
+	}
+	if value, ok := _c.mutation.OidcTenant(); ok {
+		_spec.SetField(usagelog.FieldOidcTenant, field.TypeString, value)
+		_node.OidcTenant = &value
+	}
+	if value, ok := _c.mutation.TabroRunID(); ok {
+		_spec.SetField(usagelog.FieldTabroRunID, field.TypeString, value)
+		_node.TabroRunID = &value
+	}
+	if value, ok := _c.mutation.TabroProjectID(); ok {
+		_spec.SetField(usagelog.FieldTabroProjectID, field.TypeString, value)
+		_node.TabroProjectID = &value
+	}
 	if value, ok := _c.mutation.Model(); ok {
 		_spec.SetField(usagelog.FieldModel, field.TypeString, value)
 		_node.Model = value
@@ -1106,6 +1196,96 @@ func (u *UsageLogUpsert) SetRequestID(v string) *UsageLogUpsert {
 // UpdateRequestID sets the "request_id" field to the value that was provided on create.
 func (u *UsageLogUpsert) UpdateRequestID() *UsageLogUpsert {
 	u.SetExcluded(usagelog.FieldRequestID)
+	return u
+}
+
+// SetOidcIssuer sets the "oidc_issuer" field.
+func (u *UsageLogUpsert) SetOidcIssuer(v string) *UsageLogUpsert {
+	u.Set(usagelog.FieldOidcIssuer, v)
+	return u
+}
+
+// UpdateOidcIssuer sets the "oidc_issuer" field to the value that was provided on create.
+func (u *UsageLogUpsert) UpdateOidcIssuer() *UsageLogUpsert {
+	u.SetExcluded(usagelog.FieldOidcIssuer)
+	return u
+}
+
+// ClearOidcIssuer clears the value of the "oidc_issuer" field.
+func (u *UsageLogUpsert) ClearOidcIssuer() *UsageLogUpsert {
+	u.SetNull(usagelog.FieldOidcIssuer)
+	return u
+}
+
+// SetOidcSubject sets the "oidc_subject" field.
+func (u *UsageLogUpsert) SetOidcSubject(v string) *UsageLogUpsert {
+	u.Set(usagelog.FieldOidcSubject, v)
+	return u
+}
+
+// UpdateOidcSubject sets the "oidc_subject" field to the value that was provided on create.
+func (u *UsageLogUpsert) UpdateOidcSubject() *UsageLogUpsert {
+	u.SetExcluded(usagelog.FieldOidcSubject)
+	return u
+}
+
+// ClearOidcSubject clears the value of the "oidc_subject" field.
+func (u *UsageLogUpsert) ClearOidcSubject() *UsageLogUpsert {
+	u.SetNull(usagelog.FieldOidcSubject)
+	return u
+}
+
+// SetOidcTenant sets the "oidc_tenant" field.
+func (u *UsageLogUpsert) SetOidcTenant(v string) *UsageLogUpsert {
+	u.Set(usagelog.FieldOidcTenant, v)
+	return u
+}
+
+// UpdateOidcTenant sets the "oidc_tenant" field to the value that was provided on create.
+func (u *UsageLogUpsert) UpdateOidcTenant() *UsageLogUpsert {
+	u.SetExcluded(usagelog.FieldOidcTenant)
+	return u
+}
+
+// ClearOidcTenant clears the value of the "oidc_tenant" field.
+func (u *UsageLogUpsert) ClearOidcTenant() *UsageLogUpsert {
+	u.SetNull(usagelog.FieldOidcTenant)
+	return u
+}
+
+// SetTabroRunID sets the "tabro_run_id" field.
+func (u *UsageLogUpsert) SetTabroRunID(v string) *UsageLogUpsert {
+	u.Set(usagelog.FieldTabroRunID, v)
+	return u
+}
+
+// UpdateTabroRunID sets the "tabro_run_id" field to the value that was provided on create.
+func (u *UsageLogUpsert) UpdateTabroRunID() *UsageLogUpsert {
+	u.SetExcluded(usagelog.FieldTabroRunID)
+	return u
+}
+
+// ClearTabroRunID clears the value of the "tabro_run_id" field.
+func (u *UsageLogUpsert) ClearTabroRunID() *UsageLogUpsert {
+	u.SetNull(usagelog.FieldTabroRunID)
+	return u
+}
+
+// SetTabroProjectID sets the "tabro_project_id" field.
+func (u *UsageLogUpsert) SetTabroProjectID(v string) *UsageLogUpsert {
+	u.Set(usagelog.FieldTabroProjectID, v)
+	return u
+}
+
+// UpdateTabroProjectID sets the "tabro_project_id" field to the value that was provided on create.
+func (u *UsageLogUpsert) UpdateTabroProjectID() *UsageLogUpsert {
+	u.SetExcluded(usagelog.FieldTabroProjectID)
+	return u
+}
+
+// ClearTabroProjectID clears the value of the "tabro_project_id" field.
+func (u *UsageLogUpsert) ClearTabroProjectID() *UsageLogUpsert {
+	u.SetNull(usagelog.FieldTabroProjectID)
 	return u
 }
 
@@ -1789,6 +1969,111 @@ func (u *UsageLogUpsertOne) SetRequestID(v string) *UsageLogUpsertOne {
 func (u *UsageLogUpsertOne) UpdateRequestID() *UsageLogUpsertOne {
 	return u.Update(func(s *UsageLogUpsert) {
 		s.UpdateRequestID()
+	})
+}
+
+// SetOidcIssuer sets the "oidc_issuer" field.
+func (u *UsageLogUpsertOne) SetOidcIssuer(v string) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetOidcIssuer(v)
+	})
+}
+
+// UpdateOidcIssuer sets the "oidc_issuer" field to the value that was provided on create.
+func (u *UsageLogUpsertOne) UpdateOidcIssuer() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateOidcIssuer()
+	})
+}
+
+// ClearOidcIssuer clears the value of the "oidc_issuer" field.
+func (u *UsageLogUpsertOne) ClearOidcIssuer() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearOidcIssuer()
+	})
+}
+
+// SetOidcSubject sets the "oidc_subject" field.
+func (u *UsageLogUpsertOne) SetOidcSubject(v string) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetOidcSubject(v)
+	})
+}
+
+// UpdateOidcSubject sets the "oidc_subject" field to the value that was provided on create.
+func (u *UsageLogUpsertOne) UpdateOidcSubject() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateOidcSubject()
+	})
+}
+
+// ClearOidcSubject clears the value of the "oidc_subject" field.
+func (u *UsageLogUpsertOne) ClearOidcSubject() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearOidcSubject()
+	})
+}
+
+// SetOidcTenant sets the "oidc_tenant" field.
+func (u *UsageLogUpsertOne) SetOidcTenant(v string) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetOidcTenant(v)
+	})
+}
+
+// UpdateOidcTenant sets the "oidc_tenant" field to the value that was provided on create.
+func (u *UsageLogUpsertOne) UpdateOidcTenant() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateOidcTenant()
+	})
+}
+
+// ClearOidcTenant clears the value of the "oidc_tenant" field.
+func (u *UsageLogUpsertOne) ClearOidcTenant() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearOidcTenant()
+	})
+}
+
+// SetTabroRunID sets the "tabro_run_id" field.
+func (u *UsageLogUpsertOne) SetTabroRunID(v string) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetTabroRunID(v)
+	})
+}
+
+// UpdateTabroRunID sets the "tabro_run_id" field to the value that was provided on create.
+func (u *UsageLogUpsertOne) UpdateTabroRunID() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateTabroRunID()
+	})
+}
+
+// ClearTabroRunID clears the value of the "tabro_run_id" field.
+func (u *UsageLogUpsertOne) ClearTabroRunID() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearTabroRunID()
+	})
+}
+
+// SetTabroProjectID sets the "tabro_project_id" field.
+func (u *UsageLogUpsertOne) SetTabroProjectID(v string) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetTabroProjectID(v)
+	})
+}
+
+// UpdateTabroProjectID sets the "tabro_project_id" field to the value that was provided on create.
+func (u *UsageLogUpsertOne) UpdateTabroProjectID() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateTabroProjectID()
+	})
+}
+
+// ClearTabroProjectID clears the value of the "tabro_project_id" field.
+func (u *UsageLogUpsertOne) ClearTabroProjectID() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearTabroProjectID()
 	})
 }
 
@@ -2735,6 +3020,111 @@ func (u *UsageLogUpsertBulk) SetRequestID(v string) *UsageLogUpsertBulk {
 func (u *UsageLogUpsertBulk) UpdateRequestID() *UsageLogUpsertBulk {
 	return u.Update(func(s *UsageLogUpsert) {
 		s.UpdateRequestID()
+	})
+}
+
+// SetOidcIssuer sets the "oidc_issuer" field.
+func (u *UsageLogUpsertBulk) SetOidcIssuer(v string) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetOidcIssuer(v)
+	})
+}
+
+// UpdateOidcIssuer sets the "oidc_issuer" field to the value that was provided on create.
+func (u *UsageLogUpsertBulk) UpdateOidcIssuer() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateOidcIssuer()
+	})
+}
+
+// ClearOidcIssuer clears the value of the "oidc_issuer" field.
+func (u *UsageLogUpsertBulk) ClearOidcIssuer() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearOidcIssuer()
+	})
+}
+
+// SetOidcSubject sets the "oidc_subject" field.
+func (u *UsageLogUpsertBulk) SetOidcSubject(v string) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetOidcSubject(v)
+	})
+}
+
+// UpdateOidcSubject sets the "oidc_subject" field to the value that was provided on create.
+func (u *UsageLogUpsertBulk) UpdateOidcSubject() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateOidcSubject()
+	})
+}
+
+// ClearOidcSubject clears the value of the "oidc_subject" field.
+func (u *UsageLogUpsertBulk) ClearOidcSubject() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearOidcSubject()
+	})
+}
+
+// SetOidcTenant sets the "oidc_tenant" field.
+func (u *UsageLogUpsertBulk) SetOidcTenant(v string) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetOidcTenant(v)
+	})
+}
+
+// UpdateOidcTenant sets the "oidc_tenant" field to the value that was provided on create.
+func (u *UsageLogUpsertBulk) UpdateOidcTenant() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateOidcTenant()
+	})
+}
+
+// ClearOidcTenant clears the value of the "oidc_tenant" field.
+func (u *UsageLogUpsertBulk) ClearOidcTenant() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearOidcTenant()
+	})
+}
+
+// SetTabroRunID sets the "tabro_run_id" field.
+func (u *UsageLogUpsertBulk) SetTabroRunID(v string) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetTabroRunID(v)
+	})
+}
+
+// UpdateTabroRunID sets the "tabro_run_id" field to the value that was provided on create.
+func (u *UsageLogUpsertBulk) UpdateTabroRunID() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateTabroRunID()
+	})
+}
+
+// ClearTabroRunID clears the value of the "tabro_run_id" field.
+func (u *UsageLogUpsertBulk) ClearTabroRunID() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearTabroRunID()
+	})
+}
+
+// SetTabroProjectID sets the "tabro_project_id" field.
+func (u *UsageLogUpsertBulk) SetTabroProjectID(v string) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetTabroProjectID(v)
+	})
+}
+
+// UpdateTabroProjectID sets the "tabro_project_id" field to the value that was provided on create.
+func (u *UsageLogUpsertBulk) UpdateTabroProjectID() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateTabroProjectID()
+	})
+}
+
+// ClearTabroProjectID clears the value of the "tabro_project_id" field.
+func (u *UsageLogUpsertBulk) ClearTabroProjectID() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearTabroProjectID()
 	})
 }
 

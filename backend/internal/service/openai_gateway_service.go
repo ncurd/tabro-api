@@ -434,6 +434,55 @@ func (s *OpenAIGatewayService) ResolveChannelMappingAndRestrict(ctx context.Cont
 	return s.channelService.ResolveChannelMappingAndRestrict(ctx, groupID, model)
 }
 
+// ResolveAuthorizedWebSocketTurnModel validates that the account selected for
+// an ingress WebSocket session may serve requestedModel and resolves the exact
+// model that must be encoded in this turn's upstream response.create frame.
+// Every turn must call this method; authorization and mapping from the first
+// turn must not be reused for later response.create messages.
+func (s *OpenAIGatewayService) ResolveAuthorizedWebSocketTurnModel(
+	ctx context.Context,
+	groupID *int64,
+	account *Account,
+	requestedModel string,
+) (ChannelMappingResult, string, error) {
+	requestedModel = strings.TrimSpace(requestedModel)
+	if s == nil {
+		return ChannelMappingResult{MappedModel: requestedModel}, "", errors.New("openai gateway service is nil")
+	}
+	mapping, _ := s.ResolveChannelMappingAndRestrict(ctx, groupID, requestedModel)
+	if requestedModel == "" {
+		return mapping, "", errors.New("websocket turn model is required")
+	}
+	if account == nil || !account.IsOpenAI() || !account.IsSchedulable() {
+		return mapping, "", errors.New("selected websocket account is unavailable")
+	}
+	if !account.IsModelSupported(requestedModel) {
+		return mapping, "", fmt.Errorf("selected websocket account does not support model %q", requestedModel)
+	}
+	if s.checkChannelPricingRestriction(ctx, groupID, requestedModel) {
+		return mapping, "", fmt.Errorf("websocket model %q is restricted by channel pricing", requestedModel)
+	}
+
+	defaultMappedModel := ""
+	if mapping.Mapped {
+		defaultMappedModel = strings.TrimSpace(mapping.MappedModel)
+	}
+	upstreamModel := normalizeOpenAIModelForUpstream(
+		account,
+		resolveOpenAIForwardModel(account, requestedModel, defaultMappedModel),
+	)
+	upstreamModel = strings.TrimSpace(upstreamModel)
+	if upstreamModel == "" {
+		return mapping, "", fmt.Errorf("websocket model %q resolved to an empty upstream model", requestedModel)
+	}
+	if groupID != nil && s.needsUpstreamChannelRestrictionCheck(ctx, groupID) &&
+		s.channelService != nil && s.channelService.IsModelRestricted(ctx, *groupID, upstreamModel) {
+		return mapping, "", fmt.Errorf("websocket upstream model %q is restricted by channel pricing", upstreamModel)
+	}
+
+	return mapping, upstreamModel, nil
+}
+
 func (s *OpenAIGatewayService) checkChannelPricingRestriction(ctx context.Context, groupID *int64, requestedModel string) bool {
 	if groupID == nil || s.channelService == nil || requestedModel == "" {
 		return false
@@ -4999,6 +5048,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		ImageCount:          result.ImageCount,
 		ImageSize:           optionalTrimmedStringPtr(result.ImageSize),
 	}
+	usageLog.ApplyGatewayUsageContext(ctx)
 	if cost != nil {
 		usageLog.InputCost = cost.InputCost
 		usageLog.OutputCost = cost.OutputCost
@@ -5069,6 +5119,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 			APIKey:                apiKey,
 			Account:               account,
 			Subscription:          subscription,
+			UpstreamRequestID:     result.RequestID,
 			RequestPayloadHash:    resolveUsageBillingPayloadFingerprint(ctx, input.RequestPayloadHash),
 			IsSubscriptionBill:    isSubscriptionBilling,
 			AccountRateMultiplier: accountRateMultiplier,

@@ -484,6 +484,18 @@ func (s *stubAdminService) AdminUpdateAPIKeyGroupID(ctx context.Context, keyID i
 	return nil, service.ErrAPIKeyNotFound
 }
 
+func (s *stubAdminService) AdminBindAPIKeyOIDCIdentity(ctx context.Context, keyID int64, issuer, subject string) (*service.APIKey, error) {
+	for i := range s.apiKeys {
+		if s.apiKeys[i].ID == keyID {
+			key := s.apiKeys[i]
+			key.OIDCIssuer = issuer
+			key.OIDCSubject = subject
+			return &key, nil
+		}
+	}
+	return nil, service.ErrAPIKeyNotFound
+}
+
 func (s *stubAdminService) ResetAccountQuota(ctx context.Context, id int64) error {
 	return nil
 }

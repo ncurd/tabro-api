@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -50,6 +51,7 @@ type AdminService interface {
 
 	// API Key management (admin)
 	AdminUpdateAPIKeyGroupID(ctx context.Context, keyID int64, groupID *int64) (*AdminUpdateAPIKeyGroupIDResult, error)
+	AdminBindAPIKeyOIDCIdentity(ctx context.Context, keyID int64, issuer, subject string) (*APIKey, error)
 
 	// ReplaceUserGroup 替换用户的专属分组：授予新分组权限、迁移 Key、移除旧分组权限
 	ReplaceUserGroup(ctx context.Context, userID, oldGroupID, newGroupID int64) (*ReplaceUserGroupResult, error)
@@ -1397,6 +1399,35 @@ func (s *adminServiceImpl) AdminUpdateAPIKeyGroupID(ctx context.Context, keyID i
 
 	result.APIKey = apiKey
 	return result, nil
+}
+
+// AdminBindAPIKeyOIDCIdentity explicitly provisions a stable external subject
+// onto the selected billing/routing key. The binding is immutable and globally
+// unique among active keys; it cannot be inferred from email or request headers.
+func (s *adminServiceImpl) AdminBindAPIKeyOIDCIdentity(ctx context.Context, keyID int64, issuer, subject string) (*APIKey, error) {
+	issuer = strings.TrimSpace(issuer)
+	subject = strings.TrimSpace(subject)
+	if keyID <= 0 || issuer == "" || subject == "" || len(issuer) > 512 || len(subject) > 512 {
+		return nil, infraerrors.BadRequest("INVALID_OIDC_IDENTITY", "issuer and subject are required and must be at most 512 characters")
+	}
+	parsedIssuer, err := url.Parse(issuer)
+	if err != nil || parsedIssuer == nil || parsedIssuer.Hostname() == "" || (parsedIssuer.Scheme != "https" && parsedIssuer.Scheme != "http") || parsedIssuer.User != nil || parsedIssuer.RawQuery != "" || parsedIssuer.ForceQuery || parsedIssuer.Fragment != "" {
+		return nil, infraerrors.BadRequest("INVALID_OIDC_ISSUER", "issuer must be an absolute HTTP(S) URL without userinfo, query, or fragment")
+	}
+	apiKey, err := s.apiKeyRepo.GetByID(ctx, keyID)
+	if err != nil {
+		return nil, err
+	}
+	identityRepo, ok := s.apiKeyRepo.(oidcGatewayIdentityRepository)
+	if !ok {
+		return nil, infraerrors.InternalServer("OIDC_IDENTITY_REPOSITORY_UNAVAILABLE", "OIDC identity repository is not configured")
+	}
+	if err := identityRepo.BindOIDCIdentity(ctx, keyID, issuer, subject); err != nil {
+		return nil, err
+	}
+	apiKey.OIDCIssuer = issuer
+	apiKey.OIDCSubject = subject
+	return apiKey, nil
 }
 
 // ReplaceUserGroup 替换用户的专属分组

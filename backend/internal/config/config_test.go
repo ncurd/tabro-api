@@ -1657,8 +1657,8 @@ func TestLoad_DefaultGatewayUsageRecordConfig(t *testing.T) {
 	if cfg.Gateway.UsageRecord.QueueSize != 16384 {
 		t.Fatalf("queue_size = %d, want 16384", cfg.Gateway.UsageRecord.QueueSize)
 	}
-	if cfg.Gateway.UsageRecord.TaskTimeoutSeconds != 5 {
-		t.Fatalf("task_timeout_seconds = %d, want 5", cfg.Gateway.UsageRecord.TaskTimeoutSeconds)
+	if cfg.Gateway.UsageRecord.TaskTimeoutSeconds != 30 {
+		t.Fatalf("task_timeout_seconds = %d, want 30", cfg.Gateway.UsageRecord.TaskTimeoutSeconds)
 	}
 	if cfg.Gateway.UsageRecord.OverflowPolicy != UsageRecordOverflowPolicySample {
 		t.Fatalf("overflow_policy = %s, want %s", cfg.Gateway.UsageRecord.OverflowPolicy, UsageRecordOverflowPolicySample)

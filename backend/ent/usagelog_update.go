@@ -88,6 +88,106 @@ func (_u *UsageLogUpdate) SetNillableRequestID(v *string) *UsageLogUpdate {
 	return _u
 }
 
+// SetOidcIssuer sets the "oidc_issuer" field.
+func (_u *UsageLogUpdate) SetOidcIssuer(v string) *UsageLogUpdate {
+	_u.mutation.SetOidcIssuer(v)
+	return _u
+}
+
+// SetNillableOidcIssuer sets the "oidc_issuer" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableOidcIssuer(v *string) *UsageLogUpdate {
+	if v != nil {
+		_u.SetOidcIssuer(*v)
+	}
+	return _u
+}
+
+// ClearOidcIssuer clears the value of the "oidc_issuer" field.
+func (_u *UsageLogUpdate) ClearOidcIssuer() *UsageLogUpdate {
+	_u.mutation.ClearOidcIssuer()
+	return _u
+}
+
+// SetOidcSubject sets the "oidc_subject" field.
+func (_u *UsageLogUpdate) SetOidcSubject(v string) *UsageLogUpdate {
+	_u.mutation.SetOidcSubject(v)
+	return _u
+}
+
+// SetNillableOidcSubject sets the "oidc_subject" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableOidcSubject(v *string) *UsageLogUpdate {
+	if v != nil {
+		_u.SetOidcSubject(*v)
+	}
+	return _u
+}
+
+// ClearOidcSubject clears the value of the "oidc_subject" field.
+func (_u *UsageLogUpdate) ClearOidcSubject() *UsageLogUpdate {
+	_u.mutation.ClearOidcSubject()
+	return _u
+}
+
+// SetOidcTenant sets the "oidc_tenant" field.
+func (_u *UsageLogUpdate) SetOidcTenant(v string) *UsageLogUpdate {
+	_u.mutation.SetOidcTenant(v)
+	return _u
+}
+
+// SetNillableOidcTenant sets the "oidc_tenant" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableOidcTenant(v *string) *UsageLogUpdate {
+	if v != nil {
+		_u.SetOidcTenant(*v)
+	}
+	return _u
+}
+
+// ClearOidcTenant clears the value of the "oidc_tenant" field.
+func (_u *UsageLogUpdate) ClearOidcTenant() *UsageLogUpdate {
+	_u.mutation.ClearOidcTenant()
+	return _u
+}
+
+// SetTabroRunID sets the "tabro_run_id" field.
+func (_u *UsageLogUpdate) SetTabroRunID(v string) *UsageLogUpdate {
+	_u.mutation.SetTabroRunID(v)
+	return _u
+}
+
+// SetNillableTabroRunID sets the "tabro_run_id" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableTabroRunID(v *string) *UsageLogUpdate {
+	if v != nil {
+		_u.SetTabroRunID(*v)
+	}
+	return _u
+}
+
+// ClearTabroRunID clears the value of the "tabro_run_id" field.
+func (_u *UsageLogUpdate) ClearTabroRunID() *UsageLogUpdate {
+	_u.mutation.ClearTabroRunID()
+	return _u
+}
+
+// SetTabroProjectID sets the "tabro_project_id" field.
+func (_u *UsageLogUpdate) SetTabroProjectID(v string) *UsageLogUpdate {
+	_u.mutation.SetTabroProjectID(v)
+	return _u
+}
+
+// SetNillableTabroProjectID sets the "tabro_project_id" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableTabroProjectID(v *string) *UsageLogUpdate {
+	if v != nil {
+		_u.SetTabroProjectID(*v)
+	}
+	return _u
+}
+
+// ClearTabroProjectID clears the value of the "tabro_project_id" field.
+func (_u *UsageLogUpdate) ClearTabroProjectID() *UsageLogUpdate {
+	_u.mutation.ClearTabroProjectID()
+	return _u
+}
+
 // SetModel sets the "model" field.
 func (_u *UsageLogUpdate) SetModel(v string) *UsageLogUpdate {
 	_u.mutation.SetModel(v)
@@ -919,6 +1019,36 @@ func (_u *UsageLogUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if value, ok := _u.mutation.RequestID(); ok {
 		_spec.SetField(usagelog.FieldRequestID, field.TypeString, value)
 	}
+	if value, ok := _u.mutation.OidcIssuer(); ok {
+		_spec.SetField(usagelog.FieldOidcIssuer, field.TypeString, value)
+	}
+	if _u.mutation.OidcIssuerCleared() {
+		_spec.ClearField(usagelog.FieldOidcIssuer, field.TypeString)
+	}
+	if value, ok := _u.mutation.OidcSubject(); ok {
+		_spec.SetField(usagelog.FieldOidcSubject, field.TypeString, value)
+	}
+	if _u.mutation.OidcSubjectCleared() {
+		_spec.ClearField(usagelog.FieldOidcSubject, field.TypeString)
+	}
+	if value, ok := _u.mutation.OidcTenant(); ok {
+		_spec.SetField(usagelog.FieldOidcTenant, field.TypeString, value)
+	}
+	if _u.mutation.OidcTenantCleared() {
+		_spec.ClearField(usagelog.FieldOidcTenant, field.TypeString)
+	}
+	if value, ok := _u.mutation.TabroRunID(); ok {
+		_spec.SetField(usagelog.FieldTabroRunID, field.TypeString, value)
+	}
+	if _u.mutation.TabroRunIDCleared() {
+		_spec.ClearField(usagelog.FieldTabroRunID, field.TypeString)
+	}
+	if value, ok := _u.mutation.TabroProjectID(); ok {
+		_spec.SetField(usagelog.FieldTabroProjectID, field.TypeString, value)
+	}
+	if _u.mutation.TabroProjectIDCleared() {
+		_spec.ClearField(usagelog.FieldTabroProjectID, field.TypeString)
+	}
 	if value, ok := _u.mutation.Model(); ok {
 		_spec.SetField(usagelog.FieldModel, field.TypeString, value)
 	}
@@ -1320,6 +1450,106 @@ func (_u *UsageLogUpdateOne) SetNillableRequestID(v *string) *UsageLogUpdateOne 
 	if v != nil {
 		_u.SetRequestID(*v)
 	}
+	return _u
+}
+
+// SetOidcIssuer sets the "oidc_issuer" field.
+func (_u *UsageLogUpdateOne) SetOidcIssuer(v string) *UsageLogUpdateOne {
+	_u.mutation.SetOidcIssuer(v)
+	return _u
+}
+
+// SetNillableOidcIssuer sets the "oidc_issuer" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableOidcIssuer(v *string) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetOidcIssuer(*v)
+	}
+	return _u
+}
+
+// ClearOidcIssuer clears the value of the "oidc_issuer" field.
+func (_u *UsageLogUpdateOne) ClearOidcIssuer() *UsageLogUpdateOne {
+	_u.mutation.ClearOidcIssuer()
+	return _u
+}
+
+// SetOidcSubject sets the "oidc_subject" field.
+func (_u *UsageLogUpdateOne) SetOidcSubject(v string) *UsageLogUpdateOne {
+	_u.mutation.SetOidcSubject(v)
+	return _u
+}
+
+// SetNillableOidcSubject sets the "oidc_subject" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableOidcSubject(v *string) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetOidcSubject(*v)
+	}
+	return _u
+}
+
+// ClearOidcSubject clears the value of the "oidc_subject" field.
+func (_u *UsageLogUpdateOne) ClearOidcSubject() *UsageLogUpdateOne {
+	_u.mutation.ClearOidcSubject()
+	return _u
+}
+
+// SetOidcTenant sets the "oidc_tenant" field.
+func (_u *UsageLogUpdateOne) SetOidcTenant(v string) *UsageLogUpdateOne {
+	_u.mutation.SetOidcTenant(v)
+	return _u
+}
+
+// SetNillableOidcTenant sets the "oidc_tenant" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableOidcTenant(v *string) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetOidcTenant(*v)
+	}
+	return _u
+}
+
+// ClearOidcTenant clears the value of the "oidc_tenant" field.
+func (_u *UsageLogUpdateOne) ClearOidcTenant() *UsageLogUpdateOne {
+	_u.mutation.ClearOidcTenant()
+	return _u
+}
+
+// SetTabroRunID sets the "tabro_run_id" field.
+func (_u *UsageLogUpdateOne) SetTabroRunID(v string) *UsageLogUpdateOne {
+	_u.mutation.SetTabroRunID(v)
+	return _u
+}
+
+// SetNillableTabroRunID sets the "tabro_run_id" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableTabroRunID(v *string) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetTabroRunID(*v)
+	}
+	return _u
+}
+
+// ClearTabroRunID clears the value of the "tabro_run_id" field.
+func (_u *UsageLogUpdateOne) ClearTabroRunID() *UsageLogUpdateOne {
+	_u.mutation.ClearTabroRunID()
+	return _u
+}
+
+// SetTabroProjectID sets the "tabro_project_id" field.
+func (_u *UsageLogUpdateOne) SetTabroProjectID(v string) *UsageLogUpdateOne {
+	_u.mutation.SetTabroProjectID(v)
+	return _u
+}
+
+// SetNillableTabroProjectID sets the "tabro_project_id" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableTabroProjectID(v *string) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetTabroProjectID(*v)
+	}
+	return _u
+}
+
+// ClearTabroProjectID clears the value of the "tabro_project_id" field.
+func (_u *UsageLogUpdateOne) ClearTabroProjectID() *UsageLogUpdateOne {
+	_u.mutation.ClearTabroProjectID()
 	return _u
 }
 
@@ -2183,6 +2413,36 @@ func (_u *UsageLogUpdateOne) sqlSave(ctx context.Context) (_node *UsageLog, err 
 	}
 	if value, ok := _u.mutation.RequestID(); ok {
 		_spec.SetField(usagelog.FieldRequestID, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.OidcIssuer(); ok {
+		_spec.SetField(usagelog.FieldOidcIssuer, field.TypeString, value)
+	}
+	if _u.mutation.OidcIssuerCleared() {
+		_spec.ClearField(usagelog.FieldOidcIssuer, field.TypeString)
+	}
+	if value, ok := _u.mutation.OidcSubject(); ok {
+		_spec.SetField(usagelog.FieldOidcSubject, field.TypeString, value)
+	}
+	if _u.mutation.OidcSubjectCleared() {
+		_spec.ClearField(usagelog.FieldOidcSubject, field.TypeString)
+	}
+	if value, ok := _u.mutation.OidcTenant(); ok {
+		_spec.SetField(usagelog.FieldOidcTenant, field.TypeString, value)
+	}
+	if _u.mutation.OidcTenantCleared() {
+		_spec.ClearField(usagelog.FieldOidcTenant, field.TypeString)
+	}
+	if value, ok := _u.mutation.TabroRunID(); ok {
+		_spec.SetField(usagelog.FieldTabroRunID, field.TypeString, value)
+	}
+	if _u.mutation.TabroRunIDCleared() {
+		_spec.ClearField(usagelog.FieldTabroRunID, field.TypeString)
+	}
+	if value, ok := _u.mutation.TabroProjectID(); ok {
+		_spec.SetField(usagelog.FieldTabroProjectID, field.TypeString, value)
+	}
+	if _u.mutation.TabroProjectIDCleared() {
+		_spec.ClearField(usagelog.FieldTabroProjectID, field.TypeString)
 	}
 	if value, ok := _u.mutation.Model(); ok {
 		_spec.SetField(usagelog.FieldModel, field.TypeString, value)

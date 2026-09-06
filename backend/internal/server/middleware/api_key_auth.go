@@ -18,10 +18,13 @@ func NewAPIKeyAuthMiddleware(apiKeyService *service.APIKeyService, subscriptionS
 	return APIKeyAuthMiddleware(apiKeyAuthWithSubscription(apiKeyService, subscriptionService, nil, cfg))
 }
 
-// NewGatewayAuthMiddleware authenticates both existing API keys and local
-// access tokens issued by a successful OIDC login.
-func NewGatewayAuthMiddleware(apiKeyService *service.APIKeyService, subscriptionService *service.SubscriptionService, authService *service.AuthService, cfg *config.Config) APIKeyAuthMiddleware {
-	return APIKeyAuthMiddleware(apiKeyAuthWithSubscription(apiKeyService, subscriptionService, authService, cfg))
+// NewGatewayAuthMiddleware authenticates existing API keys and external OAuth
+// access tokens issued specifically for this gateway resource server. The
+// AuthService parameter remains for constructor compatibility; local Tabro
+// access tokens are intentionally not accepted here.
+func NewGatewayAuthMiddleware(apiKeyService *service.APIKeyService, subscriptionService *service.SubscriptionService, _ *service.AuthService, cfg *config.Config) APIKeyAuthMiddleware {
+	resourceServer := service.NewGatewayResourceServer(cfg, apiKeyService)
+	return APIKeyAuthMiddleware(apiKeyAuthWithSubscription(apiKeyService, subscriptionService, resourceServer, cfg))
 }
 
 // apiKeyAuthWithSubscription API Key认证中间件（支持订阅验证）
@@ -31,7 +34,7 @@ func NewGatewayAuthMiddleware(apiKeyService *service.APIKeyService, subscription
 //   - 计费执行（Billing Enforcement）：过期/配额/订阅/余额检查 —— skipBilling 时整块跳过
 //
 // /v1/usage 端点只需鉴权，不需要计费执行（允许过期/配额耗尽的 Key 查询自身用量）。
-func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscriptionService *service.SubscriptionService, authService *service.AuthService, cfg *config.Config) gin.HandlerFunc {
+func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscriptionService *service.SubscriptionService, resourceServer *service.GatewayResourceServer, cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// ── 1. 提取 API Key ──────────────────────────────────────────
 
@@ -42,27 +45,13 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 			return
 		}
 
-		// 尝试从Authorization header中提取API key (Bearer scheme)
-		authHeader := c.GetHeader("Authorization")
-		var apiKeyString string
-
-		if authHeader != "" {
-			// 验证Bearer scheme
-			parts := strings.SplitN(authHeader, " ", 2)
-			if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
-				apiKeyString = strings.TrimSpace(parts[1])
-			}
+		credential, extractErr := extractGatewayCredentialInput(c, false)
+		if extractErr != nil {
+			c.Header("WWW-Authenticate", `Bearer error="invalid_token"`)
+			AbortWithError(c, 401, "INVALID_AUTH_HEADER", "Invalid or conflicting authentication credentials")
+			return
 		}
-
-		// 如果Authorization header中没有，尝试从x-api-key header中提取
-		if apiKeyString == "" {
-			apiKeyString = c.GetHeader("x-api-key")
-		}
-
-		// 如果x-api-key header中没有，尝试从x-goog-api-key header中提取（Gemini CLI兼容）
-		if apiKeyString == "" {
-			apiKeyString = c.GetHeader("x-goog-api-key")
-		}
+		apiKeyString := credential.value
 
 		// 如果所有header都没有API key
 		if apiKeyString == "" {
@@ -72,10 +61,30 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 
 		// ── 2. 验证 Key 存在 ─────────────────────────────────────────
 
-		apiKey, err := resolveGatewayAPIKey(c.Request.Context(), apiKeyString, true, apiKeyService, authService)
+		apiKey, oidcPrincipal, err := resolveGatewayCredential(c.Request.Context(), apiKeyString, credential.fromAuthorization, apiKeyService, resourceServer)
 		if err != nil {
+			if errors.Is(err, service.ErrGatewayOIDCScopeDenied) {
+				requiredScopes := gatewayRequiredScopeChallenge(cfg)
+				c.Header("WWW-Authenticate", `Bearer error="insufficient_scope", scope="`+requiredScopes+`"`)
+				AbortWithError(c, 403, "INSUFFICIENT_SCOPE", "Token does not grant the required gateway scope")
+				return
+			}
+			if errors.Is(err, service.ErrGatewayOIDCIdentityNotBound) {
+				AbortWithError(c, 403, "OIDC_IDENTITY_NOT_BOUND", "OIDC identity is not linked to a gateway billing account")
+				return
+			}
+			if errors.Is(err, service.ErrGatewayOIDCUnavailable) {
+				AbortWithError(c, 503, "OIDC_PROVIDER_UNAVAILABLE", "OIDC token validation is temporarily unavailable")
+				return
+			}
 			if errors.Is(err, service.ErrAPIKeyNotFound) || errors.Is(err, errInvalidGatewayCredential) || errors.Is(err, service.ErrTokenRevoked) {
+				c.Header("WWW-Authenticate", `Bearer error="invalid_token"`)
 				AbortWithError(c, 401, "INVALID_API_KEY", "Invalid API key")
+				return
+			}
+			if errors.Is(err, service.ErrGatewayOIDCTokenInvalid) {
+				c.Header("WWW-Authenticate", `Bearer error="invalid_token"`)
+				AbortWithError(c, 401, "INVALID_TOKEN", "Invalid OAuth access token")
 				return
 			}
 			AbortWithError(c, 500, "INTERNAL_ERROR", "Failed to validate API key")
@@ -112,6 +121,10 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 		// 检查用户状态
 		if !apiKey.User.IsActive() {
 			AbortWithError(c, 401, "USER_INACTIVE", "User account is not active")
+			return
+		}
+		if err := attachGatewayRequestIdentity(c, apiKey, oidcPrincipal); err != nil {
+			AbortWithError(c, 400, "IDEMPOTENCY_KEY_INVALID", "Idempotency-Key must be at most 128 visible ASCII characters without spaces")
 			return
 		}
 

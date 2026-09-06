@@ -100,6 +100,16 @@ func OidcManaged(v bool) predicate.APIKey {
 	return predicate.APIKey(sql.FieldEQ(FieldOidcManaged, v))
 }
 
+// OidcIssuer applies equality check predicate on the "oidc_issuer" field. It's identical to OidcIssuerEQ.
+func OidcIssuer(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldOidcIssuer, v))
+}
+
+// OidcSubject applies equality check predicate on the "oidc_subject" field. It's identical to OidcSubjectEQ.
+func OidcSubject(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldOidcSubject, v))
+}
+
 // LastUsedAt applies equality check predicate on the "last_used_at" field. It's identical to LastUsedAtEQ.
 func LastUsedAt(v time.Time) predicate.APIKey {
 	return predicate.APIKey(sql.FieldEQ(FieldLastUsedAt, v))
@@ -548,6 +558,156 @@ func OidcManagedEQ(v bool) predicate.APIKey {
 // OidcManagedNEQ applies the NEQ predicate on the "oidc_managed" field.
 func OidcManagedNEQ(v bool) predicate.APIKey {
 	return predicate.APIKey(sql.FieldNEQ(FieldOidcManaged, v))
+}
+
+// OidcIssuerEQ applies the EQ predicate on the "oidc_issuer" field.
+func OidcIssuerEQ(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldOidcIssuer, v))
+}
+
+// OidcIssuerNEQ applies the NEQ predicate on the "oidc_issuer" field.
+func OidcIssuerNEQ(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNEQ(FieldOidcIssuer, v))
+}
+
+// OidcIssuerIn applies the In predicate on the "oidc_issuer" field.
+func OidcIssuerIn(vs ...string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldIn(FieldOidcIssuer, vs...))
+}
+
+// OidcIssuerNotIn applies the NotIn predicate on the "oidc_issuer" field.
+func OidcIssuerNotIn(vs ...string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNotIn(FieldOidcIssuer, vs...))
+}
+
+// OidcIssuerGT applies the GT predicate on the "oidc_issuer" field.
+func OidcIssuerGT(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldGT(FieldOidcIssuer, v))
+}
+
+// OidcIssuerGTE applies the GTE predicate on the "oidc_issuer" field.
+func OidcIssuerGTE(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldGTE(FieldOidcIssuer, v))
+}
+
+// OidcIssuerLT applies the LT predicate on the "oidc_issuer" field.
+func OidcIssuerLT(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldLT(FieldOidcIssuer, v))
+}
+
+// OidcIssuerLTE applies the LTE predicate on the "oidc_issuer" field.
+func OidcIssuerLTE(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldLTE(FieldOidcIssuer, v))
+}
+
+// OidcIssuerContains applies the Contains predicate on the "oidc_issuer" field.
+func OidcIssuerContains(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldContains(FieldOidcIssuer, v))
+}
+
+// OidcIssuerHasPrefix applies the HasPrefix predicate on the "oidc_issuer" field.
+func OidcIssuerHasPrefix(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldHasPrefix(FieldOidcIssuer, v))
+}
+
+// OidcIssuerHasSuffix applies the HasSuffix predicate on the "oidc_issuer" field.
+func OidcIssuerHasSuffix(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldHasSuffix(FieldOidcIssuer, v))
+}
+
+// OidcIssuerIsNil applies the IsNil predicate on the "oidc_issuer" field.
+func OidcIssuerIsNil() predicate.APIKey {
+	return predicate.APIKey(sql.FieldIsNull(FieldOidcIssuer))
+}
+
+// OidcIssuerNotNil applies the NotNil predicate on the "oidc_issuer" field.
+func OidcIssuerNotNil() predicate.APIKey {
+	return predicate.APIKey(sql.FieldNotNull(FieldOidcIssuer))
+}
+
+// OidcIssuerEqualFold applies the EqualFold predicate on the "oidc_issuer" field.
+func OidcIssuerEqualFold(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEqualFold(FieldOidcIssuer, v))
+}
+
+// OidcIssuerContainsFold applies the ContainsFold predicate on the "oidc_issuer" field.
+func OidcIssuerContainsFold(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldContainsFold(FieldOidcIssuer, v))
+}
+
+// OidcSubjectEQ applies the EQ predicate on the "oidc_subject" field.
+func OidcSubjectEQ(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldOidcSubject, v))
+}
+
+// OidcSubjectNEQ applies the NEQ predicate on the "oidc_subject" field.
+func OidcSubjectNEQ(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNEQ(FieldOidcSubject, v))
+}
+
+// OidcSubjectIn applies the In predicate on the "oidc_subject" field.
+func OidcSubjectIn(vs ...string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldIn(FieldOidcSubject, vs...))
+}
+
+// OidcSubjectNotIn applies the NotIn predicate on the "oidc_subject" field.
+func OidcSubjectNotIn(vs ...string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNotIn(FieldOidcSubject, vs...))
+}
+
+// OidcSubjectGT applies the GT predicate on the "oidc_subject" field.
+func OidcSubjectGT(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldGT(FieldOidcSubject, v))
+}
+
+// OidcSubjectGTE applies the GTE predicate on the "oidc_subject" field.
+func OidcSubjectGTE(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldGTE(FieldOidcSubject, v))
+}
+
+// OidcSubjectLT applies the LT predicate on the "oidc_subject" field.
+func OidcSubjectLT(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldLT(FieldOidcSubject, v))
+}
+
+// OidcSubjectLTE applies the LTE predicate on the "oidc_subject" field.
+func OidcSubjectLTE(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldLTE(FieldOidcSubject, v))
+}
+
+// OidcSubjectContains applies the Contains predicate on the "oidc_subject" field.
+func OidcSubjectContains(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldContains(FieldOidcSubject, v))
+}
+
+// OidcSubjectHasPrefix applies the HasPrefix predicate on the "oidc_subject" field.
+func OidcSubjectHasPrefix(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldHasPrefix(FieldOidcSubject, v))
+}
+
+// OidcSubjectHasSuffix applies the HasSuffix predicate on the "oidc_subject" field.
+func OidcSubjectHasSuffix(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldHasSuffix(FieldOidcSubject, v))
+}
+
+// OidcSubjectIsNil applies the IsNil predicate on the "oidc_subject" field.
+func OidcSubjectIsNil() predicate.APIKey {
+	return predicate.APIKey(sql.FieldIsNull(FieldOidcSubject))
+}
+
+// OidcSubjectNotNil applies the NotNil predicate on the "oidc_subject" field.
+func OidcSubjectNotNil() predicate.APIKey {
+	return predicate.APIKey(sql.FieldNotNull(FieldOidcSubject))
+}
+
+// OidcSubjectEqualFold applies the EqualFold predicate on the "oidc_subject" field.
+func OidcSubjectEqualFold(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEqualFold(FieldOidcSubject, v))
+}
+
+// OidcSubjectContainsFold applies the ContainsFold predicate on the "oidc_subject" field.
+func OidcSubjectContainsFold(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldContainsFold(FieldOidcSubject, v))
 }
 
 // LastUsedAtEQ applies the EQ predicate on the "last_used_at" field.

@@ -1,6 +1,8 @@
 // Package ctxkey 定义用于 context.Value 的类型安全 key
 package ctxkey
 
+import "context"
+
 // Key 定义 context key 的类型，避免使用内置 string 类型（staticcheck SA1029）
 type Key string
 
@@ -13,6 +15,29 @@ const (
 
 	// ClientRequestID 客户端请求的唯一标识，用于追踪请求全生命周期（用于 Ops 监控与排障）。
 	ClientRequestID Key = "ctx_client_request_id"
+
+	// GatewayBillingRequestID is the stable, authenticated request identifier used for billing idempotency.
+	GatewayBillingRequestID Key = "ctx_gateway_billing_request_id"
+
+	// OIDCIssuer is the exact issuer of the verified OAuth access token.
+	OIDCIssuer Key = "ctx_oidc_issuer"
+
+	// OIDCSubject is the stable subject of the verified OAuth access token.
+	OIDCSubject Key = "ctx_oidc_subject"
+
+	// OIDCTenant is the tenant derived from the verified OAuth access token.
+	OIDCTenant Key = "ctx_oidc_tenant"
+
+	// OIDCExpiresAt is the expiration time of the verified OAuth access token.
+	// It is retained only on the live request context so long-lived WebSocket
+	// sessions cannot outlive their gateway credential.
+	OIDCExpiresAt Key = "ctx_oidc_expires_at"
+
+	// TabroRunID is correlation metadata supplied by the Tabro client.
+	TabroRunID Key = "ctx_tabro_run_id"
+
+	// TabroProjectID is correlation metadata supplied by the Tabro client.
+	TabroProjectID Key = "ctx_tabro_project_id"
 
 	// Model 请求模型标识（用于统一请求链路日志字段）。
 	Model Key = "ctx_model"
@@ -56,3 +81,55 @@ const (
 	// ClaudeCodeVersion stores the extracted Claude Code version from User-Agent (e.g. "2.1.22")
 	ClaudeCodeVersion Key = "ctx_claude_code_version"
 )
+
+// GatewayUsageContextSnapshot contains only the non-secret request values needed
+// by the asynchronous usage-recording path. In particular, it never retains the
+// Authorization header or the complete HTTP request context.
+type GatewayUsageContextSnapshot struct {
+	values map[Key]string
+}
+
+var gatewayUsageContextKeys = [...]Key{
+	GatewayBillingRequestID,
+	OIDCIssuer,
+	OIDCSubject,
+	OIDCTenant,
+	TabroRunID,
+	TabroProjectID,
+	ClientRequestID,
+	RequestID,
+}
+
+// CaptureGatewayUsageContext copies the small, explicit set of values required
+// after the request has been handed to the asynchronous usage worker.
+func CaptureGatewayUsageContext(ctx context.Context) GatewayUsageContextSnapshot {
+	snapshot := GatewayUsageContextSnapshot{}
+	if ctx == nil {
+		return snapshot
+	}
+	for _, key := range gatewayUsageContextKeys {
+		value, _ := ctx.Value(key).(string)
+		if value == "" {
+			continue
+		}
+		if snapshot.values == nil {
+			snapshot.values = make(map[Key]string, len(gatewayUsageContextKeys))
+		}
+		snapshot.values[key] = value
+	}
+	return snapshot
+}
+
+// Apply attaches a captured snapshot to a worker-owned context while preserving
+// the worker's cancellation and deadline.
+func (s GatewayUsageContextSnapshot) Apply(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	for _, key := range gatewayUsageContextKeys {
+		if value := s.values[key]; value != "" {
+			ctx = context.WithValue(ctx, key, value)
+		}
+	}
+	return ctx
+}

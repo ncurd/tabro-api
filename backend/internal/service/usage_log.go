@@ -1,9 +1,12 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 )
 
 const (
@@ -97,7 +100,15 @@ type UsageLog struct {
 	APIKeyID  int64
 	AccountID int64
 	RequestID string
-	Model     string
+	// OIDCIssuer and OIDCSubject identify the verified external OAuth identity
+	// that authorized this gateway call. They are never derived from headers.
+	OIDCIssuer  *string
+	OIDCSubject *string
+	OIDCTenant  *string
+	// TabroRunID and TabroProjectID are untrusted correlation metadata only.
+	TabroRunID     *string
+	TabroProjectID *string
+	Model          string
 	// RequestedModel is the client-requested model name recorded for stable user/admin display.
 	// Empty should be treated as Model for backward compatibility with historical rows.
 	RequestedModel string
@@ -177,6 +188,27 @@ type UsageLog struct {
 
 func (u *UsageLog) TotalTokens() int {
 	return u.InputTokens + u.OutputTokens + u.CacheCreationTokens + u.CacheReadTokens
+}
+
+// ApplyGatewayUsageContext copies verified identity and correlation metadata
+// from the request context into a persisted usage record.
+func (u *UsageLog) ApplyGatewayUsageContext(ctx context.Context) {
+	if u == nil || ctx == nil {
+		return
+	}
+	u.OIDCIssuer = usageContextStringPtr(ctx, ctxkey.OIDCIssuer)
+	u.OIDCSubject = usageContextStringPtr(ctx, ctxkey.OIDCSubject)
+	u.OIDCTenant = usageContextStringPtr(ctx, ctxkey.OIDCTenant)
+	u.TabroRunID = usageContextStringPtr(ctx, ctxkey.TabroRunID)
+	u.TabroProjectID = usageContextStringPtr(ctx, ctxkey.TabroProjectID)
+}
+
+func usageContextStringPtr(ctx context.Context, key ctxkey.Key) *string {
+	value, _ := ctx.Value(key).(string)
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	return &value
 }
 
 func (u *UsageLog) EffectiveRequestType() RequestType {

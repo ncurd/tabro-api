@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/alitto/pond/v2"
 	"go.uber.org/zap"
@@ -17,7 +18,7 @@ import (
 const (
 	defaultUsageRecordWorkerCount          = 128
 	defaultUsageRecordQueueSize            = 16384
-	defaultUsageRecordTaskTimeoutSeconds   = 5
+	defaultUsageRecordTaskTimeoutSeconds   = 30
 	defaultUsageRecordOverflowPolicy       = config.UsageRecordOverflowPolicySample
 	defaultUsageRecordOverflowSampleRatio  = 10
 	defaultUsageRecordAutoScaleEnabled     = true
@@ -35,6 +36,20 @@ const (
 // UsageRecordTask 是提交到使用量记录池的任务。
 // 任务实现应自行处理业务错误日志；池本身只负责调度与超时控制。
 type UsageRecordTask func(ctx context.Context)
+
+// BindUsageRecordTaskContext snapshots only the identity, correlation and
+// billing-idempotency values needed by a usage task. The worker still owns the
+// returned context's deadline and cancellation; the request context itself is
+// not retained after the handler returns.
+func BindUsageRecordTaskContext(requestCtx context.Context, task UsageRecordTask) UsageRecordTask {
+	if task == nil {
+		return nil
+	}
+	snapshot := ctxkey.CaptureGatewayUsageContext(requestCtx)
+	return func(workerCtx context.Context) {
+		task(snapshot.Apply(workerCtx))
+	}
+}
 
 // UsageRecordSubmitMode 表示任务提交结果。
 type UsageRecordSubmitMode string
@@ -181,6 +196,39 @@ func (p *UsageRecordWorkerPool) Submit(task UsageRecordTask) UsageRecordSubmitMo
 	p.droppedQueueFull.Add(1)
 	p.logDrop("full")
 	return UsageRecordSubmitModeDropped
+}
+
+// SubmitCritical submits a billing-critical usage task. If the pool cannot
+// accept the task because it is full or stopped, the task runs synchronously so
+// provider usage and customer billing are never silently dropped.
+func (p *UsageRecordWorkerPool) SubmitCritical(task UsageRecordTask) UsageRecordSubmitMode {
+	if p == nil || task == nil {
+		return UsageRecordSubmitModeDropped
+	}
+	if p.pool != nil && !p.pool.Stopped() {
+		if _, ok := p.pool.TrySubmit(func() {
+			p.execute(task)
+		}); ok {
+			return UsageRecordSubmitModeEnqueued
+		}
+	}
+
+	p.syncFallback.Add(1)
+	p.execute(task)
+	return UsageRecordSubmitModeSync
+}
+
+// ExecuteCritical runs a billing task synchronously with the pool's timeout
+// and panic isolation. Gateway handlers use this after an upstream result is
+// known so a process-local queue cannot acknowledge a request before its
+// billing transaction has been attempted.
+func (p *UsageRecordWorkerPool) ExecuteCritical(task UsageRecordTask) UsageRecordSubmitMode {
+	if p == nil || task == nil {
+		return UsageRecordSubmitModeDropped
+	}
+	p.syncFallback.Add(1)
+	p.execute(task)
+	return UsageRecordSubmitModeSync
 }
 
 // Stats 返回当前池状态与计数器。

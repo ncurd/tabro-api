@@ -232,7 +232,7 @@ func signGoogleOIDCGatewayToken(t *testing.T, secret string, userID, billingAPIK
 	return signed
 }
 
-func TestGatewayAuthWithSubscriptionGoogle_AcceptsOIDCLocalTokenAsPersistentBillingKey(t *testing.T) {
+func TestGatewayAuthWithSubscriptionGoogle_RejectsLocalTabroOIDCToken(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cfg := &config.Config{RunMode: config.RunModeSimple}
 	cfg.JWT.Secret = "google-gateway-oidc-test-secret"
@@ -263,9 +263,10 @@ func TestGatewayAuthWithSubscriptionGoogle_AcceptsOIDCLocalTokenAsPersistentBill
 		},
 	}
 
-	var getByIDCalls int
+	var getByIDCalls, getByKeyCalls int
 	repo := fakeAPIKeyRepo{
 		getByKey: func(_ context.Context, _ string) (*service.APIKey, error) {
+			getByKeyCalls++
 			return nil, service.ErrAPIKeyNotFound
 		},
 		getByID: func(_ context.Context, id int64) (*service.APIKey, error) {
@@ -281,31 +282,25 @@ func TestGatewayAuthWithSubscriptionGoogle_AcceptsOIDCLocalTokenAsPersistentBill
 	authService := service.NewAuthService(nil, nil, nil, nil, cfg, nil, nil, nil, nil, nil, nil)
 	token := signGoogleOIDCGatewayToken(t, cfg.JWT.Secret, user.ID, billingKey.ID, user.TokenVersion, service.AuthMethodOIDC)
 
-	var resolved *service.APIKey
 	router := gin.New()
 	router.Use(GatewayAuthWithSubscriptionGoogle(apiKeyService, nil, authService, cfg))
-	router.GET("/v1beta/test", func(c *gin.Context) {
-		resolved, _ = GetAPIKeyFromContext(c)
-		c.Status(http.StatusNoContent)
-	})
+	router.GET("/v1beta/test", func(c *gin.Context) { c.Status(http.StatusNoContent) })
 
 	req := httptest.NewRequest(http.MethodGet, "/v1beta/test", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
-	require.Equal(t, http.StatusNoContent, rec.Code)
-	require.Equal(t, 1, getByIDCalls)
-	require.NotNil(t, resolved)
-	require.Equal(t, billingKey.ID, resolved.ID)
-	require.Equal(t, billingKey.UserID, resolved.UserID)
-	require.Equal(t, billingKey.Key, resolved.Key)
-	require.Equal(t, billingKey.GroupID, resolved.GroupID)
+	require.Equal(t, http.StatusUnauthorized, rec.Code)
+	require.Zero(t, getByIDCalls)
+	require.Zero(t, getByKeyCalls, "JWT-shaped bearer values must not fall back to API-key lookup")
+	var response googleErrorResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+	require.Equal(t, "UNAUTHENTICATED", response.Error.Status)
 }
 
-func TestGatewayAuthWithSubscriptionGoogle_EnforcesOIDCBillingKeyPolicy(t *testing.T) {
+func TestGatewayAuthWithSubscriptionGoogle_EnforcesExternalOIDCBillingKeyPolicy(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	const secret = "google-gateway-oidc-policy-secret"
 	now := time.Now()
 
 	tests := []struct {
@@ -375,42 +370,14 @@ func TestGatewayAuthWithSubscriptionGoogle_EnforcesOIDCBillingKeyPolicy(t *testi
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg := &config.Config{RunMode: tt.runMode}
-			cfg.JWT.Secret = secret
-			user := &service.User{
-				ID:           74,
-				Status:       service.StatusActive,
-				Balance:      10,
-				TokenVersion: 6,
-			}
-			billingKey := &service.APIKey{
-				ID:          904,
-				UserID:      user.ID,
-				Key:         "persistent-google-policy-key",
-				OIDCManaged: true,
-				Status:      service.StatusAPIKeyActive,
-				User:        user,
-			}
-			tt.mutateKey(billingKey)
-
-			repo := fakeAPIKeyRepo{
-				getByID: func(_ context.Context, id int64) (*service.APIKey, error) {
-					if id != billingKey.ID {
-						return nil, service.ErrAPIKeyNotFound
-					}
-					clone := *billingKey
-					return &clone, nil
-				},
-				getByKey: func(_ context.Context, _ string) (*service.APIKey, error) {
-					return nil, service.ErrAPIKeyNotFound
-				},
-			}
-			apiKeyService := service.NewAPIKeyService(repo, nil, nil, nil, nil, nil, cfg)
-			authService := service.NewAuthService(nil, nil, nil, nil, cfg, nil, nil, nil, nil, nil, nil)
-			token := signGoogleOIDCGatewayToken(t, secret, user.ID, billingKey.ID, user.TokenVersion, service.AuthMethodOIDC)
+			fixture := newGatewayMiddlewareOAuthFixture(t)
+			fixture.cfg.RunMode = tt.runMode
+			fixture.repo.boundKey.User.Balance = 10
+			tt.mutateKey(fixture.repo.boundKey)
+			token := fixture.sign(t, fixture.claims())
 
 			router := gin.New()
-			router.Use(GatewayAuthWithSubscriptionGoogle(apiKeyService, nil, authService, cfg))
+			router.Use(GatewayAuthWithSubscriptionGoogle(fixture.apiKeys, nil, nil, fixture.cfg))
 			router.GET("/v1beta/test", func(c *gin.Context) { c.Status(http.StatusNoContent) })
 
 			req := httptest.NewRequest(http.MethodGet, "/v1beta/test", nil)
@@ -430,28 +397,11 @@ func TestGatewayAuthWithSubscriptionGoogle_EnforcesOIDCBillingKeyPolicy(t *testi
 
 func TestGatewayAuthWithSubscriptionGoogle_RejectsOIDCTokenInQueryKey(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	cfg := &config.Config{RunMode: config.RunModeSimple}
-	cfg.JWT.Secret = "google-gateway-query-test-secret"
-
-	user := &service.User{ID: 72, Status: service.StatusActive, TokenVersion: 2}
-	billingKey := &service.APIKey{ID: 902, UserID: user.ID, OIDCManaged: true, Status: service.StatusAPIKeyActive, User: user}
-	getByIDCalls := 0
-	repo := fakeAPIKeyRepo{
-		getByKey: func(_ context.Context, _ string) (*service.APIKey, error) {
-			return nil, service.ErrAPIKeyNotFound
-		},
-		getByID: func(_ context.Context, _ int64) (*service.APIKey, error) {
-			getByIDCalls++
-			clone := *billingKey
-			return &clone, nil
-		},
-	}
-	apiKeyService := service.NewAPIKeyService(repo, nil, nil, nil, nil, nil, cfg)
-	authService := service.NewAuthService(nil, nil, nil, nil, cfg, nil, nil, nil, nil, nil, nil)
-	token := signGoogleOIDCGatewayToken(t, cfg.JWT.Secret, user.ID, billingKey.ID, user.TokenVersion, service.AuthMethodOIDC)
+	fixture := newGatewayMiddlewareOAuthFixture(t)
+	token := fixture.sign(t, fixture.claims())
 
 	router := gin.New()
-	router.Use(GatewayAuthWithSubscriptionGoogle(apiKeyService, nil, authService, cfg))
+	router.Use(GatewayAuthWithSubscriptionGoogle(fixture.apiKeys, nil, nil, fixture.cfg))
 	router.GET("/v1beta/test", func(c *gin.Context) { c.Status(http.StatusNoContent) })
 
 	req := httptest.NewRequest(http.MethodGet, "/v1beta/test?key="+token, nil)
@@ -459,7 +409,8 @@ func TestGatewayAuthWithSubscriptionGoogle_RejectsOIDCTokenInQueryKey(t *testing
 	router.ServeHTTP(rec, req)
 
 	require.Equal(t, http.StatusUnauthorized, rec.Code)
-	require.Zero(t, getByIDCalls, "query credentials must never be resolved as OIDC tokens")
+	require.Zero(t, fixture.repo.identityLookups, "query credentials must never be resolved as OIDC tokens")
+	require.Zero(t, fixture.repo.getByKeyCalls, "JWT-shaped query credentials must be rejected before API-key lookup")
 	var resp googleErrorResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Equal(t, http.StatusUnauthorized, resp.Error.Code)

@@ -725,6 +725,33 @@ func (s *AuthService) LoginExistingAdminOAuthUser(ctx context.Context, email str
 	return user, nil
 }
 
+// LoginExistingOIDCIdentityUser resolves an already-bound external identity by
+// its internal owner ID. This avoids re-resolving subsequent OIDC logins by a
+// mutable email claim. Backend mode additionally requires the bound owner to be
+// an active administrator.
+func (s *AuthService) LoginExistingOIDCIdentityUser(ctx context.Context, userID int64, backendMode bool) (*User, error) {
+	if s == nil || s.userRepo == nil || userID <= 0 {
+		return nil, ErrInvalidCredentials
+	}
+	user, err := s.userRepo.GetByID(ctx, userID)
+	if err != nil || user == nil {
+		if err != nil && !errors.Is(err, ErrUserNotFound) {
+			logger.LegacyPrintf("service.auth", "[Auth] Database error resolving bound oidc identity: %v", err)
+		}
+		return nil, ErrInvalidCredentials
+	}
+	if !user.IsActive() {
+		if backendMode {
+			return nil, ErrInvalidCredentials
+		}
+		return nil, ErrUserNotActive
+	}
+	if backendMode && !user.IsAdmin() {
+		return nil, ErrInvalidCredentials
+	}
+	return user, nil
+}
+
 // pendingOAuthTokenTTL is the validity period for pending OAuth tokens.
 const pendingOAuthTokenTTL = 10 * time.Minute
 
@@ -734,17 +761,43 @@ const pendingOAuthPurpose = "pending_oauth_registration"
 type pendingOAuthClaims struct {
 	Email    string `json:"email"`
 	Username string `json:"username"`
+	Issuer   string `json:"issuer,omitempty"`
+	Subject  string `json:"subject,omitempty"`
 	Purpose  string `json:"purpose"`
 	jwt.RegisteredClaims
+}
+
+type PendingOAuthIdentity struct {
+	Email    string
+	Username string
+	Issuer   string
+	Subject  string
 }
 
 // CreatePendingOAuthToken generates a short-lived JWT that carries the OAuth identity
 // while waiting for the user to supply an invitation code.
 func (s *AuthService) CreatePendingOAuthToken(email, username string) (string, error) {
-	now := time.Now()
-	claims := &pendingOAuthClaims{
+	return s.createPendingOAuthToken(PendingOAuthIdentity{Email: email, Username: username})
+}
+
+// CreatePendingOIDCToken preserves the already verified external identity
+// across the invitation-code completion step.
+func (s *AuthService) CreatePendingOIDCToken(email, username, issuer, subject string) (string, error) {
+	return s.createPendingOAuthToken(PendingOAuthIdentity{
 		Email:    email,
 		Username: username,
+		Issuer:   strings.TrimSpace(issuer),
+		Subject:  strings.TrimSpace(subject),
+	})
+}
+
+func (s *AuthService) createPendingOAuthToken(identity PendingOAuthIdentity) (string, error) {
+	now := time.Now()
+	claims := &pendingOAuthClaims{
+		Email:    identity.Email,
+		Username: identity.Username,
+		Issuer:   identity.Issuer,
+		Subject:  identity.Subject,
 		Purpose:  pendingOAuthPurpose,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(now.Add(pendingOAuthTokenTTL)),
@@ -759,8 +812,29 @@ func (s *AuthService) CreatePendingOAuthToken(email, username string) (string, e
 // VerifyPendingOAuthToken validates a pending OAuth token and returns the embedded identity.
 // Returns ErrInvalidToken when the token is invalid or expired.
 func (s *AuthService) VerifyPendingOAuthToken(tokenStr string) (email, username string, err error) {
+	identity, err := s.verifyPendingOAuthToken(tokenStr)
+	if err != nil {
+		return "", "", err
+	}
+	return identity.Email, identity.Username, nil
+}
+
+// VerifyPendingOIDCToken returns the immutable issuer/subject that were signed
+// into the pending registration token after the original OIDC callback.
+func (s *AuthService) VerifyPendingOIDCToken(tokenStr string) (*PendingOAuthIdentity, error) {
+	identity, err := s.verifyPendingOAuthToken(tokenStr)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(identity.Issuer) == "" || strings.TrimSpace(identity.Subject) == "" {
+		return nil, ErrInvalidToken
+	}
+	return identity, nil
+}
+
+func (s *AuthService) verifyPendingOAuthToken(tokenStr string) (*PendingOAuthIdentity, error) {
 	if len(tokenStr) > maxTokenLength {
-		return "", "", ErrInvalidToken
+		return nil, ErrInvalidToken
 	}
 	parser := jwt.NewParser(jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Name}))
 	token, parseErr := parser.ParseWithClaims(tokenStr, &pendingOAuthClaims{}, func(t *jwt.Token) (any, error) {
@@ -770,16 +844,21 @@ func (s *AuthService) VerifyPendingOAuthToken(tokenStr string) (email, username 
 		return []byte(s.cfg.JWT.Secret), nil
 	})
 	if parseErr != nil {
-		return "", "", ErrInvalidToken
+		return nil, ErrInvalidToken
 	}
 	claims, ok := token.Claims.(*pendingOAuthClaims)
 	if !ok || !token.Valid {
-		return "", "", ErrInvalidToken
+		return nil, ErrInvalidToken
 	}
 	if claims.Purpose != pendingOAuthPurpose {
-		return "", "", ErrInvalidToken
+		return nil, ErrInvalidToken
 	}
-	return claims.Email, claims.Username, nil
+	return &PendingOAuthIdentity{
+		Email:    claims.Email,
+		Username: claims.Username,
+		Issuer:   strings.TrimSpace(claims.Issuer),
+		Subject:  strings.TrimSpace(claims.Subject),
+	}, nil
 }
 
 func (s *AuthService) assignDefaultSubscriptions(ctx context.Context, userID int64) {

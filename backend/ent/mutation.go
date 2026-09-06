@@ -94,6 +94,8 @@ type APIKeyMutation struct {
 	name               *string
 	status             *string
 	oidc_managed       *bool
+	oidc_issuer        *string
+	oidc_subject       *string
 	last_used_at       *time.Time
 	ip_whitelist       *[]string
 	appendip_whitelist []string
@@ -578,6 +580,104 @@ func (m *APIKeyMutation) OldOidcManaged(ctx context.Context) (v bool, err error)
 // ResetOidcManaged resets all changes to the "oidc_managed" field.
 func (m *APIKeyMutation) ResetOidcManaged() {
 	m.oidc_managed = nil
+}
+
+// SetOidcIssuer sets the "oidc_issuer" field.
+func (m *APIKeyMutation) SetOidcIssuer(s string) {
+	m.oidc_issuer = &s
+}
+
+// OidcIssuer returns the value of the "oidc_issuer" field in the mutation.
+func (m *APIKeyMutation) OidcIssuer() (r string, exists bool) {
+	v := m.oidc_issuer
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldOidcIssuer returns the old "oidc_issuer" field's value of the APIKey entity.
+// If the APIKey object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *APIKeyMutation) OldOidcIssuer(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldOidcIssuer is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldOidcIssuer requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldOidcIssuer: %w", err)
+	}
+	return oldValue.OidcIssuer, nil
+}
+
+// ClearOidcIssuer clears the value of the "oidc_issuer" field.
+func (m *APIKeyMutation) ClearOidcIssuer() {
+	m.oidc_issuer = nil
+	m.clearedFields[apikey.FieldOidcIssuer] = struct{}{}
+}
+
+// OidcIssuerCleared returns if the "oidc_issuer" field was cleared in this mutation.
+func (m *APIKeyMutation) OidcIssuerCleared() bool {
+	_, ok := m.clearedFields[apikey.FieldOidcIssuer]
+	return ok
+}
+
+// ResetOidcIssuer resets all changes to the "oidc_issuer" field.
+func (m *APIKeyMutation) ResetOidcIssuer() {
+	m.oidc_issuer = nil
+	delete(m.clearedFields, apikey.FieldOidcIssuer)
+}
+
+// SetOidcSubject sets the "oidc_subject" field.
+func (m *APIKeyMutation) SetOidcSubject(s string) {
+	m.oidc_subject = &s
+}
+
+// OidcSubject returns the value of the "oidc_subject" field in the mutation.
+func (m *APIKeyMutation) OidcSubject() (r string, exists bool) {
+	v := m.oidc_subject
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldOidcSubject returns the old "oidc_subject" field's value of the APIKey entity.
+// If the APIKey object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *APIKeyMutation) OldOidcSubject(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldOidcSubject is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldOidcSubject requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldOidcSubject: %w", err)
+	}
+	return oldValue.OidcSubject, nil
+}
+
+// ClearOidcSubject clears the value of the "oidc_subject" field.
+func (m *APIKeyMutation) ClearOidcSubject() {
+	m.oidc_subject = nil
+	m.clearedFields[apikey.FieldOidcSubject] = struct{}{}
+}
+
+// OidcSubjectCleared returns if the "oidc_subject" field was cleared in this mutation.
+func (m *APIKeyMutation) OidcSubjectCleared() bool {
+	_, ok := m.clearedFields[apikey.FieldOidcSubject]
+	return ok
+}
+
+// ResetOidcSubject resets all changes to the "oidc_subject" field.
+func (m *APIKeyMutation) ResetOidcSubject() {
+	m.oidc_subject = nil
+	delete(m.clearedFields, apikey.FieldOidcSubject)
 }
 
 // SetLastUsedAt sets the "last_used_at" field.
@@ -1545,7 +1645,7 @@ func (m *APIKeyMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *APIKeyMutation) Fields() []string {
-	fields := make([]string, 0, 24)
+	fields := make([]string, 0, 26)
 	if m.created_at != nil {
 		fields = append(fields, apikey.FieldCreatedAt)
 	}
@@ -1572,6 +1672,12 @@ func (m *APIKeyMutation) Fields() []string {
 	}
 	if m.oidc_managed != nil {
 		fields = append(fields, apikey.FieldOidcManaged)
+	}
+	if m.oidc_issuer != nil {
+		fields = append(fields, apikey.FieldOidcIssuer)
+	}
+	if m.oidc_subject != nil {
+		fields = append(fields, apikey.FieldOidcSubject)
 	}
 	if m.last_used_at != nil {
 		fields = append(fields, apikey.FieldLastUsedAt)
@@ -1644,6 +1750,10 @@ func (m *APIKeyMutation) Field(name string) (ent.Value, bool) {
 		return m.Status()
 	case apikey.FieldOidcManaged:
 		return m.OidcManaged()
+	case apikey.FieldOidcIssuer:
+		return m.OidcIssuer()
+	case apikey.FieldOidcSubject:
+		return m.OidcSubject()
 	case apikey.FieldLastUsedAt:
 		return m.LastUsedAt()
 	case apikey.FieldIPWhitelist:
@@ -1701,6 +1811,10 @@ func (m *APIKeyMutation) OldField(ctx context.Context, name string) (ent.Value, 
 		return m.OldStatus(ctx)
 	case apikey.FieldOidcManaged:
 		return m.OldOidcManaged(ctx)
+	case apikey.FieldOidcIssuer:
+		return m.OldOidcIssuer(ctx)
+	case apikey.FieldOidcSubject:
+		return m.OldOidcSubject(ctx)
 	case apikey.FieldLastUsedAt:
 		return m.OldLastUsedAt(ctx)
 	case apikey.FieldIPWhitelist:
@@ -1802,6 +1916,20 @@ func (m *APIKeyMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetOidcManaged(v)
+		return nil
+	case apikey.FieldOidcIssuer:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetOidcIssuer(v)
+		return nil
+	case apikey.FieldOidcSubject:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetOidcSubject(v)
 		return nil
 	case apikey.FieldLastUsedAt:
 		v, ok := value.(time.Time)
@@ -2043,6 +2171,12 @@ func (m *APIKeyMutation) ClearedFields() []string {
 	if m.FieldCleared(apikey.FieldGroupID) {
 		fields = append(fields, apikey.FieldGroupID)
 	}
+	if m.FieldCleared(apikey.FieldOidcIssuer) {
+		fields = append(fields, apikey.FieldOidcIssuer)
+	}
+	if m.FieldCleared(apikey.FieldOidcSubject) {
+		fields = append(fields, apikey.FieldOidcSubject)
+	}
 	if m.FieldCleared(apikey.FieldLastUsedAt) {
 		fields = append(fields, apikey.FieldLastUsedAt)
 	}
@@ -2083,6 +2217,12 @@ func (m *APIKeyMutation) ClearField(name string) error {
 		return nil
 	case apikey.FieldGroupID:
 		m.ClearGroupID()
+		return nil
+	case apikey.FieldOidcIssuer:
+		m.ClearOidcIssuer()
+		return nil
+	case apikey.FieldOidcSubject:
+		m.ClearOidcSubject()
 		return nil
 	case apikey.FieldLastUsedAt:
 		m.ClearLastUsedAt()
@@ -2139,6 +2279,12 @@ func (m *APIKeyMutation) ResetField(name string) error {
 		return nil
 	case apikey.FieldOidcManaged:
 		m.ResetOidcManaged()
+		return nil
+	case apikey.FieldOidcIssuer:
+		m.ResetOidcIssuer()
+		return nil
+	case apikey.FieldOidcSubject:
+		m.ResetOidcSubject()
 		return nil
 	case apikey.FieldLastUsedAt:
 		m.ResetLastUsedAt()
@@ -27508,6 +27654,11 @@ type UsageLogMutation struct {
 	typ                         string
 	id                          *int64
 	request_id                  *string
+	oidc_issuer                 *string
+	oidc_subject                *string
+	oidc_tenant                 *string
+	tabro_run_id                *string
+	tabro_project_id            *string
 	model                       *string
 	requested_model             *string
 	upstream_model              *string
@@ -27814,6 +27965,251 @@ func (m *UsageLogMutation) OldRequestID(ctx context.Context) (v string, err erro
 // ResetRequestID resets all changes to the "request_id" field.
 func (m *UsageLogMutation) ResetRequestID() {
 	m.request_id = nil
+}
+
+// SetOidcIssuer sets the "oidc_issuer" field.
+func (m *UsageLogMutation) SetOidcIssuer(s string) {
+	m.oidc_issuer = &s
+}
+
+// OidcIssuer returns the value of the "oidc_issuer" field in the mutation.
+func (m *UsageLogMutation) OidcIssuer() (r string, exists bool) {
+	v := m.oidc_issuer
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldOidcIssuer returns the old "oidc_issuer" field's value of the UsageLog entity.
+// If the UsageLog object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UsageLogMutation) OldOidcIssuer(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldOidcIssuer is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldOidcIssuer requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldOidcIssuer: %w", err)
+	}
+	return oldValue.OidcIssuer, nil
+}
+
+// ClearOidcIssuer clears the value of the "oidc_issuer" field.
+func (m *UsageLogMutation) ClearOidcIssuer() {
+	m.oidc_issuer = nil
+	m.clearedFields[usagelog.FieldOidcIssuer] = struct{}{}
+}
+
+// OidcIssuerCleared returns if the "oidc_issuer" field was cleared in this mutation.
+func (m *UsageLogMutation) OidcIssuerCleared() bool {
+	_, ok := m.clearedFields[usagelog.FieldOidcIssuer]
+	return ok
+}
+
+// ResetOidcIssuer resets all changes to the "oidc_issuer" field.
+func (m *UsageLogMutation) ResetOidcIssuer() {
+	m.oidc_issuer = nil
+	delete(m.clearedFields, usagelog.FieldOidcIssuer)
+}
+
+// SetOidcSubject sets the "oidc_subject" field.
+func (m *UsageLogMutation) SetOidcSubject(s string) {
+	m.oidc_subject = &s
+}
+
+// OidcSubject returns the value of the "oidc_subject" field in the mutation.
+func (m *UsageLogMutation) OidcSubject() (r string, exists bool) {
+	v := m.oidc_subject
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldOidcSubject returns the old "oidc_subject" field's value of the UsageLog entity.
+// If the UsageLog object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UsageLogMutation) OldOidcSubject(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldOidcSubject is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldOidcSubject requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldOidcSubject: %w", err)
+	}
+	return oldValue.OidcSubject, nil
+}
+
+// ClearOidcSubject clears the value of the "oidc_subject" field.
+func (m *UsageLogMutation) ClearOidcSubject() {
+	m.oidc_subject = nil
+	m.clearedFields[usagelog.FieldOidcSubject] = struct{}{}
+}
+
+// OidcSubjectCleared returns if the "oidc_subject" field was cleared in this mutation.
+func (m *UsageLogMutation) OidcSubjectCleared() bool {
+	_, ok := m.clearedFields[usagelog.FieldOidcSubject]
+	return ok
+}
+
+// ResetOidcSubject resets all changes to the "oidc_subject" field.
+func (m *UsageLogMutation) ResetOidcSubject() {
+	m.oidc_subject = nil
+	delete(m.clearedFields, usagelog.FieldOidcSubject)
+}
+
+// SetOidcTenant sets the "oidc_tenant" field.
+func (m *UsageLogMutation) SetOidcTenant(s string) {
+	m.oidc_tenant = &s
+}
+
+// OidcTenant returns the value of the "oidc_tenant" field in the mutation.
+func (m *UsageLogMutation) OidcTenant() (r string, exists bool) {
+	v := m.oidc_tenant
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldOidcTenant returns the old "oidc_tenant" field's value of the UsageLog entity.
+// If the UsageLog object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UsageLogMutation) OldOidcTenant(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldOidcTenant is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldOidcTenant requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldOidcTenant: %w", err)
+	}
+	return oldValue.OidcTenant, nil
+}
+
+// ClearOidcTenant clears the value of the "oidc_tenant" field.
+func (m *UsageLogMutation) ClearOidcTenant() {
+	m.oidc_tenant = nil
+	m.clearedFields[usagelog.FieldOidcTenant] = struct{}{}
+}
+
+// OidcTenantCleared returns if the "oidc_tenant" field was cleared in this mutation.
+func (m *UsageLogMutation) OidcTenantCleared() bool {
+	_, ok := m.clearedFields[usagelog.FieldOidcTenant]
+	return ok
+}
+
+// ResetOidcTenant resets all changes to the "oidc_tenant" field.
+func (m *UsageLogMutation) ResetOidcTenant() {
+	m.oidc_tenant = nil
+	delete(m.clearedFields, usagelog.FieldOidcTenant)
+}
+
+// SetTabroRunID sets the "tabro_run_id" field.
+func (m *UsageLogMutation) SetTabroRunID(s string) {
+	m.tabro_run_id = &s
+}
+
+// TabroRunID returns the value of the "tabro_run_id" field in the mutation.
+func (m *UsageLogMutation) TabroRunID() (r string, exists bool) {
+	v := m.tabro_run_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldTabroRunID returns the old "tabro_run_id" field's value of the UsageLog entity.
+// If the UsageLog object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UsageLogMutation) OldTabroRunID(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldTabroRunID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldTabroRunID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldTabroRunID: %w", err)
+	}
+	return oldValue.TabroRunID, nil
+}
+
+// ClearTabroRunID clears the value of the "tabro_run_id" field.
+func (m *UsageLogMutation) ClearTabroRunID() {
+	m.tabro_run_id = nil
+	m.clearedFields[usagelog.FieldTabroRunID] = struct{}{}
+}
+
+// TabroRunIDCleared returns if the "tabro_run_id" field was cleared in this mutation.
+func (m *UsageLogMutation) TabroRunIDCleared() bool {
+	_, ok := m.clearedFields[usagelog.FieldTabroRunID]
+	return ok
+}
+
+// ResetTabroRunID resets all changes to the "tabro_run_id" field.
+func (m *UsageLogMutation) ResetTabroRunID() {
+	m.tabro_run_id = nil
+	delete(m.clearedFields, usagelog.FieldTabroRunID)
+}
+
+// SetTabroProjectID sets the "tabro_project_id" field.
+func (m *UsageLogMutation) SetTabroProjectID(s string) {
+	m.tabro_project_id = &s
+}
+
+// TabroProjectID returns the value of the "tabro_project_id" field in the mutation.
+func (m *UsageLogMutation) TabroProjectID() (r string, exists bool) {
+	v := m.tabro_project_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldTabroProjectID returns the old "tabro_project_id" field's value of the UsageLog entity.
+// If the UsageLog object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UsageLogMutation) OldTabroProjectID(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldTabroProjectID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldTabroProjectID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldTabroProjectID: %w", err)
+	}
+	return oldValue.TabroProjectID, nil
+}
+
+// ClearTabroProjectID clears the value of the "tabro_project_id" field.
+func (m *UsageLogMutation) ClearTabroProjectID() {
+	m.tabro_project_id = nil
+	m.clearedFields[usagelog.FieldTabroProjectID] = struct{}{}
+}
+
+// TabroProjectIDCleared returns if the "tabro_project_id" field was cleared in this mutation.
+func (m *UsageLogMutation) TabroProjectIDCleared() bool {
+	_, ok := m.clearedFields[usagelog.FieldTabroProjectID]
+	return ok
+}
+
+// ResetTabroProjectID resets all changes to the "tabro_project_id" field.
+func (m *UsageLogMutation) ResetTabroProjectID() {
+	m.tabro_project_id = nil
+	delete(m.clearedFields, usagelog.FieldTabroProjectID)
 }
 
 // SetModel sets the "model" field.
@@ -29739,7 +30135,7 @@ func (m *UsageLogMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *UsageLogMutation) Fields() []string {
-	fields := make([]string, 0, 37)
+	fields := make([]string, 0, 42)
 	if m.user != nil {
 		fields = append(fields, usagelog.FieldUserID)
 	}
@@ -29751,6 +30147,21 @@ func (m *UsageLogMutation) Fields() []string {
 	}
 	if m.request_id != nil {
 		fields = append(fields, usagelog.FieldRequestID)
+	}
+	if m.oidc_issuer != nil {
+		fields = append(fields, usagelog.FieldOidcIssuer)
+	}
+	if m.oidc_subject != nil {
+		fields = append(fields, usagelog.FieldOidcSubject)
+	}
+	if m.oidc_tenant != nil {
+		fields = append(fields, usagelog.FieldOidcTenant)
+	}
+	if m.tabro_run_id != nil {
+		fields = append(fields, usagelog.FieldTabroRunID)
+	}
+	if m.tabro_project_id != nil {
+		fields = append(fields, usagelog.FieldTabroProjectID)
 	}
 	if m.model != nil {
 		fields = append(fields, usagelog.FieldModel)
@@ -29867,6 +30278,16 @@ func (m *UsageLogMutation) Field(name string) (ent.Value, bool) {
 		return m.AccountID()
 	case usagelog.FieldRequestID:
 		return m.RequestID()
+	case usagelog.FieldOidcIssuer:
+		return m.OidcIssuer()
+	case usagelog.FieldOidcSubject:
+		return m.OidcSubject()
+	case usagelog.FieldOidcTenant:
+		return m.OidcTenant()
+	case usagelog.FieldTabroRunID:
+		return m.TabroRunID()
+	case usagelog.FieldTabroProjectID:
+		return m.TabroProjectID()
 	case usagelog.FieldModel:
 		return m.Model()
 	case usagelog.FieldRequestedModel:
@@ -29950,6 +30371,16 @@ func (m *UsageLogMutation) OldField(ctx context.Context, name string) (ent.Value
 		return m.OldAccountID(ctx)
 	case usagelog.FieldRequestID:
 		return m.OldRequestID(ctx)
+	case usagelog.FieldOidcIssuer:
+		return m.OldOidcIssuer(ctx)
+	case usagelog.FieldOidcSubject:
+		return m.OldOidcSubject(ctx)
+	case usagelog.FieldOidcTenant:
+		return m.OldOidcTenant(ctx)
+	case usagelog.FieldTabroRunID:
+		return m.OldTabroRunID(ctx)
+	case usagelog.FieldTabroProjectID:
+		return m.OldTabroProjectID(ctx)
 	case usagelog.FieldModel:
 		return m.OldModel(ctx)
 	case usagelog.FieldRequestedModel:
@@ -30052,6 +30483,41 @@ func (m *UsageLogMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetRequestID(v)
+		return nil
+	case usagelog.FieldOidcIssuer:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetOidcIssuer(v)
+		return nil
+	case usagelog.FieldOidcSubject:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetOidcSubject(v)
+		return nil
+	case usagelog.FieldOidcTenant:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetOidcTenant(v)
+		return nil
+	case usagelog.FieldTabroRunID:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetTabroRunID(v)
+		return nil
+	case usagelog.FieldTabroProjectID:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetTabroProjectID(v)
 		return nil
 	case usagelog.FieldModel:
 		v, ok := value.(string)
@@ -30545,6 +31011,21 @@ func (m *UsageLogMutation) AddField(name string, value ent.Value) error {
 // mutation.
 func (m *UsageLogMutation) ClearedFields() []string {
 	var fields []string
+	if m.FieldCleared(usagelog.FieldOidcIssuer) {
+		fields = append(fields, usagelog.FieldOidcIssuer)
+	}
+	if m.FieldCleared(usagelog.FieldOidcSubject) {
+		fields = append(fields, usagelog.FieldOidcSubject)
+	}
+	if m.FieldCleared(usagelog.FieldOidcTenant) {
+		fields = append(fields, usagelog.FieldOidcTenant)
+	}
+	if m.FieldCleared(usagelog.FieldTabroRunID) {
+		fields = append(fields, usagelog.FieldTabroRunID)
+	}
+	if m.FieldCleared(usagelog.FieldTabroProjectID) {
+		fields = append(fields, usagelog.FieldTabroProjectID)
+	}
 	if m.FieldCleared(usagelog.FieldRequestedModel) {
 		fields = append(fields, usagelog.FieldRequestedModel)
 	}
@@ -30601,6 +31082,21 @@ func (m *UsageLogMutation) FieldCleared(name string) bool {
 // error if the field is not defined in the schema.
 func (m *UsageLogMutation) ClearField(name string) error {
 	switch name {
+	case usagelog.FieldOidcIssuer:
+		m.ClearOidcIssuer()
+		return nil
+	case usagelog.FieldOidcSubject:
+		m.ClearOidcSubject()
+		return nil
+	case usagelog.FieldOidcTenant:
+		m.ClearOidcTenant()
+		return nil
+	case usagelog.FieldTabroRunID:
+		m.ClearTabroRunID()
+		return nil
+	case usagelog.FieldTabroProjectID:
+		m.ClearTabroProjectID()
+		return nil
 	case usagelog.FieldRequestedModel:
 		m.ClearRequestedModel()
 		return nil
@@ -30662,6 +31158,21 @@ func (m *UsageLogMutation) ResetField(name string) error {
 		return nil
 	case usagelog.FieldRequestID:
 		m.ResetRequestID()
+		return nil
+	case usagelog.FieldOidcIssuer:
+		m.ResetOidcIssuer()
+		return nil
+	case usagelog.FieldOidcSubject:
+		m.ResetOidcSubject()
+		return nil
+	case usagelog.FieldOidcTenant:
+		m.ResetOidcTenant()
+		return nil
+	case usagelog.FieldTabroRunID:
+		m.ResetTabroRunID()
+		return nil
+	case usagelog.FieldTabroProjectID:
+		m.ResetTabroProjectID()
 		return nil
 	case usagelog.FieldModel:
 		m.ResetModel()

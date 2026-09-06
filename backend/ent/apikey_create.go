@@ -127,6 +127,34 @@ func (_c *APIKeyCreate) SetNillableOidcManaged(v *bool) *APIKeyCreate {
 	return _c
 }
 
+// SetOidcIssuer sets the "oidc_issuer" field.
+func (_c *APIKeyCreate) SetOidcIssuer(v string) *APIKeyCreate {
+	_c.mutation.SetOidcIssuer(v)
+	return _c
+}
+
+// SetNillableOidcIssuer sets the "oidc_issuer" field if the given value is not nil.
+func (_c *APIKeyCreate) SetNillableOidcIssuer(v *string) *APIKeyCreate {
+	if v != nil {
+		_c.SetOidcIssuer(*v)
+	}
+	return _c
+}
+
+// SetOidcSubject sets the "oidc_subject" field.
+func (_c *APIKeyCreate) SetOidcSubject(v string) *APIKeyCreate {
+	_c.mutation.SetOidcSubject(v)
+	return _c
+}
+
+// SetNillableOidcSubject sets the "oidc_subject" field if the given value is not nil.
+func (_c *APIKeyCreate) SetNillableOidcSubject(v *string) *APIKeyCreate {
+	if v != nil {
+		_c.SetOidcSubject(*v)
+	}
+	return _c
+}
+
 // SetLastUsedAt sets the "last_used_at" field.
 func (_c *APIKeyCreate) SetLastUsedAt(v time.Time) *APIKeyCreate {
 	_c.mutation.SetLastUsedAt(v)
@@ -478,6 +506,16 @@ func (_c *APIKeyCreate) check() error {
 	if _, ok := _c.mutation.OidcManaged(); !ok {
 		return &ValidationError{Name: "oidc_managed", err: errors.New(`ent: missing required field "APIKey.oidc_managed"`)}
 	}
+	if v, ok := _c.mutation.OidcIssuer(); ok {
+		if err := apikey.OidcIssuerValidator(v); err != nil {
+			return &ValidationError{Name: "oidc_issuer", err: fmt.Errorf(`ent: validator failed for field "APIKey.oidc_issuer": %w`, err)}
+		}
+	}
+	if v, ok := _c.mutation.OidcSubject(); ok {
+		if err := apikey.OidcSubjectValidator(v); err != nil {
+			return &ValidationError{Name: "oidc_subject", err: fmt.Errorf(`ent: validator failed for field "APIKey.oidc_subject": %w`, err)}
+		}
+	}
 	if _, ok := _c.mutation.Quota(); !ok {
 		return &ValidationError{Name: "quota", err: errors.New(`ent: missing required field "APIKey.quota"`)}
 	}
@@ -559,6 +597,14 @@ func (_c *APIKeyCreate) createSpec() (*APIKey, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.OidcManaged(); ok {
 		_spec.SetField(apikey.FieldOidcManaged, field.TypeBool, value)
 		_node.OidcManaged = value
+	}
+	if value, ok := _c.mutation.OidcIssuer(); ok {
+		_spec.SetField(apikey.FieldOidcIssuer, field.TypeString, value)
+		_node.OidcIssuer = &value
+	}
+	if value, ok := _c.mutation.OidcSubject(); ok {
+		_spec.SetField(apikey.FieldOidcSubject, field.TypeString, value)
+		_node.OidcSubject = &value
 	}
 	if value, ok := _c.mutation.LastUsedAt(); ok {
 		_spec.SetField(apikey.FieldLastUsedAt, field.TypeTime, value)
@@ -827,6 +873,42 @@ func (u *APIKeyUpsert) SetOidcManaged(v bool) *APIKeyUpsert {
 // UpdateOidcManaged sets the "oidc_managed" field to the value that was provided on create.
 func (u *APIKeyUpsert) UpdateOidcManaged() *APIKeyUpsert {
 	u.SetExcluded(apikey.FieldOidcManaged)
+	return u
+}
+
+// SetOidcIssuer sets the "oidc_issuer" field.
+func (u *APIKeyUpsert) SetOidcIssuer(v string) *APIKeyUpsert {
+	u.Set(apikey.FieldOidcIssuer, v)
+	return u
+}
+
+// UpdateOidcIssuer sets the "oidc_issuer" field to the value that was provided on create.
+func (u *APIKeyUpsert) UpdateOidcIssuer() *APIKeyUpsert {
+	u.SetExcluded(apikey.FieldOidcIssuer)
+	return u
+}
+
+// ClearOidcIssuer clears the value of the "oidc_issuer" field.
+func (u *APIKeyUpsert) ClearOidcIssuer() *APIKeyUpsert {
+	u.SetNull(apikey.FieldOidcIssuer)
+	return u
+}
+
+// SetOidcSubject sets the "oidc_subject" field.
+func (u *APIKeyUpsert) SetOidcSubject(v string) *APIKeyUpsert {
+	u.Set(apikey.FieldOidcSubject, v)
+	return u
+}
+
+// UpdateOidcSubject sets the "oidc_subject" field to the value that was provided on create.
+func (u *APIKeyUpsert) UpdateOidcSubject() *APIKeyUpsert {
+	u.SetExcluded(apikey.FieldOidcSubject)
+	return u
+}
+
+// ClearOidcSubject clears the value of the "oidc_subject" field.
+func (u *APIKeyUpsert) ClearOidcSubject() *APIKeyUpsert {
+	u.SetNull(apikey.FieldOidcSubject)
 	return u
 }
 
@@ -1268,6 +1350,48 @@ func (u *APIKeyUpsertOne) SetOidcManaged(v bool) *APIKeyUpsertOne {
 func (u *APIKeyUpsertOne) UpdateOidcManaged() *APIKeyUpsertOne {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.UpdateOidcManaged()
+	})
+}
+
+// SetOidcIssuer sets the "oidc_issuer" field.
+func (u *APIKeyUpsertOne) SetOidcIssuer(v string) *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetOidcIssuer(v)
+	})
+}
+
+// UpdateOidcIssuer sets the "oidc_issuer" field to the value that was provided on create.
+func (u *APIKeyUpsertOne) UpdateOidcIssuer() *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateOidcIssuer()
+	})
+}
+
+// ClearOidcIssuer clears the value of the "oidc_issuer" field.
+func (u *APIKeyUpsertOne) ClearOidcIssuer() *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.ClearOidcIssuer()
+	})
+}
+
+// SetOidcSubject sets the "oidc_subject" field.
+func (u *APIKeyUpsertOne) SetOidcSubject(v string) *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetOidcSubject(v)
+	})
+}
+
+// UpdateOidcSubject sets the "oidc_subject" field to the value that was provided on create.
+func (u *APIKeyUpsertOne) UpdateOidcSubject() *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateOidcSubject()
+	})
+}
+
+// ClearOidcSubject clears the value of the "oidc_subject" field.
+func (u *APIKeyUpsertOne) ClearOidcSubject() *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.ClearOidcSubject()
 	})
 }
 
@@ -1920,6 +2044,48 @@ func (u *APIKeyUpsertBulk) SetOidcManaged(v bool) *APIKeyUpsertBulk {
 func (u *APIKeyUpsertBulk) UpdateOidcManaged() *APIKeyUpsertBulk {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.UpdateOidcManaged()
+	})
+}
+
+// SetOidcIssuer sets the "oidc_issuer" field.
+func (u *APIKeyUpsertBulk) SetOidcIssuer(v string) *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetOidcIssuer(v)
+	})
+}
+
+// UpdateOidcIssuer sets the "oidc_issuer" field to the value that was provided on create.
+func (u *APIKeyUpsertBulk) UpdateOidcIssuer() *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateOidcIssuer()
+	})
+}
+
+// ClearOidcIssuer clears the value of the "oidc_issuer" field.
+func (u *APIKeyUpsertBulk) ClearOidcIssuer() *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.ClearOidcIssuer()
+	})
+}
+
+// SetOidcSubject sets the "oidc_subject" field.
+func (u *APIKeyUpsertBulk) SetOidcSubject(v string) *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetOidcSubject(v)
+	})
+}
+
+// UpdateOidcSubject sets the "oidc_subject" field to the value that was provided on create.
+func (u *APIKeyUpsertBulk) UpdateOidcSubject() *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateOidcSubject()
+	})
+}
+
+// ClearOidcSubject clears the value of the "oidc_subject" field.
+func (u *APIKeyUpsertBulk) ClearOidcSubject() *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.ClearOidcSubject()
 	})
 }
 

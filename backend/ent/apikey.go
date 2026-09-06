@@ -38,6 +38,10 @@ type APIKey struct {
 	Status string `json:"status,omitempty"`
 	// Internal billing identity for signed OIDC access tokens
 	OidcManaged bool `json:"oidc_managed,omitempty"`
+	// Verified external issuer bound to this managed billing identity
+	OidcIssuer *string `json:"oidc_issuer,omitempty"`
+	// Verified external subject bound to this managed billing identity
+	OidcSubject *string `json:"oidc_subject,omitempty"`
 	// Last usage time of this API key
 	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
 	// Allowed IPs/CIDRs, e.g. ["192.168.1.100", "10.0.0.0/8"]
@@ -131,7 +135,7 @@ func (*APIKey) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullFloat64)
 		case apikey.FieldID, apikey.FieldUserID, apikey.FieldGroupID:
 			values[i] = new(sql.NullInt64)
-		case apikey.FieldKey, apikey.FieldName, apikey.FieldStatus:
+		case apikey.FieldKey, apikey.FieldName, apikey.FieldStatus, apikey.FieldOidcIssuer, apikey.FieldOidcSubject:
 			values[i] = new(sql.NullString)
 		case apikey.FieldCreatedAt, apikey.FieldUpdatedAt, apikey.FieldDeletedAt, apikey.FieldLastUsedAt, apikey.FieldExpiresAt, apikey.FieldWindow5hStart, apikey.FieldWindow1dStart, apikey.FieldWindow7dStart:
 			values[i] = new(sql.NullTime)
@@ -211,6 +215,20 @@ func (_m *APIKey) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field oidc_managed", values[i])
 			} else if value.Valid {
 				_m.OidcManaged = value.Bool
+			}
+		case apikey.FieldOidcIssuer:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field oidc_issuer", values[i])
+			} else if value.Valid {
+				_m.OidcIssuer = new(string)
+				*_m.OidcIssuer = value.String
+			}
+		case apikey.FieldOidcSubject:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field oidc_subject", values[i])
+			} else if value.Valid {
+				_m.OidcSubject = new(string)
+				*_m.OidcSubject = value.String
 			}
 		case apikey.FieldLastUsedAt:
 			if value, ok := values[i].(*sql.NullTime); !ok {
@@ -392,6 +410,16 @@ func (_m *APIKey) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("oidc_managed=")
 	builder.WriteString(fmt.Sprintf("%v", _m.OidcManaged))
+	builder.WriteString(", ")
+	if v := _m.OidcIssuer; v != nil {
+		builder.WriteString("oidc_issuer=")
+		builder.WriteString(*v)
+	}
+	builder.WriteString(", ")
+	if v := _m.OidcSubject; v != nil {
+		builder.WriteString("oidc_subject=")
+		builder.WriteString(*v)
+	}
 	builder.WriteString(", ")
 	if v := _m.LastUsedAt; v != nil {
 		builder.WriteString("last_used_at=")

@@ -20,6 +20,7 @@ func setupAPIKeyHandler(adminSvc service.AdminService) *gin.Engine {
 	router := gin.New()
 	h := NewAdminAPIKeyHandler(adminSvc)
 	router.PUT("/api/v1/admin/api-keys/:id", h.UpdateGroup)
+	router.PUT("/api/v1/admin/api-keys/:id/oidc-identity", h.BindOIDCIdentity)
 	return router
 }
 
@@ -199,4 +200,85 @@ type failingUpdateGroupService struct {
 
 func (f *failingUpdateGroupService) AdminUpdateAPIKeyGroupID(_ context.Context, _ int64, _ *int64) (*service.AdminUpdateAPIKeyGroupIDResult, error) {
 	return nil, f.err
+}
+
+func TestAdminAPIKeyHandler_BindOIDCIdentity_Success(t *testing.T) {
+	router := setupAPIKeyHandler(newStubAdminService())
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/api-keys/10/oidc-identity", bytes.NewBufferString(`{
+		"issuer": "https://idp.example.com/realms/tabro",
+		"subject": "user-123"
+	}`))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp struct {
+		Code int `json:"code"`
+		Data struct {
+			APIKey struct {
+				ID int64 `json:"id"`
+			} `json:"api_key"`
+			Issuer  string `json:"issuer"`
+			Subject string `json:"subject"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Zero(t, resp.Code)
+	require.Equal(t, int64(10), resp.Data.APIKey.ID)
+	require.Equal(t, "https://idp.example.com/realms/tabro", resp.Data.Issuer)
+	require.Equal(t, "user-123", resp.Data.Subject)
+}
+
+func TestAdminAPIKeyHandler_BindOIDCIdentity_InvalidRequest(t *testing.T) {
+	router := setupAPIKeyHandler(newStubAdminService())
+
+	for _, tc := range []struct {
+		name string
+		path string
+		body string
+	}{
+		{name: "invalid id", path: "/api/v1/admin/api-keys/not-a-number/oidc-identity", body: `{"issuer":"https://idp.example.com","subject":"user-123"}`},
+		{name: "nonpositive id", path: "/api/v1/admin/api-keys/0/oidc-identity", body: `{"issuer":"https://idp.example.com","subject":"user-123"}`},
+		{name: "missing issuer", path: "/api/v1/admin/api-keys/10/oidc-identity", body: `{"subject":"user-123"}`},
+		{name: "missing subject", path: "/api/v1/admin/api-keys/10/oidc-identity", body: `{"issuer":"https://idp.example.com"}`},
+		{name: "invalid json", path: "/api/v1/admin/api-keys/10/oidc-identity", body: `{bad json`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPut, tc.path, bytes.NewBufferString(tc.body))
+			req.Header.Set("Content-Type", "application/json")
+			router.ServeHTTP(rec, req)
+
+			require.Equal(t, http.StatusBadRequest, rec.Code)
+		})
+	}
+}
+
+type failingOIDCIdentityService struct {
+	*stubAdminService
+	err error
+}
+
+func (f *failingOIDCIdentityService) AdminBindAPIKeyOIDCIdentity(_ context.Context, _ int64, _, _ string) (*service.APIKey, error) {
+	return nil, f.err
+}
+
+func TestAdminAPIKeyHandler_BindOIDCIdentity_Conflict(t *testing.T) {
+	router := setupAPIKeyHandler(&failingOIDCIdentityService{
+		stubAdminService: newStubAdminService(),
+		err:              service.ErrOIDCGatewayIdentityConflict,
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/api-keys/10/oidc-identity", bytes.NewBufferString(`{
+		"issuer": "https://idp.example.com",
+		"subject": "already-bound"
+	}`))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusConflict, rec.Code)
+	require.Contains(t, rec.Body.String(), "OIDC_GATEWAY_IDENTITY_CONFLICT")
 }

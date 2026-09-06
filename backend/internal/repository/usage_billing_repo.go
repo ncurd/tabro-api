@@ -3,12 +3,21 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
+	"net"
 	"strings"
+	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/lib/pq"
+)
+
+const (
+	usageBillingApplyMaxAttempts = 3
+	usageBillingRetryBaseDelay   = 50 * time.Millisecond
 )
 
 type usageBillingRepository struct {
@@ -32,6 +41,34 @@ func (r *usageBillingRepository) Apply(ctx context.Context, cmd *service.UsageBi
 		return nil, service.ErrUsageBillingRequestIDRequired
 	}
 
+	var lastErr error
+	for attempt := 1; attempt <= usageBillingApplyMaxAttempts; attempt++ {
+		result, applyErr := r.applyOnce(ctx, cmd)
+		if applyErr == nil {
+			return result, nil
+		}
+		lastErr = applyErr
+		if attempt == usageBillingApplyMaxAttempts || !isRetryableUsageBillingError(applyErr) {
+			return nil, applyErr
+		}
+
+		delay := usageBillingRetryBaseDelay * time.Duration(1<<(attempt-1))
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, lastErr
+		case <-timer.C:
+		}
+	}
+	return nil, lastErr
+}
+
+// applyOnce commits the dedup claim, durable ledger and every monetary/quota
+// effect in one transaction. Apply may safely retry this operation after an
+// ambiguous transient database failure: a committed first attempt is observed
+// through the same request-id/fingerprint claim and cannot be charged twice.
+func (r *usageBillingRepository) applyOnce(ctx context.Context, cmd *service.UsageBillingCommand) (_ *service.UsageBillingApplyResult, err error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -54,12 +91,149 @@ func (r *usageBillingRepository) Apply(ctx context.Context, cmd *service.UsageBi
 	if err := r.applyUsageBillingEffects(ctx, tx, cmd, result); err != nil {
 		return nil, err
 	}
+	if err := insertGatewayUsageLedger(ctx, tx, cmd); err != nil {
+		return nil, err
+	}
 
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	tx = nil
 	return result, nil
+}
+
+func isRetryableUsageBillingError(err error) bool {
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
+		errors.Is(err, service.ErrUsageBillingRequestIDRequired) || errors.Is(err, service.ErrUsageBillingRequestConflict) {
+		return false
+	}
+	if errors.Is(err, driver.ErrBadConn) {
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr != nil && (netErr.Timeout() || netErr.Temporary()) {
+		return true
+	}
+	var pqErr *pq.Error
+	if !errors.As(err, &pqErr) || pqErr == nil {
+		return false
+	}
+	code := string(pqErr.Code)
+	return strings.HasPrefix(code, "08") || // connection_exception
+		strings.HasPrefix(code, "40") || // transaction_rollback, including serialization/deadlock
+		code == "53300" || // too_many_connections
+		code == "55P03" || // lock_not_available
+		code == "57P01" || // admin_shutdown
+		code == "57P02" || // crash_shutdown
+		code == "57P03" || // cannot_connect_now
+		code == "58030" // io_error
+}
+
+func insertGatewayUsageLedger(ctx context.Context, tx *sql.Tx, cmd *service.UsageBillingCommand) error {
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO gateway_usage_ledger (
+			request_id,
+			upstream_request_id,
+			api_key_id,
+			request_fingerprint,
+			user_id,
+			account_id,
+			subscription_id,
+			oidc_issuer,
+			oidc_subject,
+			oidc_tenant,
+			tabro_run_id,
+			tabro_project_id,
+			model,
+			requested_model,
+			upstream_model,
+			service_tier,
+			reasoning_effort,
+			billing_type,
+			billing_mode,
+			input_tokens,
+			output_tokens,
+			cache_creation_tokens,
+			cache_read_tokens,
+			cache_creation_5m_tokens,
+			cache_creation_1h_tokens,
+			image_output_tokens,
+			image_count,
+			media_type,
+			input_cost,
+			output_cost,
+			cache_creation_cost,
+			cache_read_cost,
+			image_output_cost,
+			total_cost,
+			actual_cost,
+			rate_multiplier,
+			account_rate_multiplier,
+			balance_cost,
+			subscription_cost,
+			api_key_quota_cost,
+			api_key_rate_limit_cost,
+			account_quota_cost
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+			$11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+			$21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
+			$31, $32, $33, $34, $35, $36, $37, $38, $39, $40,
+			$41, $42
+		)
+	`,
+		cmd.RequestID,
+		nullableUsageBillingString(cmd.UpstreamRequestID),
+		cmd.APIKeyID,
+		cmd.RequestFingerprint,
+		cmd.UserID,
+		cmd.AccountID,
+		cmd.SubscriptionID,
+		cmd.OIDCIssuer,
+		cmd.OIDCSubject,
+		cmd.OIDCTenant,
+		cmd.TabroRunID,
+		cmd.TabroProjectID,
+		cmd.Model,
+		cmd.RequestedModel,
+		cmd.UpstreamModel,
+		nullableUsageBillingString(cmd.ServiceTier),
+		nullableUsageBillingString(cmd.ReasoningEffort),
+		cmd.BillingType,
+		nullableUsageBillingString(cmd.BillingMode),
+		cmd.InputTokens,
+		cmd.OutputTokens,
+		cmd.CacheCreationTokens,
+		cmd.CacheReadTokens,
+		cmd.CacheCreation5mTokens,
+		cmd.CacheCreation1hTokens,
+		cmd.ImageOutputTokens,
+		cmd.ImageCount,
+		nullableUsageBillingString(cmd.MediaType),
+		cmd.InputCost,
+		cmd.OutputCost,
+		cmd.CacheCreationCost,
+		cmd.CacheReadCost,
+		cmd.ImageOutputCost,
+		cmd.TotalCost,
+		cmd.ActualCost,
+		cmd.RateMultiplier,
+		cmd.AccountRateMultiplier,
+		cmd.BalanceCost,
+		cmd.SubscriptionCost,
+		cmd.APIKeyQuotaCost,
+		cmd.APIKeyRateLimitCost,
+		cmd.AccountQuotaCost,
+	)
+	return err
+}
+
+func nullableUsageBillingString(value string) any {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	return value
 }
 
 func (r *usageBillingRepository) claimUsageBillingKey(ctx context.Context, tx *sql.Tx, cmd *service.UsageBillingCommand) (bool, error) {

@@ -35,6 +35,15 @@ func (r *oidcLoginUserRepoStub) GetByEmail(_ context.Context, email string) (*se
 	return user, nil
 }
 
+func (r *oidcLoginUserRepoStub) GetByID(_ context.Context, id int64) (*service.User, error) {
+	for _, user := range r.usersByEmail {
+		if user.ID == id {
+			return user, nil
+		}
+	}
+	return nil, service.ErrUserNotFound
+}
+
 func (r *oidcLoginUserRepoStub) Create(_ context.Context, _ *service.User) error {
 	r.createCalls++
 	return nil
@@ -45,6 +54,31 @@ type oidcLoginAPIKeyRepoStub struct {
 	keys      map[string]*service.APIKey
 	created   []*service.APIKey
 	nextKeyID int64
+}
+
+func (r *oidcLoginAPIKeyRepoStub) BindOIDCIdentity(_ context.Context, id int64, issuer, subject string) error {
+	for _, apiKey := range r.keys {
+		if apiKey.ID != id {
+			continue
+		}
+		if (apiKey.OIDCIssuer != "" || apiKey.OIDCSubject != "") && (apiKey.OIDCIssuer != issuer || apiKey.OIDCSubject != subject) {
+			return service.ErrOIDCGatewayIdentityConflict
+		}
+		apiKey.OIDCIssuer = issuer
+		apiKey.OIDCSubject = subject
+		return nil
+	}
+	return service.ErrAPIKeyNotFound
+}
+
+func (r *oidcLoginAPIKeyRepoStub) GetByOIDCIdentity(_ context.Context, issuer, subject string) (*service.APIKey, error) {
+	for _, apiKey := range r.keys {
+		if apiKey.OIDCIssuer == issuer && apiKey.OIDCSubject == subject {
+			clone := *apiKey
+			return &clone, nil
+		}
+	}
+	return nil, service.ErrAPIKeyNotFound
 }
 
 func (r *oidcLoginAPIKeyRepoStub) GetByKeyForAuth(_ context.Context, key string) (*service.APIKey, error) {
@@ -177,6 +211,8 @@ func TestLoginOIDCWithTokenPairCreatesPersistentBillingKey(t *testing.T) {
 		user.Username,
 		"",
 		false,
+		"https://issuer.example.com",
+		"subject-91",
 	)
 	require.NoError(t, err)
 	require.NotNil(t, pair)
@@ -189,6 +225,8 @@ func TestLoginOIDCWithTokenPairCreatesPersistentBillingKey(t *testing.T) {
 	require.Equal(t, user.ID, createdKey.UserID)
 	require.Equal(t, "OIDC Access Token", createdKey.Name)
 	require.True(t, createdKey.OIDCManaged)
+	require.Equal(t, "https://issuer.example.com", apiKeyRepo.keys[createdKey.Key].OIDCIssuer)
+	require.Equal(t, "subject-91", apiKeyRepo.keys[createdKey.Key].OIDCSubject)
 	persistedKey, ok := apiKeyRepo.keys[createdKey.Key]
 	require.True(t, ok)
 	require.Equal(t, createdKey.ID, persistedKey.ID)
@@ -202,6 +240,48 @@ func TestLoginOIDCWithTokenPairCreatesPersistentBillingKey(t *testing.T) {
 	require.Len(t, refreshCache.stored, 1)
 	require.Equal(t, service.AuthMethodOIDC, refreshCache.stored[0].AuthMethod)
 	require.Equal(t, createdKey.ID, refreshCache.stored[0].BillingAPIKeyID)
+}
+
+func TestLoginOIDCWithTokenPairPrefersImmutableIdentityBindingOverEmail(t *testing.T) {
+	user := &service.User{
+		ID:           93,
+		Email:        "bound-user@example.com",
+		Username:     "bound-user",
+		Role:         service.RoleUser,
+		Status:       service.StatusActive,
+		TokenVersion: 2,
+	}
+	handler, authService, userRepo, apiKeyRepo, _ := newOIDCLoginIntegrationServices(user, nil)
+	apiKeyRepo.keys["oidc-internal:existing"] = &service.APIKey{
+		ID:          8101,
+		UserID:      user.ID,
+		Key:         "oidc-internal:existing",
+		Name:        "OIDC Access Token",
+		Status:      service.StatusActive,
+		OIDCManaged: true,
+		OIDCIssuer:  "https://issuer.example.com",
+		OIDCSubject: "stable-subject-93",
+	}
+
+	pair, resolvedUser, err := handler.loginOIDCWithTokenPair(
+		context.Background(),
+		"changed-or-untrusted@example.net",
+		"ignored-name",
+		"",
+		false,
+		"https://issuer.example.com",
+		"stable-subject-93",
+	)
+	require.NoError(t, err)
+	require.NotNil(t, pair)
+	require.Same(t, user, resolvedUser)
+	require.Zero(t, userRepo.createCalls)
+	require.Empty(t, apiKeyRepo.created)
+
+	claims, err := authService.ValidateToken(pair.AccessToken)
+	require.NoError(t, err)
+	require.Equal(t, int64(8101), claims.BillingAPIKeyID)
+	require.Equal(t, user.ID, claims.UserID)
 }
 
 func TestLoginOIDCWithTokenPairBackendModeRejectsNonAdminWithoutSideEffects(t *testing.T) {
@@ -231,6 +311,8 @@ func TestLoginOIDCWithTokenPairBackendModeRejectsNonAdminWithoutSideEffects(t *t
 		user.Username,
 		"",
 		true,
+		"https://issuer.example.com",
+		"subject-92",
 	)
 	require.ErrorIs(t, err, service.ErrInvalidCredentials)
 	require.Nil(t, pair)

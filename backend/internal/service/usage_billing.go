@@ -14,25 +14,48 @@ var ErrUsageBillingRequestConflict = errors.New("usage billing request fingerpri
 
 // UsageBillingCommand describes one billable request that must be applied at most once.
 type UsageBillingCommand struct {
-	RequestID          string
+	RequestID string
+	// UpstreamRequestID is the provider-assigned request identifier used for
+	// reconciliation. RequestID remains the stable gateway billing/dedup key.
+	UpstreamRequestID  string
 	APIKeyID           int64
 	RequestFingerprint string
 	RequestPayloadHash string
 
-	UserID              int64
-	AccountID           int64
-	SubscriptionID      *int64
-	AccountType         string
-	Model               string
-	ServiceTier         string
-	ReasoningEffort     string
-	BillingType         int8
-	InputTokens         int
-	OutputTokens        int
-	CacheCreationTokens int
-	CacheReadTokens     int
-	ImageCount          int
-	MediaType           string
+	UserID                int64
+	AccountID             int64
+	SubscriptionID        *int64
+	AccountType           string
+	OIDCIssuer            *string
+	OIDCSubject           *string
+	OIDCTenant            *string
+	TabroRunID            *string
+	TabroProjectID        *string
+	Model                 string
+	RequestedModel        string
+	UpstreamModel         *string
+	ServiceTier           string
+	ReasoningEffort       string
+	BillingType           int8
+	BillingMode           string
+	InputTokens           int
+	OutputTokens          int
+	CacheCreationTokens   int
+	CacheReadTokens       int
+	CacheCreation5mTokens int
+	CacheCreation1hTokens int
+	ImageOutputTokens     int
+	ImageCount            int
+	MediaType             string
+	InputCost             float64
+	OutputCost            float64
+	CacheCreationCost     float64
+	CacheReadCost         float64
+	ImageOutputCost       float64
+	TotalCost             float64
+	ActualCost            float64
+	RateMultiplier        float64
+	AccountRateMultiplier *float64
 
 	BalanceCost         float64
 	SubscriptionCost    float64
@@ -46,6 +69,12 @@ func (c *UsageBillingCommand) Normalize() {
 		return
 	}
 	c.RequestID = strings.TrimSpace(c.RequestID)
+	c.UpstreamRequestID = strings.TrimSpace(c.UpstreamRequestID)
+	c.Model = strings.TrimSpace(c.Model)
+	c.RequestedModel = strings.TrimSpace(c.RequestedModel)
+	if c.RequestedModel == "" {
+		c.RequestedModel = c.Model
+	}
 	if strings.TrimSpace(c.RequestFingerprint) == "" {
 		c.RequestFingerprint = buildUsageBillingFingerprint(c)
 	}

@@ -75,6 +75,31 @@ func RequestID(v string) predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldEQ(FieldRequestID, v))
 }
 
+// OidcIssuer applies equality check predicate on the "oidc_issuer" field. It's identical to OidcIssuerEQ.
+func OidcIssuer(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldOidcIssuer, v))
+}
+
+// OidcSubject applies equality check predicate on the "oidc_subject" field. It's identical to OidcSubjectEQ.
+func OidcSubject(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldOidcSubject, v))
+}
+
+// OidcTenant applies equality check predicate on the "oidc_tenant" field. It's identical to OidcTenantEQ.
+func OidcTenant(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldOidcTenant, v))
+}
+
+// TabroRunID applies equality check predicate on the "tabro_run_id" field. It's identical to TabroRunIDEQ.
+func TabroRunID(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldTabroRunID, v))
+}
+
+// TabroProjectID applies equality check predicate on the "tabro_project_id" field. It's identical to TabroProjectIDEQ.
+func TabroProjectID(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldTabroProjectID, v))
+}
+
 // Model applies equality check predicate on the "model" field. It's identical to ModelEQ.
 func Model(v string) predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldEQ(FieldModel, v))
@@ -363,6 +388,381 @@ func RequestIDEqualFold(v string) predicate.UsageLog {
 // RequestIDContainsFold applies the ContainsFold predicate on the "request_id" field.
 func RequestIDContainsFold(v string) predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldContainsFold(FieldRequestID, v))
+}
+
+// OidcIssuerEQ applies the EQ predicate on the "oidc_issuer" field.
+func OidcIssuerEQ(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldOidcIssuer, v))
+}
+
+// OidcIssuerNEQ applies the NEQ predicate on the "oidc_issuer" field.
+func OidcIssuerNEQ(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNEQ(FieldOidcIssuer, v))
+}
+
+// OidcIssuerIn applies the In predicate on the "oidc_issuer" field.
+func OidcIssuerIn(vs ...string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIn(FieldOidcIssuer, vs...))
+}
+
+// OidcIssuerNotIn applies the NotIn predicate on the "oidc_issuer" field.
+func OidcIssuerNotIn(vs ...string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotIn(FieldOidcIssuer, vs...))
+}
+
+// OidcIssuerGT applies the GT predicate on the "oidc_issuer" field.
+func OidcIssuerGT(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGT(FieldOidcIssuer, v))
+}
+
+// OidcIssuerGTE applies the GTE predicate on the "oidc_issuer" field.
+func OidcIssuerGTE(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGTE(FieldOidcIssuer, v))
+}
+
+// OidcIssuerLT applies the LT predicate on the "oidc_issuer" field.
+func OidcIssuerLT(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLT(FieldOidcIssuer, v))
+}
+
+// OidcIssuerLTE applies the LTE predicate on the "oidc_issuer" field.
+func OidcIssuerLTE(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLTE(FieldOidcIssuer, v))
+}
+
+// OidcIssuerContains applies the Contains predicate on the "oidc_issuer" field.
+func OidcIssuerContains(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldContains(FieldOidcIssuer, v))
+}
+
+// OidcIssuerHasPrefix applies the HasPrefix predicate on the "oidc_issuer" field.
+func OidcIssuerHasPrefix(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldHasPrefix(FieldOidcIssuer, v))
+}
+
+// OidcIssuerHasSuffix applies the HasSuffix predicate on the "oidc_issuer" field.
+func OidcIssuerHasSuffix(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldHasSuffix(FieldOidcIssuer, v))
+}
+
+// OidcIssuerIsNil applies the IsNil predicate on the "oidc_issuer" field.
+func OidcIssuerIsNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIsNull(FieldOidcIssuer))
+}
+
+// OidcIssuerNotNil applies the NotNil predicate on the "oidc_issuer" field.
+func OidcIssuerNotNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotNull(FieldOidcIssuer))
+}
+
+// OidcIssuerEqualFold applies the EqualFold predicate on the "oidc_issuer" field.
+func OidcIssuerEqualFold(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEqualFold(FieldOidcIssuer, v))
+}
+
+// OidcIssuerContainsFold applies the ContainsFold predicate on the "oidc_issuer" field.
+func OidcIssuerContainsFold(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldContainsFold(FieldOidcIssuer, v))
+}
+
+// OidcSubjectEQ applies the EQ predicate on the "oidc_subject" field.
+func OidcSubjectEQ(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldOidcSubject, v))
+}
+
+// OidcSubjectNEQ applies the NEQ predicate on the "oidc_subject" field.
+func OidcSubjectNEQ(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNEQ(FieldOidcSubject, v))
+}
+
+// OidcSubjectIn applies the In predicate on the "oidc_subject" field.
+func OidcSubjectIn(vs ...string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIn(FieldOidcSubject, vs...))
+}
+
+// OidcSubjectNotIn applies the NotIn predicate on the "oidc_subject" field.
+func OidcSubjectNotIn(vs ...string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotIn(FieldOidcSubject, vs...))
+}
+
+// OidcSubjectGT applies the GT predicate on the "oidc_subject" field.
+func OidcSubjectGT(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGT(FieldOidcSubject, v))
+}
+
+// OidcSubjectGTE applies the GTE predicate on the "oidc_subject" field.
+func OidcSubjectGTE(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGTE(FieldOidcSubject, v))
+}
+
+// OidcSubjectLT applies the LT predicate on the "oidc_subject" field.
+func OidcSubjectLT(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLT(FieldOidcSubject, v))
+}
+
+// OidcSubjectLTE applies the LTE predicate on the "oidc_subject" field.
+func OidcSubjectLTE(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLTE(FieldOidcSubject, v))
+}
+
+// OidcSubjectContains applies the Contains predicate on the "oidc_subject" field.
+func OidcSubjectContains(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldContains(FieldOidcSubject, v))
+}
+
+// OidcSubjectHasPrefix applies the HasPrefix predicate on the "oidc_subject" field.
+func OidcSubjectHasPrefix(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldHasPrefix(FieldOidcSubject, v))
+}
+
+// OidcSubjectHasSuffix applies the HasSuffix predicate on the "oidc_subject" field.
+func OidcSubjectHasSuffix(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldHasSuffix(FieldOidcSubject, v))
+}
+
+// OidcSubjectIsNil applies the IsNil predicate on the "oidc_subject" field.
+func OidcSubjectIsNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIsNull(FieldOidcSubject))
+}
+
+// OidcSubjectNotNil applies the NotNil predicate on the "oidc_subject" field.
+func OidcSubjectNotNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotNull(FieldOidcSubject))
+}
+
+// OidcSubjectEqualFold applies the EqualFold predicate on the "oidc_subject" field.
+func OidcSubjectEqualFold(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEqualFold(FieldOidcSubject, v))
+}
+
+// OidcSubjectContainsFold applies the ContainsFold predicate on the "oidc_subject" field.
+func OidcSubjectContainsFold(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldContainsFold(FieldOidcSubject, v))
+}
+
+// OidcTenantEQ applies the EQ predicate on the "oidc_tenant" field.
+func OidcTenantEQ(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldOidcTenant, v))
+}
+
+// OidcTenantNEQ applies the NEQ predicate on the "oidc_tenant" field.
+func OidcTenantNEQ(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNEQ(FieldOidcTenant, v))
+}
+
+// OidcTenantIn applies the In predicate on the "oidc_tenant" field.
+func OidcTenantIn(vs ...string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIn(FieldOidcTenant, vs...))
+}
+
+// OidcTenantNotIn applies the NotIn predicate on the "oidc_tenant" field.
+func OidcTenantNotIn(vs ...string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotIn(FieldOidcTenant, vs...))
+}
+
+// OidcTenantGT applies the GT predicate on the "oidc_tenant" field.
+func OidcTenantGT(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGT(FieldOidcTenant, v))
+}
+
+// OidcTenantGTE applies the GTE predicate on the "oidc_tenant" field.
+func OidcTenantGTE(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGTE(FieldOidcTenant, v))
+}
+
+// OidcTenantLT applies the LT predicate on the "oidc_tenant" field.
+func OidcTenantLT(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLT(FieldOidcTenant, v))
+}
+
+// OidcTenantLTE applies the LTE predicate on the "oidc_tenant" field.
+func OidcTenantLTE(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLTE(FieldOidcTenant, v))
+}
+
+// OidcTenantContains applies the Contains predicate on the "oidc_tenant" field.
+func OidcTenantContains(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldContains(FieldOidcTenant, v))
+}
+
+// OidcTenantHasPrefix applies the HasPrefix predicate on the "oidc_tenant" field.
+func OidcTenantHasPrefix(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldHasPrefix(FieldOidcTenant, v))
+}
+
+// OidcTenantHasSuffix applies the HasSuffix predicate on the "oidc_tenant" field.
+func OidcTenantHasSuffix(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldHasSuffix(FieldOidcTenant, v))
+}
+
+// OidcTenantIsNil applies the IsNil predicate on the "oidc_tenant" field.
+func OidcTenantIsNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIsNull(FieldOidcTenant))
+}
+
+// OidcTenantNotNil applies the NotNil predicate on the "oidc_tenant" field.
+func OidcTenantNotNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotNull(FieldOidcTenant))
+}
+
+// OidcTenantEqualFold applies the EqualFold predicate on the "oidc_tenant" field.
+func OidcTenantEqualFold(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEqualFold(FieldOidcTenant, v))
+}
+
+// OidcTenantContainsFold applies the ContainsFold predicate on the "oidc_tenant" field.
+func OidcTenantContainsFold(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldContainsFold(FieldOidcTenant, v))
+}
+
+// TabroRunIDEQ applies the EQ predicate on the "tabro_run_id" field.
+func TabroRunIDEQ(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldTabroRunID, v))
+}
+
+// TabroRunIDNEQ applies the NEQ predicate on the "tabro_run_id" field.
+func TabroRunIDNEQ(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNEQ(FieldTabroRunID, v))
+}
+
+// TabroRunIDIn applies the In predicate on the "tabro_run_id" field.
+func TabroRunIDIn(vs ...string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIn(FieldTabroRunID, vs...))
+}
+
+// TabroRunIDNotIn applies the NotIn predicate on the "tabro_run_id" field.
+func TabroRunIDNotIn(vs ...string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotIn(FieldTabroRunID, vs...))
+}
+
+// TabroRunIDGT applies the GT predicate on the "tabro_run_id" field.
+func TabroRunIDGT(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGT(FieldTabroRunID, v))
+}
+
+// TabroRunIDGTE applies the GTE predicate on the "tabro_run_id" field.
+func TabroRunIDGTE(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGTE(FieldTabroRunID, v))
+}
+
+// TabroRunIDLT applies the LT predicate on the "tabro_run_id" field.
+func TabroRunIDLT(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLT(FieldTabroRunID, v))
+}
+
+// TabroRunIDLTE applies the LTE predicate on the "tabro_run_id" field.
+func TabroRunIDLTE(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLTE(FieldTabroRunID, v))
+}
+
+// TabroRunIDContains applies the Contains predicate on the "tabro_run_id" field.
+func TabroRunIDContains(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldContains(FieldTabroRunID, v))
+}
+
+// TabroRunIDHasPrefix applies the HasPrefix predicate on the "tabro_run_id" field.
+func TabroRunIDHasPrefix(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldHasPrefix(FieldTabroRunID, v))
+}
+
+// TabroRunIDHasSuffix applies the HasSuffix predicate on the "tabro_run_id" field.
+func TabroRunIDHasSuffix(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldHasSuffix(FieldTabroRunID, v))
+}
+
+// TabroRunIDIsNil applies the IsNil predicate on the "tabro_run_id" field.
+func TabroRunIDIsNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIsNull(FieldTabroRunID))
+}
+
+// TabroRunIDNotNil applies the NotNil predicate on the "tabro_run_id" field.
+func TabroRunIDNotNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotNull(FieldTabroRunID))
+}
+
+// TabroRunIDEqualFold applies the EqualFold predicate on the "tabro_run_id" field.
+func TabroRunIDEqualFold(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEqualFold(FieldTabroRunID, v))
+}
+
+// TabroRunIDContainsFold applies the ContainsFold predicate on the "tabro_run_id" field.
+func TabroRunIDContainsFold(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldContainsFold(FieldTabroRunID, v))
+}
+
+// TabroProjectIDEQ applies the EQ predicate on the "tabro_project_id" field.
+func TabroProjectIDEQ(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldTabroProjectID, v))
+}
+
+// TabroProjectIDNEQ applies the NEQ predicate on the "tabro_project_id" field.
+func TabroProjectIDNEQ(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNEQ(FieldTabroProjectID, v))
+}
+
+// TabroProjectIDIn applies the In predicate on the "tabro_project_id" field.
+func TabroProjectIDIn(vs ...string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIn(FieldTabroProjectID, vs...))
+}
+
+// TabroProjectIDNotIn applies the NotIn predicate on the "tabro_project_id" field.
+func TabroProjectIDNotIn(vs ...string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotIn(FieldTabroProjectID, vs...))
+}
+
+// TabroProjectIDGT applies the GT predicate on the "tabro_project_id" field.
+func TabroProjectIDGT(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGT(FieldTabroProjectID, v))
+}
+
+// TabroProjectIDGTE applies the GTE predicate on the "tabro_project_id" field.
+func TabroProjectIDGTE(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGTE(FieldTabroProjectID, v))
+}
+
+// TabroProjectIDLT applies the LT predicate on the "tabro_project_id" field.
+func TabroProjectIDLT(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLT(FieldTabroProjectID, v))
+}
+
+// TabroProjectIDLTE applies the LTE predicate on the "tabro_project_id" field.
+func TabroProjectIDLTE(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLTE(FieldTabroProjectID, v))
+}
+
+// TabroProjectIDContains applies the Contains predicate on the "tabro_project_id" field.
+func TabroProjectIDContains(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldContains(FieldTabroProjectID, v))
+}
+
+// TabroProjectIDHasPrefix applies the HasPrefix predicate on the "tabro_project_id" field.
+func TabroProjectIDHasPrefix(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldHasPrefix(FieldTabroProjectID, v))
+}
+
+// TabroProjectIDHasSuffix applies the HasSuffix predicate on the "tabro_project_id" field.
+func TabroProjectIDHasSuffix(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldHasSuffix(FieldTabroProjectID, v))
+}
+
+// TabroProjectIDIsNil applies the IsNil predicate on the "tabro_project_id" field.
+func TabroProjectIDIsNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIsNull(FieldTabroProjectID))
+}
+
+// TabroProjectIDNotNil applies the NotNil predicate on the "tabro_project_id" field.
+func TabroProjectIDNotNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotNull(FieldTabroProjectID))
+}
+
+// TabroProjectIDEqualFold applies the EqualFold predicate on the "tabro_project_id" field.
+func TabroProjectIDEqualFold(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEqualFold(FieldTabroProjectID, v))
+}
+
+// TabroProjectIDContainsFold applies the ContainsFold predicate on the "tabro_project_id" field.
+func TabroProjectIDContainsFold(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldContainsFold(FieldTabroProjectID, v))
 }
 
 // ModelEQ applies the EQ predicate on the "model" field.

@@ -50,6 +50,16 @@ func (APIKey) Fields() []ent.Field {
 		field.Bool("oidc_managed").
 			Default(false).
 			Comment("Internal billing identity for signed OIDC access tokens"),
+		field.String("oidc_issuer").
+			MaxLen(512).
+			Optional().
+			Nillable().
+			Comment("Verified external issuer bound to this billing identity"),
+		field.String("oidc_subject").
+			MaxLen(512).
+			Optional().
+			Nillable().
+			Comment("Verified external subject bound to this billing identity"),
 		field.Time("last_used_at").
 			Optional().
 			Nillable().
@@ -144,6 +154,7 @@ func (APIKey) Indexes() []ent.Index {
 		index.Fields("status"),
 		index.Fields("deleted_at"),
 		index.Fields("last_used_at"),
+		index.Fields("oidc_issuer", "oidc_subject"),
 		// Index for quota queries
 		index.Fields("quota", "quota_used"),
 		index.Fields("expires_at"),

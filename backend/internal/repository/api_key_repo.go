@@ -52,6 +52,12 @@ func (r *apiKeyRepository) Create(ctx context.Context, key *service.APIKey) erro
 		SetRateLimit5h(key.RateLimit5h).
 		SetRateLimit1d(key.RateLimit1d).
 		SetRateLimit7d(key.RateLimit7d)
+	if key.OIDCIssuer != "" {
+		builder.SetOidcIssuer(key.OIDCIssuer)
+	}
+	if key.OIDCSubject != "" {
+		builder.SetOidcSubject(key.OIDCSubject)
+	}
 
 	if len(key.IPWhitelist) > 0 {
 		builder.SetIPWhitelist(key.IPWhitelist)
@@ -117,6 +123,57 @@ func (r *apiKeyRepository) GetByKey(ctx context.Context, key string) (*service.A
 		return nil, err
 	}
 	return apiKeyEntityToService(m), nil
+}
+
+func (r *apiKeyRepository) GetByOIDCIdentity(ctx context.Context, issuer, subject string) (*service.APIKey, error) {
+	m, err := r.activeQuery().
+		Where(
+			apikey.OidcIssuerEQ(strings.TrimSpace(issuer)),
+			apikey.OidcSubjectEQ(strings.TrimSpace(subject)),
+		).
+		WithUser().
+		WithGroup().
+		Only(ctx)
+	if err != nil {
+		if dbent.IsNotFound(err) {
+			return nil, service.ErrAPIKeyNotFound
+		}
+		return nil, err
+	}
+	return apiKeyEntityToService(m), nil
+}
+
+func (r *apiKeyRepository) BindOIDCIdentity(ctx context.Context, id int64, issuer, subject string) error {
+	issuer = strings.TrimSpace(issuer)
+	subject = strings.TrimSpace(subject)
+	if id <= 0 || issuer == "" || subject == "" {
+		return service.ErrOIDCGatewayIdentityConflict
+	}
+
+	client := clientFromContext(ctx, r.client)
+	affected, err := client.APIKey.Update().
+		Where(
+			apikey.IDEQ(id),
+			apikey.DeletedAtIsNil(),
+			apikey.Or(
+				apikey.And(apikey.OidcIssuerIsNil(), apikey.OidcSubjectIsNil()),
+				apikey.And(apikey.OidcIssuerEQ(issuer), apikey.OidcSubjectEQ(subject)),
+			),
+		).
+		SetOidcIssuer(issuer).
+		SetOidcSubject(subject).
+		SetUpdatedAt(time.Now()).
+		Save(ctx)
+	if err != nil {
+		if dbent.IsConstraintError(err) {
+			return service.ErrOIDCGatewayIdentityConflict
+		}
+		return err
+	}
+	if affected == 0 {
+		return service.ErrOIDCGatewayIdentityConflict
+	}
+	return nil
 }
 
 func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*service.APIKey, error) {
@@ -617,6 +674,8 @@ func apiKeyEntityToService(m *dbent.APIKey) *service.APIKey {
 		Name:          m.Name,
 		Status:        m.Status,
 		OIDCManaged:   m.OidcManaged,
+		OIDCIssuer:    derefString(m.OidcIssuer),
+		OIDCSubject:   derefString(m.OidcSubject),
 		IPWhitelist:   m.IPWhitelist,
 		IPBlacklist:   m.IPBlacklist,
 		LastUsedAt:    m.LastUsedAt,

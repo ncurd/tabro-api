@@ -22,6 +22,16 @@ const (
 	FieldAccountID = "account_id"
 	// FieldRequestID holds the string denoting the request_id field in the database.
 	FieldRequestID = "request_id"
+	// FieldOidcIssuer holds the string denoting the oidc_issuer field in the database.
+	FieldOidcIssuer = "oidc_issuer"
+	// FieldOidcSubject holds the string denoting the oidc_subject field in the database.
+	FieldOidcSubject = "oidc_subject"
+	// FieldOidcTenant holds the string denoting the oidc_tenant field in the database.
+	FieldOidcTenant = "oidc_tenant"
+	// FieldTabroRunID holds the string denoting the tabro_run_id field in the database.
+	FieldTabroRunID = "tabro_run_id"
+	// FieldTabroProjectID holds the string denoting the tabro_project_id field in the database.
+	FieldTabroProjectID = "tabro_project_id"
 	// FieldModel holds the string denoting the model field in the database.
 	FieldModel = "model"
 	// FieldRequestedModel holds the string denoting the requested_model field in the database.
@@ -144,6 +154,11 @@ var Columns = []string{
 	FieldAPIKeyID,
 	FieldAccountID,
 	FieldRequestID,
+	FieldOidcIssuer,
+	FieldOidcSubject,
+	FieldOidcTenant,
+	FieldTabroRunID,
+	FieldTabroProjectID,
 	FieldModel,
 	FieldRequestedModel,
 	FieldUpstreamModel,
@@ -274,6 +289,31 @@ func ByAccountID(opts ...sql.OrderTermOption) OrderOption {
 // ByRequestID orders the results by the request_id field.
 func ByRequestID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldRequestID, opts...).ToFunc()
+}
+
+// ByOidcIssuer orders the results by the oidc_issuer field.
+func ByOidcIssuer(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldOidcIssuer, opts...).ToFunc()
+}
+
+// ByOidcSubject orders the results by the oidc_subject field.
+func ByOidcSubject(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldOidcSubject, opts...).ToFunc()
+}
+
+// ByOidcTenant orders the results by the oidc_tenant field.
+func ByOidcTenant(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldOidcTenant, opts...).ToFunc()
+}
+
+// ByTabroRunID orders the results by the tabro_run_id field.
+func ByTabroRunID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldTabroRunID, opts...).ToFunc()
+}
+
+// ByTabroProjectID orders the results by the tabro_project_id field.
+func ByTabroProjectID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldTabroProjectID, opts...).ToFunc()
 }
 
 // ByModel orders the results by the model field.

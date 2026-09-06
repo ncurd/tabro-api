@@ -2,6 +2,8 @@ package handler
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,9 +11,11 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -385,7 +389,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		requestPayloadHash := service.HashUsageRequestPayload(body)
 
 		// 使用量记录通过有界 worker 池提交，避免请求热路径创建无界 goroutine。
-		h.submitUsageRecordTask(func(ctx context.Context) {
+		h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 			if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
 				Result:             result,
 				APIKey:             apiKey,
@@ -604,7 +608,7 @@ func (h *OpenAIGatewayHandler) forwardOpenAIImagesGenerationBody(
 		userAgent := c.GetHeader("User-Agent")
 		clientIP := ip.GetClientIP(c)
 		requestPayloadHash := service.HashUsageRequestPayload(body)
-		h.submitUsageRecordTask(func(ctx context.Context) {
+		h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 			if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
 				Result:             result,
 				APIKey:             apiKey,
@@ -984,7 +988,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		clientIP := ip.GetClientIP(c)
 		requestPayloadHash := service.HashUsageRequestPayload(body)
 
-		h.submitUsageRecordTask(func(ctx context.Context) {
+		h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 			if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
 				Result:             result,
 				APIKey:             apiKey,
@@ -1295,11 +1299,22 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	}()
 	wsConn.SetReadLimit(16 * 1024 * 1024)
 
-	ctx := c.Request.Context()
-	readCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	ctx, cancelGatewaySession := openAIWSSessionContext(c.Request.Context())
+	defer cancelGatewaySession()
+	wsBillingBaseID := openAIWSBillingBaseID(ctx)
+	firstReadDeadline := time.Now().Add(30 * time.Second)
+	if expiresAt, ok := openAIWSOIDCExpiration(ctx); ok && expiresAt.Before(firstReadDeadline) {
+		firstReadDeadline = expiresAt
+	}
+	readCtx, cancel := context.WithDeadline(ctx, firstReadDeadline)
 	msgType, firstMessage, err := wsConn.Read(readCtx)
 	cancel()
 	if err != nil {
+		if openAIWSOIDCTokenExpired(ctx, time.Now()) {
+			reqLog.Info("openai.websocket_gateway_token_expired_before_first_turn")
+			closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "gateway access token expired")
+			return
+		}
 		closeStatus, closeReason := summarizeWSCloseErrorForLog(err)
 		reqLog.Warn("openai.websocket_read_first_message_failed",
 			zap.Error(err),
@@ -1315,22 +1330,16 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "unsupported websocket message type")
 		return
 	}
-	if !gjson.ValidBytes(firstMessage) {
-		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "invalid JSON payload")
+	reqModel, previousResponseID, err := parseOpenAIWSResponseCreateTurn(firstMessage)
+	if err != nil {
+		closeReason := "invalid first response.create payload"
+		if strings.Contains(err.Error(), "previous_response_id") {
+			closeReason = err.Error()
+		}
+		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, closeReason)
 		return
 	}
-
-	reqModel := strings.TrimSpace(gjson.GetBytes(firstMessage, "model").String())
-	if reqModel == "" {
-		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "model is required in first response.create payload")
-		return
-	}
-	previousResponseID := strings.TrimSpace(gjson.GetBytes(firstMessage, "previous_response_id").String())
 	previousResponseIDKind := service.ClassifyOpenAIPreviousResponseIDKind(previousResponseID)
-	if previousResponseID != "" && previousResponseIDKind == service.OpenAIPreviousResponseIDKindMessageID {
-		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "previous_response_id must be a response.id (resp_*), not a message id")
-		return
-	}
 	reqLog = reqLog.With(
 		zap.Bool("ws_ingress", true),
 		zap.String("model", reqModel),
@@ -1340,23 +1349,56 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	setOpsRequestContext(c, reqModel, true, firstMessage)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeWSV2))
 
-	// 解析渠道级模型映射
-	channelMappingWS, _ := h.gatewayService.ResolveChannelMappingAndRestrict(ctx, apiKey.GroupID, reqModel)
-
-	var currentUserRelease func()
-	var currentAccountRelease func()
-	releaseTurnSlots := func() {
-		if currentAccountRelease != nil {
-			currentAccountRelease()
-			currentAccountRelease = nil
+	type wsTurnSlot struct {
+		userRelease    func()
+		accountRelease func()
+	}
+	var turnSlotsMu sync.Mutex
+	turnSlots := make(map[int]wsTurnSlot, 2)
+	addTurnSlot := func(turn int, userRelease, accountRelease func()) {
+		turnSlotsMu.Lock()
+		turnSlots[turn] = wsTurnSlot{userRelease: userRelease, accountRelease: accountRelease}
+		turnSlotsMu.Unlock()
+	}
+	attachAccountSlot := func(turn int, accountRelease func()) {
+		turnSlotsMu.Lock()
+		if slot, ok := turnSlots[turn]; ok {
+			slot.accountRelease = accountRelease
+			turnSlots[turn] = slot
 		}
-		if currentUserRelease != nil {
-			currentUserRelease()
-			currentUserRelease = nil
+		turnSlotsMu.Unlock()
+	}
+	releaseTurnSlot := func(turn int) {
+		turnSlotsMu.Lock()
+		slot, ok := turnSlots[turn]
+		delete(turnSlots, turn)
+		turnSlotsMu.Unlock()
+		if !ok {
+			return
+		}
+		if slot.accountRelease != nil {
+			slot.accountRelease()
+		}
+		if slot.userRelease != nil {
+			slot.userRelease()
+		}
+	}
+	releaseAllTurnSlots := func() {
+		turnSlotsMu.Lock()
+		slots := turnSlots
+		turnSlots = make(map[int]wsTurnSlot)
+		turnSlotsMu.Unlock()
+		for _, slot := range slots {
+			if slot.accountRelease != nil {
+				slot.accountRelease()
+			}
+			if slot.userRelease != nil {
+				slot.userRelease()
+			}
 		}
 	}
 	// 必须尽早注册，确保任何 early return 都能释放已获取的并发槽位。
-	defer releaseTurnSlots()
+	defer releaseAllTurnSlots()
 
 	userReleaseFunc, userAcquired, err := h.concurrencyHelper.TryAcquireUserSlot(ctx, subject.UserID, subject.Concurrency)
 	if err != nil {
@@ -1368,7 +1410,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "too many concurrent requests, please retry later")
 		return
 	}
-	currentUserRelease = wrapReleaseOnDone(ctx, userReleaseFunc)
+	addTurnSlot(1, wrapReleaseOnDone(ctx, userReleaseFunc), nil)
 
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 	if err := h.billingCacheService.CheckBillingEligibility(ctx, apiKey.User, apiKey, apiKey.Group, subscription); err != nil {
@@ -1428,7 +1470,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		}
 		accountReleaseFunc = fastReleaseFunc
 	}
-	currentAccountRelease = wrapReleaseOnDone(ctx, accountReleaseFunc)
+	attachAccountSlot(1, wrapReleaseOnDone(ctx, accountReleaseFunc))
 	if err := h.gatewayService.BindStickySession(ctx, apiKey.GroupID, sessionHash, account.ID); err != nil {
 		reqLog.Warn("openai.websocket_bind_sticky_session_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 	}
@@ -1447,14 +1489,93 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		zap.Int("candidate_count", scheduleDecision.CandidateCount),
 	)
 
+	type wsTurnMetadata struct {
+		requestPayload []byte
+		requestModel   string
+		upstreamModel  string
+		channelMapping service.ChannelMappingResult
+	}
+	var turnMetadataMu sync.Mutex
+	turnMetadata := make(map[int]wsTurnMetadata, 2)
+	rememberTurnMetadata := func(turn int, metadata wsTurnMetadata) {
+		turnMetadataMu.Lock()
+		turnMetadata[turn] = metadata
+		turnMetadataMu.Unlock()
+	}
+	takeTurnMetadata := func(turn int) (wsTurnMetadata, bool) {
+		turnMetadataMu.Lock()
+		metadata, ok := turnMetadata[turn]
+		delete(turnMetadata, turn)
+		turnMetadataMu.Unlock()
+		return metadata, ok
+	}
+	sessionExpiresAt, _ := openAIWSOIDCExpiration(ctx)
+
 	hooks := &service.OpenAIWSIngressHooks{
+		SessionExpiresAt: sessionExpiresAt,
+		PrepareTurn: func(turn int, payload []byte) (*service.OpenAIWSPreparedTurn, error) {
+			requestModel, _, err := parseOpenAIWSResponseCreateTurn(payload)
+			if err != nil {
+				return nil, service.NewOpenAIWSClientCloseError(
+					coderws.StatusPolicyViolation,
+					"invalid response.create payload",
+					err,
+				)
+			}
+			channelMapping, upstreamModel, err := h.gatewayService.ResolveAuthorizedWebSocketTurnModel(
+				ctx,
+				apiKey.GroupID,
+				account,
+				requestModel,
+			)
+			if err != nil {
+				reqLog.Info("openai.websocket_turn_model_rejected",
+					zap.Int("turn", turn),
+					zap.String("model", requestModel),
+					zap.Error(err),
+				)
+				return nil, service.NewOpenAIWSClientCloseError(
+					coderws.StatusPolicyViolation,
+					"model is not allowed for this websocket session",
+					err,
+				)
+			}
+			preparedPayload, err := rewriteOpenAIWSResponseCreateTurnModel(payload, upstreamModel)
+			if err != nil {
+				return nil, service.NewOpenAIWSClientCloseError(
+					coderws.StatusPolicyViolation,
+					"failed to map websocket turn model",
+					err,
+				)
+			}
+			rememberTurnMetadata(turn, wsTurnMetadata{
+				requestPayload: append([]byte(nil), payload...),
+				requestModel:   requestModel,
+				upstreamModel:  upstreamModel,
+				channelMapping: channelMapping,
+			})
+			return &service.OpenAIWSPreparedTurn{
+				Payload:       preparedPayload,
+				RequestModel:  requestModel,
+				UpstreamModel: upstreamModel,
+			}, nil
+		},
 		BeforeTurn: func(turn int) error {
+			if openAIWSOIDCTokenExpired(ctx, time.Now()) {
+				return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "gateway access token expired", nil)
+			}
 			if turn == 1 {
 				return nil
 			}
-			// 防御式清理：避免异常路径下旧槽位覆盖导致泄漏。
-			releaseTurnSlots()
-			// 非首轮 turn 需要重新抢占并发槽位，避免长连接空闲占槽。
+			if err := h.billingCacheService.CheckBillingEligibility(ctx, apiKey.User, apiKey, apiKey.Group, subscription); err != nil {
+				reqLog.Info("openai.websocket_billing_eligibility_check_failed",
+					zap.Int("turn", turn),
+					zap.Error(err),
+				)
+				return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "billing check failed", err)
+			}
+			// 非首轮 turn 需要独立抢占并发槽位。passthrough 模式允许
+			// 多个 stream_id 并行，不能覆盖仍在执行的其他 turn 槽位。
 			userReleaseFunc, userAcquired, err := h.concurrencyHelper.TryAcquireUserSlot(ctx, subject.UserID, subject.Concurrency)
 			if err != nil {
 				return service.NewOpenAIWSClientCloseError(coderws.StatusInternalError, "failed to acquire user concurrency slot", err)
@@ -1475,20 +1596,34 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				}
 				return service.NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, "account is busy, please retry later", nil)
 			}
-			currentUserRelease = wrapReleaseOnDone(ctx, userReleaseFunc)
-			currentAccountRelease = wrapReleaseOnDone(ctx, accountReleaseFunc)
+			addTurnSlot(
+				turn,
+				wrapReleaseOnDone(ctx, userReleaseFunc),
+				wrapReleaseOnDone(ctx, accountReleaseFunc),
+			)
 			return nil
 		},
 		AfterTurn: func(turn int, result *service.OpenAIForwardResult, turnErr error) {
-			releaseTurnSlots()
+			metadata, hasMetadata := takeTurnMetadata(turn)
+			releaseTurnSlot(turn)
 			if turnErr != nil || result == nil {
 				return
 			}
+			if !hasMetadata {
+				reqLog.Error("openai.websocket_turn_metadata_missing",
+					zap.Int("turn", turn),
+					zap.String("request_id", result.RequestID),
+				)
+				return
+			}
+			result.Model = metadata.requestModel
+			result.UpstreamModel = metadata.upstreamModel
 			if account.Type == service.AccountTypeOAuth {
 				h.gatewayService.UpdateCodexUsageSnapshotFromHeaders(ctx, account.ID, result.ResponseHeaders)
 			}
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, true, result.FirstTokenMs)
-			h.submitUsageRecordTask(func(taskCtx context.Context) {
+			turnCtx := openAIWSTurnUsageContext(ctx, wsBillingBaseID, apiKey.ID, turn)
+			h.submitUsageRecordTask(turnCtx, func(taskCtx context.Context) {
 				if err := h.gatewayService.RecordUsage(taskCtx, &service.OpenAIRecordUsageInput{
 					Result:             result,
 					APIKey:             apiKey,
@@ -1499,9 +1634,9 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					UpstreamEndpoint:   GetUpstreamEndpoint(c, account.Platform),
 					UserAgent:          userAgent,
 					IPAddress:          clientIP,
-					RequestPayloadHash: service.HashUsageRequestPayload(firstMessage),
+					RequestPayloadHash: openAIWSTurnPayloadHash(metadata.requestPayload, turn),
 					APIKeyService:      h.apiKeyService,
-					ChannelUsageFields: channelMappingWS.ToUsageFields(reqModel, result.UpstreamModel),
+					ChannelUsageFields: metadata.channelMapping.ToUsageFields(metadata.requestModel, metadata.upstreamModel),
 				}); err != nil {
 					reqLog.Error("openai.websocket_record_usage_failed",
 						zap.Int64("account_id", account.ID),
@@ -1513,13 +1648,12 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		},
 	}
 
-	// 应用渠道模型映射到 WebSocket 首条消息
-	wsFirstMessage := firstMessage
-	if channelMappingWS.Mapped {
-		wsFirstMessage = h.gatewayService.ReplaceModelInBody(firstMessage, channelMappingWS.MappedModel)
-	}
-
-	if err := h.gatewayService.ProxyResponsesWebSocketFromClient(ctx, c, wsConn, account, token, wsFirstMessage, hooks); err != nil {
+	if err := h.gatewayService.ProxyResponsesWebSocketFromClient(ctx, c, wsConn, account, token, firstMessage, hooks); err != nil {
+		if openAIWSOIDCTokenExpired(ctx, time.Now()) {
+			reqLog.Info("openai.websocket_gateway_token_expired", zap.Int64("account_id", account.ID))
+			closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "gateway access token expired")
+			return
+		}
 		h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, false, nil)
 		closeStatus, closeReason := summarizeWSCloseErrorForLog(err)
 		reqLog.Warn("openai.websocket_proxy_failed",
@@ -1537,6 +1671,118 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		return
 	}
 	reqLog.Info("openai.websocket_ingress_closed", zap.Int64("account_id", account.ID))
+}
+
+func openAIWSSessionContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithCancel(ctx)
+}
+
+func openAIWSOIDCExpiration(ctx context.Context) (time.Time, bool) {
+	if ctx == nil {
+		return time.Time{}, false
+	}
+	expiresAt, ok := ctx.Value(ctxkey.OIDCExpiresAt).(time.Time)
+	return expiresAt, ok && !expiresAt.IsZero()
+}
+
+func parseOpenAIWSResponseCreateTurn(payload []byte) (string, string, error) {
+	var envelope struct {
+		Type               string `json:"type"`
+		Model              string `json:"model"`
+		PreviousResponseID string `json:"previous_response_id"`
+	}
+	if len(payload) == 0 || json.Unmarshal(payload, &envelope) != nil {
+		return "", "", errors.New("invalid JSON payload")
+	}
+	eventType := strings.TrimSpace(envelope.Type)
+	if eventType != "response.create" {
+		return "", "", fmt.Errorf("unsupported websocket request type %q", eventType)
+	}
+	model := strings.TrimSpace(envelope.Model)
+	if model == "" {
+		return "", "", errors.New("model is required in response.create payload")
+	}
+	previousResponseID := strings.TrimSpace(envelope.PreviousResponseID)
+	if previousResponseID != "" && service.ClassifyOpenAIPreviousResponseIDKind(previousResponseID) == service.OpenAIPreviousResponseIDKindMessageID {
+		return "", "", errors.New("previous_response_id must be a response.id (resp_*), not a message id")
+	}
+	return model, previousResponseID, nil
+}
+
+func rewriteOpenAIWSResponseCreateTurnModel(payload []byte, upstreamModel string) ([]byte, error) {
+	object := make(map[string]json.RawMessage)
+	if err := json.Unmarshal(payload, &object); err != nil || object == nil {
+		return nil, errors.New("invalid response.create JSON object")
+	}
+	upstreamModel = strings.TrimSpace(upstreamModel)
+	if upstreamModel == "" {
+		return nil, errors.New("resolved upstream model is empty")
+	}
+	typeValue, err := json.Marshal("response.create")
+	if err != nil {
+		return nil, err
+	}
+	modelValue, err := json.Marshal(upstreamModel)
+	if err != nil {
+		return nil, err
+	}
+	// Decoding into a map applies encoding/json's last-key-wins semantics;
+	// marshaling it back emits exactly one authoritative type and model field.
+	object["type"] = typeValue
+	object["model"] = modelValue
+	return json.Marshal(object)
+}
+
+func openAIWSOIDCTokenExpired(ctx context.Context, now time.Time) bool {
+	if ctx == nil {
+		return false
+	}
+	expiresAt, ok := openAIWSOIDCExpiration(ctx)
+	return ok && !now.Before(expiresAt)
+}
+
+func openAIWSBillingBaseID(ctx context.Context) string {
+	if ctx != nil {
+		if billingID, _ := ctx.Value(ctxkey.GatewayBillingRequestID).(string); strings.TrimSpace(billingID) != "" {
+			sum := sha256.Sum256([]byte("openai-responses-ws-idempotent\x00" + strings.TrimSpace(billingID)))
+			return hex.EncodeToString(sum[:])
+		}
+	}
+
+	requestBase := "unidentified"
+	if ctx != nil {
+		for _, key := range []ctxkey.Key{ctxkey.ClientRequestID, ctxkey.RequestID} {
+			if value, _ := ctx.Value(key).(string); strings.TrimSpace(value) != "" {
+				requestBase = strings.TrimSpace(value)
+				break
+			}
+		}
+	}
+	// Without Idempotency-Key there is no stable logical-call identity. Mix in a
+	// per-connection generation so unrelated WebSocket sessions cannot collide.
+	raw := "openai-responses-ws-connection\x00" + requestBase + "\x00" + uuid.NewString()
+	sum := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(sum[:])
+}
+
+func openAIWSTurnUsageContext(ctx context.Context, connectionBillingID string, apiKeyID int64, turn int) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	raw := "openai-responses-ws\x00" + strings.TrimSpace(connectionBillingID) + "\x00" + strconv.FormatInt(apiKeyID, 10) + "\x00" + strconv.Itoa(turn)
+	sum := sha256.Sum256([]byte(raw))
+	return context.WithValue(ctx, ctxkey.GatewayBillingRequestID, hex.EncodeToString(sum[:]))
+}
+
+func openAIWSTurnPayloadHash(firstMessage []byte, turn int) string {
+	prefix := []byte("openai-responses-ws-turn\x00" + strconv.Itoa(turn) + "\x00")
+	payload := make([]byte, 0, len(prefix)+len(firstMessage))
+	payload = append(payload, prefix...)
+	payload = append(payload, firstMessage...)
+	return service.HashUsageRequestPayload(payload)
 }
 
 func (h *OpenAIGatewayHandler) recoverResponsesPanic(c *gin.Context, streamStarted *bool) {
@@ -1642,16 +1888,17 @@ func getContextInt64(c *gin.Context, key string) (int64, bool) {
 	}
 }
 
-func (h *OpenAIGatewayHandler) submitUsageRecordTask(task service.UsageRecordTask) {
+func (h *OpenAIGatewayHandler) submitUsageRecordTask(requestCtx context.Context, task service.UsageRecordTask) {
 	if task == nil {
 		return
 	}
+	task = service.BindUsageRecordTaskContext(requestCtx, task)
 	if h.usageRecordWorkerPool != nil {
-		h.usageRecordWorkerPool.Submit(task)
+		h.usageRecordWorkerPool.ExecuteCritical(task)
 		return
 	}
 	// 回退路径：worker 池未注入时同步执行，避免退回到无界 goroutine 模式。
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	defer func() {
 		if recovered := recover(); recovered != nil {

@@ -37,7 +37,12 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 	// api_keys: key length should be 128
 	requireColumn(t, tx, "api_keys", "key", "character varying", 128, false)
 	requireColumn(t, tx, "api_keys", "oidc_managed", "boolean", 0, false)
+	requireColumn(t, tx, "api_keys", "oidc_issuer", "character varying", 512, true)
+	requireColumn(t, tx, "api_keys", "oidc_subject", "character varying", 512, true)
 	requireIndex(t, tx, "api_keys", "idx_api_keys_oidc_managed_user")
+	requireIndex(t, tx, "api_keys", "idx_api_keys_oidc_identity")
+	requireIndex(t, tx, "api_keys", "idx_api_keys_oidc_identity_active_unique")
+	requireConstraint(t, tx, "api_keys", "api_keys_oidc_identity_pair_check")
 
 	// redeem_codes: subscription fields
 	requireColumn(t, tx, "redeem_codes", "group_id", "bigint", 0, true)
@@ -47,6 +52,11 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 	requireColumn(t, tx, "usage_logs", "billing_type", "smallint", 0, false)
 	requireColumn(t, tx, "usage_logs", "request_type", "smallint", 0, false)
 	requireColumn(t, tx, "usage_logs", "openai_ws_mode", "boolean", 0, false)
+	requireColumn(t, tx, "usage_logs", "oidc_issuer", "text", 0, true)
+	requireColumn(t, tx, "usage_logs", "oidc_subject", "text", 0, true)
+	requireColumn(t, tx, "usage_logs", "oidc_tenant", "text", 0, true)
+	requireColumn(t, tx, "usage_logs", "tabro_run_id", "text", 0, true)
+	requireColumn(t, tx, "usage_logs", "tabro_project_id", "text", 0, true)
 
 	// usage_billing_dedup: billing idempotency narrow table
 	var usageBillingDedupRegclass sql.NullString
@@ -61,6 +71,30 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 	require.True(t, usageBillingDedupArchiveRegclass.Valid, "expected usage_billing_dedup_archive table to exist")
 	requireColumn(t, tx, "usage_billing_dedup_archive", "request_fingerprint", "character varying", 64, false)
 	requireIndex(t, tx, "usage_billing_dedup_archive", "usage_billing_dedup_archive_pkey")
+
+	// gateway_usage_ledger: durable usage audit committed with billing effects
+	var gatewayUsageLedgerRegclass sql.NullString
+	require.NoError(t, tx.QueryRowContext(context.Background(), "SELECT to_regclass('public.gateway_usage_ledger')").Scan(&gatewayUsageLedgerRegclass))
+	require.True(t, gatewayUsageLedgerRegclass.Valid, "expected gateway_usage_ledger table to exist")
+	requireColumn(t, tx, "gateway_usage_ledger", "request_id", "character varying", 255, false)
+	requireColumn(t, tx, "gateway_usage_ledger", "upstream_request_id", "text", 0, true)
+	requireColumn(t, tx, "gateway_usage_ledger", "request_fingerprint", "character varying", 64, false)
+	requireColumn(t, tx, "gateway_usage_ledger", "oidc_issuer", "text", 0, true)
+	requireColumn(t, tx, "gateway_usage_ledger", "oidc_subject", "text", 0, true)
+	requireColumn(t, tx, "gateway_usage_ledger", "oidc_tenant", "text", 0, true)
+	requireColumn(t, tx, "gateway_usage_ledger", "tabro_run_id", "text", 0, true)
+	requireColumn(t, tx, "gateway_usage_ledger", "tabro_project_id", "text", 0, true)
+	requireColumn(t, tx, "gateway_usage_ledger", "model", "character varying", 100, false)
+	requireColumn(t, tx, "gateway_usage_ledger", "requested_model", "character varying", 100, false)
+	requireColumn(t, tx, "gateway_usage_ledger", "upstream_model", "character varying", 100, true)
+	requireColumn(t, tx, "gateway_usage_ledger", "input_tokens", "integer", 0, false)
+	requireColumn(t, tx, "gateway_usage_ledger", "output_tokens", "integer", 0, false)
+	requireColumn(t, tx, "gateway_usage_ledger", "actual_cost", "numeric", 0, false)
+	requireIndex(t, tx, "gateway_usage_ledger", "idx_gateway_usage_ledger_request_api_key")
+	requireIndex(t, tx, "gateway_usage_ledger", "idx_gateway_usage_ledger_identity_created")
+	requireIndex(t, tx, "gateway_usage_ledger", "idx_gateway_usage_ledger_created_at")
+	requireIndex(t, tx, "gateway_usage_ledger", "idx_gateway_usage_ledger_upstream_request")
+	requireConstraint(t, tx, "gateway_usage_ledger", "gateway_usage_ledger_oidc_identity_pair_check")
 
 	// settings table should exist
 	var settingsRegclass sql.NullString
@@ -107,6 +141,23 @@ SELECT EXISTS (
 `, table, index).Scan(&exists)
 	require.NoError(t, err, "query pg_indexes for %s.%s", table, index)
 	require.True(t, exists, "expected index %s on %s", index, table)
+}
+
+func requireConstraint(t *testing.T, tx *sql.Tx, table, constraint string) {
+	t.Helper()
+
+	var exists bool
+	err := tx.QueryRowContext(context.Background(), `
+SELECT EXISTS (
+	SELECT 1
+	FROM information_schema.table_constraints
+	WHERE table_schema = 'public'
+	  AND table_name = $1
+	  AND constraint_name = $2
+)
+`, table, constraint).Scan(&exists)
+	require.NoError(t, err, "query table constraint for %s.%s", table, constraint)
+	require.True(t, exists, "expected constraint %s on %s", constraint, table)
 }
 
 func requireColumn(t *testing.T, tx *sql.Tx, table, column, dataType string, maxLen int, nullable bool) {

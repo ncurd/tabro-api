@@ -180,6 +180,27 @@ func TestUsageRecordWorkerPool_SubmitAfterStop(t *testing.T) {
 	require.GreaterOrEqual(t, pool.Stats().DroppedPoolStopped, uint64(1))
 }
 
+func TestUsageRecordWorkerPool_SubmitCriticalFallsBackAfterStop(t *testing.T) {
+	pool := NewUsageRecordWorkerPoolWithOptions(UsageRecordWorkerPoolOptions{
+		WorkerCount:           1,
+		QueueSize:             1,
+		TaskTimeout:           time.Second,
+		OverflowPolicy:        config.UsageRecordOverflowPolicyDrop,
+		OverflowSamplePercent: 0,
+	})
+	pool.Stop()
+
+	var called atomic.Bool
+	mode := pool.SubmitCritical(func(ctx context.Context) {
+		_, hasDeadline := ctx.Deadline()
+		called.Store(hasDeadline)
+	})
+
+	require.Equal(t, UsageRecordSubmitModeSync, mode)
+	require.True(t, called.Load())
+	require.GreaterOrEqual(t, pool.Stats().SyncFallbackTasks, uint64(1))
+}
+
 func TestUsageRecordWorkerPool_AutoScaleUpAndDown(t *testing.T) {
 	pool := NewUsageRecordWorkerPoolWithOptions(UsageRecordWorkerPoolOptions{
 		WorkerCount:           2,

@@ -19,24 +19,22 @@ Tabro 由 Sub2API 分叉而来，是一个 AI API 网关平台，用于分发和
 - **内置支付系统** - 支持 EasyPay 易支付、支付宝官方、微信官方、Stripe，用户自助充值，无需独立部署支付服务（[配置指南](docs/PAYMENT_CN.md)）
 - **管理后台** - Web 界面进行监控和管理
 - **外部系统集成** - 支持通过 iframe 嵌入外部系统（如工单等），扩展管理后台功能
+- **OAuth Resource Server** - 支持网关专属 audience、Scope、Client 与委托校验，并以可信 `(iss, sub)` 绑定内部计费身份（[配置与迁移指南](docs/OIDC_RESOURCE_SERVER_CN.md)）
 
 > 客户端接入参考：VS Code Custom Endpoint、Claude Code、Codex 和 CC Switch 的自定义模型配置见 [自定义模型客户端接入指南](docs/CLIENT_CUSTOM_MODELS_CN.md)。
 
-## 用户登录与 OIDC 访问令牌
+## 用户登录与 LLM 网关 OIDC
 
-Tabro 的登录页可以同时启用邮箱/密码登录和通用 OIDC 登录，用户可任选其中一种方式登录。
+Tabro 提供两种彼此独立的 OIDC 用途：
 
-OIDC 回调成功后签发的 `access_token` 是 **Tabro 本地访问令牌**，不是上游身份提供方（IdP）的 access token 或 ID token。调用 Tabro 网关时，可像使用普通 API Key 一样任选一种请求头传入：
+- `oidc_connect` 用于网页和管理 API 登录。OIDC 回调后由 Tabro 签发的本地 `access_token` 只用于 Tabro 会话，不是 LLM 网关凭证。
+- `gateway.resource_server` 用于模型网关调用。调用方必须从 IdP 获取专门发给 LLM 网关、包含 `llm.invoke` Scope 的外部 access token，并通过 `Authorization: Bearer` 发送。
 
-```http
-Authorization: Bearer <OIDC access_token>
-x-api-key: <OIDC access_token>
-x-goog-api-key: <OIDC access_token>
-```
+网关严格验证签名/JWKS、issuer、唯一 audience、有效期、Scope、Client 和委托信息，再把可信 `(iss, sub)` 映射到内部 Key 进行路由与计费。Tabro 本地登录令牌、Tabro 管理 API audience 以及同时包含多个 audience 的 Token 均不会被网关接受。网关也不会把入口 OIDC Token 转发给 OpenAI、Anthropic 等上游，而是使用自己保管的供应商凭证。
 
-每个 OIDC 登录用户都会绑定一条持久化、名称为 `OIDC Access Token` 的专用 API Key 记录。本地访问令牌引用这条 Key，并走与普通 API Key 相同的网关鉴权和计费链路，因此会沿用分组路由、用户余额与订阅、Key 配额、IP 黑白名单、限流、用量计费和日志记录等规则。该记录在密钥页面标记为 `OIDC`，其内部值不会返回、也不能脱离本地访问令牌直接认证；禁用或删除记录、修改账户密码均会使对应访问失效。
+完整的 IdP 配置、环境变量、身份绑定 API、幂等 Header、迁移步骤和轮换建议见 [LLM 网关 OIDC Resource Server 配置与迁移指南](docs/OIDC_RESOURCE_SERVER_CN.md)。
 
-在 Backend 模式下，邮箱/密码登录仍然可用；OIDC 仅允许身份提供方已验证的邮箱匹配到 Tabro 中既有、状态为启用的管理员账户。Backend 模式不会通过 OIDC 自动注册用户，普通用户或未匹配的身份会被拒绝。
+在 Backend 模式下，邮箱/密码登录仍然可用；交互式 OIDC 登录仅允许身份提供方已验证的邮箱匹配到 Tabro 中既有、状态为启用的管理员账户。Backend 模式不会通过 OIDC 自动注册用户，普通用户或未匹配的身份会被拒绝。
 
 ## 技术栈
 

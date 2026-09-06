@@ -318,6 +318,11 @@ func TestGatewayServiceRecordUsage_PrefersClientRequestIDOverUpstreamRequestID(t
 
 	ctx := context.WithValue(context.Background(), ctxkey.ClientRequestID, "client-stable-123")
 	ctx = context.WithValue(ctx, ctxkey.RequestID, "req-local-ignored")
+	ctx = context.WithValue(ctx, ctxkey.OIDCIssuer, "https://issuer.example")
+	ctx = context.WithValue(ctx, ctxkey.OIDCSubject, "tabro-user-123")
+	ctx = context.WithValue(ctx, ctxkey.OIDCTenant, "tenant-123")
+	ctx = context.WithValue(ctx, ctxkey.TabroRunID, "run-123")
+	ctx = context.WithValue(ctx, ctxkey.TabroProjectID, "project-123")
 	err := svc.RecordUsage(ctx, &RecordUsageInput{
 		Result: &ForwardResult{
 			RequestID: "upstream-volatile-456",
@@ -336,8 +341,35 @@ func TestGatewayServiceRecordUsage_PrefersClientRequestIDOverUpstreamRequestID(t
 	require.NoError(t, err)
 	require.NotNil(t, billingRepo.lastCmd)
 	require.Equal(t, "client:client-stable-123", billingRepo.lastCmd.RequestID)
+	require.NotNil(t, billingRepo.lastCmd.OIDCIssuer)
+	require.NotNil(t, billingRepo.lastCmd.OIDCSubject)
+	require.NotNil(t, billingRepo.lastCmd.OIDCTenant)
+	require.NotNil(t, billingRepo.lastCmd.TabroRunID)
+	require.NotNil(t, billingRepo.lastCmd.TabroProjectID)
+	require.Equal(t, "https://issuer.example", *billingRepo.lastCmd.OIDCIssuer)
+	require.Equal(t, "tabro-user-123", *billingRepo.lastCmd.OIDCSubject)
+	require.Equal(t, "tenant-123", *billingRepo.lastCmd.OIDCTenant)
+	require.Equal(t, "run-123", *billingRepo.lastCmd.TabroRunID)
+	require.Equal(t, "project-123", *billingRepo.lastCmd.TabroProjectID)
+	require.Equal(t, "claude-sonnet-4", billingRepo.lastCmd.Model)
+	require.Equal(t, "claude-sonnet-4", billingRepo.lastCmd.RequestedModel)
+	require.Equal(t, 10, billingRepo.lastCmd.InputTokens)
+	require.Equal(t, 6, billingRepo.lastCmd.OutputTokens)
 	require.NotNil(t, usageRepo.lastLog)
 	require.Equal(t, "client:client-stable-123", usageRepo.lastLog.RequestID)
+	require.Equal(t, "https://issuer.example", *usageRepo.lastLog.OIDCIssuer)
+	require.Equal(t, "tabro-user-123", *usageRepo.lastLog.OIDCSubject)
+	require.Equal(t, "tenant-123", *usageRepo.lastLog.OIDCTenant)
+	require.Equal(t, "run-123", *usageRepo.lastLog.TabroRunID)
+	require.Equal(t, "project-123", *usageRepo.lastLog.TabroProjectID)
+}
+
+func TestResolveUsageBillingRequestID_PrefersGatewayBillingRequestID(t *testing.T) {
+	ctx := context.WithValue(context.Background(), ctxkey.GatewayBillingRequestID, "idem:verified-sub:key-hash")
+	ctx = context.WithValue(ctx, ctxkey.ClientRequestID, "client-ignored")
+	ctx = context.WithValue(ctx, ctxkey.RequestID, "local-ignored")
+
+	require.Equal(t, "idem:verified-sub:key-hash", resolveUsageBillingRequestID(ctx, "upstream-ignored"))
 }
 
 func TestGatewayServiceRecordUsage_GeneratesRequestIDWhenAllSourcesMissing(t *testing.T) {

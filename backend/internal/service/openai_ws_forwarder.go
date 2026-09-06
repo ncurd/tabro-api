@@ -50,6 +50,7 @@ const (
 	openAIWSEventFlushIntervalDefault     = 25 * time.Millisecond
 	openAIWSPayloadLogSampleDefault       = 0.2
 	openAIWSPassthroughIdleTimeoutDefault = time.Hour
+	openAIWSUpstreamDrainTimeoutDefault   = 30 * time.Second
 
 	openAIWSStoreDisabledConnModeStrict   = "strict"
 	openAIWSStoreDisabledConnModeAdaptive = "adaptive"
@@ -217,10 +218,25 @@ func (e *OpenAIWSClientCloseError) Reason() string {
 	return strings.TrimSpace(e.reason)
 }
 
+// OpenAIWSPreparedTurn is a validated response.create frame ready to send
+// upstream. RequestModel is the client-facing model and UpstreamModel is the
+// actual model encoded in Payload after channel/account mapping.
+type OpenAIWSPreparedTurn struct {
+	Payload       []byte
+	RequestModel  string
+	UpstreamModel string
+}
+
 // OpenAIWSIngressHooks 定义入站 WS 每个 turn 的生命周期回调。
 type OpenAIWSIngressHooks struct {
-	BeforeTurn func(turn int) error
-	AfterTurn  func(turn int, result *OpenAIForwardResult, turnErr error)
+	SessionExpiresAt time.Time
+	PrepareTurn      func(turn int, payload []byte) (*OpenAIWSPreparedTurn, error)
+	BeforeTurn       func(turn int) error
+	AfterTurn        func(turn int, result *OpenAIForwardResult, turnErr error)
+}
+
+func openAIWSIngressSessionExpired(hooks *OpenAIWSIngressHooks, now time.Time) bool {
+	return hooks != nil && !hooks.SessionExpiresAt.IsZero() && !now.Before(hooks.SessionExpiresAt)
 }
 
 func normalizeOpenAIWSLogValue(value string) string {
@@ -1798,7 +1814,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	forceNewConn := forceNewConnByPolicy && storeDisabled && previousResponseID == "" && sessionHash != "" && preferredConnID == ""
 	wsHeaders, sessionResolution := s.buildOpenAIWSHeaders(c, account, token, decision, isCodexCLI, turnState, turnMetadata, promptCacheKey)
 	logOpenAIWSModeDebug(
-		"acquire_start account_id=%d account_type=%s transport=%s preferred_conn_id=%s has_previous_response_id=%v session_hash=%s has_turn_state=%v turn_state_len=%d has_turn_metadata=%v turn_metadata_len=%d store_disabled=%v store_disabled_conn_mode=%s retry_last_reason=%s force_new_conn=%v header_user_agent=%s header_openai_beta=%s header_originator=%s header_accept_language=%s header_session_id=%s header_conversation_id=%s session_id_source=%s conversation_id_source=%s has_prompt_cache_key=%v has_chatgpt_account_id=%v has_authorization=%v has_session_id=%v has_conversation_id=%v proxy_enabled=%v",
+		"acquire_start account_id=%d account_type=%s transport=%s preferred_conn_id=%s has_previous_response_id=%v session_hash=%s has_turn_state=%v turn_state_len=%d has_turn_metadata=%v turn_metadata_len=%d store_disabled=%v store_disabled_conn_mode=%s retry_last_reason=%s force_new_conn=%v header_user_agent=%s header_openai_beta=%s header_originator=%s header_accept_language=%s header_session_id=%s header_conversation_id=%s session_id_source=%s conversation_id_source=%s has_prompt_cache_key=%v has_chatgpt_account_id=%v has_session_id=%v has_conversation_id=%v proxy_enabled=%v",
 		account.ID,
 		account.Type,
 		normalizeOpenAIWSLogValue(string(decision.Transport)),
@@ -1823,7 +1839,6 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		normalizeOpenAIWSLogValue(sessionResolution.ConversationSource),
 		promptCacheKey != "",
 		hasOpenAIWSHeader(wsHeaders, "chatgpt-account-id"),
-		hasOpenAIWSHeader(wsHeaders, "authorization"),
 		hasOpenAIWSHeader(wsHeaders, "session_id"),
 		hasOpenAIWSHeader(wsHeaders, "conversation_id"),
 		account.ProxyID != nil && account.Proxy != nil,
@@ -2411,6 +2426,33 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		return fmt.Errorf("websocket ingress requires ws_v2 transport, got=%s", wsDecision.Transport)
 	}
 	dedicatedMode := modeRouterV2Enabled && ingressMode == OpenAIWSIngressModeDedicated
+	sessionExpiresAt := time.Time{}
+	if hooks != nil {
+		sessionExpiresAt = hooks.SessionExpiresAt
+	}
+	if openAIWSIngressSessionExpired(hooks, time.Now()) {
+		return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "gateway access token expired", nil)
+	}
+	// The request context intentionally outlives the OIDC exp instant so an
+	// already-authorized upstream turn can drain terminal usage. Independently
+	// close the downstream socket at exp; the upstream drain remains bounded.
+	if !sessionExpiresAt.IsZero() {
+		expiryWatchStop := make(chan struct{})
+		defer close(expiryWatchStop)
+		go func() {
+			wait := time.Until(sessionExpiresAt)
+			if wait > 0 {
+				timer := time.NewTimer(wait)
+				defer timer.Stop()
+				select {
+				case <-expiryWatchStop:
+					return
+				case <-timer.C:
+				}
+			}
+			_ = clientConn.Close(coderws.StatusPolicyViolation, "gateway access token expired")
+		}()
+	}
 
 	wsURL, err := s.buildOpenAIResponsesWSURL(account)
 	if err != nil {
@@ -2459,7 +2501,23 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		return rebuilt, nil
 	}
 
-	parseClientPayload := func(raw []byte) (openAIWSClientPayload, error) {
+	parseClientPayload := func(turn int, raw []byte) (openAIWSClientPayload, error) {
+		rawForHash := bytes.TrimSpace(raw)
+		preparedRequestModel := ""
+		preparedUpstreamModel := ""
+		if hooks != nil && hooks.PrepareTurn != nil {
+			prepared, prepareErr := hooks.PrepareTurn(turn, raw)
+			if prepareErr != nil {
+				return openAIWSClientPayload{}, prepareErr
+			}
+			if prepared == nil {
+				return openAIWSClientPayload{}, errors.New("websocket turn preparation returned nil")
+			}
+			raw = prepared.Payload
+			preparedRequestModel = strings.TrimSpace(prepared.RequestModel)
+			preparedUpstreamModel = strings.TrimSpace(prepared.UpstreamModel)
+		}
+
 		trimmed := bytes.TrimSpace(raw)
 		if len(trimmed) == 0 {
 			return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "empty websocket request payload", nil)
@@ -2495,6 +2553,9 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		}
 
 		originalModel := strings.TrimSpace(values[1].String())
+		if preparedRequestModel != "" {
+			originalModel = preparedRequestModel
+		}
 		if originalModel == "" {
 			return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(
 				coderws.StatusPolicyViolation,
@@ -2519,7 +2580,10 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			}
 			normalized = next
 		}
-		upstreamModel := normalizeOpenAIModelForUpstream(account, account.GetMappedModel(originalModel))
+		upstreamModel := preparedUpstreamModel
+		if upstreamModel == "" {
+			upstreamModel = normalizeOpenAIModelForUpstream(account, account.GetMappedModel(originalModel))
+		}
 		if upstreamModel != originalModel {
 			next, setErr := applyPayloadMutation(normalized, "model", upstreamModel)
 			if setErr != nil {
@@ -2530,7 +2594,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 
 		return openAIWSClientPayload{
 			payloadRaw:         normalized,
-			rawForHash:         trimmed,
+			rawForHash:         rawForHash,
 			promptCacheKey:     promptCacheKey,
 			previousResponseID: previousResponseID,
 			originalModel:      originalModel,
@@ -2538,7 +2602,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		}, nil
 	}
 
-	firstPayload, err := parseClientPayload(firstClientMessage)
+	firstPayload, err := parseClientPayload(1, firstClientMessage)
 	if err != nil {
 		return err
 	}
@@ -2715,13 +2779,26 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 	}
 
 	writeClientMessage := func(message []byte) error {
-		writeCtx, cancel := context.WithTimeout(ctx, s.openAIWSWriteTimeout())
+		if !sessionExpiresAt.IsZero() && !time.Now().Before(sessionExpiresAt) {
+			return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "gateway access token expired", nil)
+		}
+		writeDeadline := time.Now().Add(s.openAIWSWriteTimeout())
+		if !sessionExpiresAt.IsZero() && sessionExpiresAt.Before(writeDeadline) {
+			writeDeadline = sessionExpiresAt
+		}
+		writeCtx, cancel := context.WithDeadline(ctx, writeDeadline)
 		defer cancel()
 		return clientConn.Write(writeCtx, coderws.MessageText, message)
 	}
 
 	readClientMessage := func() ([]byte, error) {
-		msgType, payload, readErr := clientConn.Read(ctx)
+		readCtx := ctx
+		cancelRead := func() {}
+		if !sessionExpiresAt.IsZero() {
+			readCtx, cancelRead = context.WithDeadline(ctx, sessionExpiresAt)
+		}
+		defer cancelRead()
+		msgType, payload, readErr := clientConn.Read(readCtx)
 		if readErr != nil {
 			return nil, readErr
 		}
@@ -2739,12 +2816,25 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		if lease == nil {
 			return nil, errors.New("upstream websocket lease is nil")
 		}
+		if openAIWSIngressSessionExpired(hooks, time.Now()) {
+			return nil, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "gateway access token expired", nil)
+		}
 		turnStart := time.Now()
 		wroteDownstream := false
-		if err := lease.WriteJSONWithContextTimeout(ctx, json.RawMessage(payload), s.openAIWSWriteTimeout()); err != nil {
+		upstreamWriteCtx := ctx
+		cancelUpstreamWrite := func() {}
+		if !sessionExpiresAt.IsZero() {
+			upstreamWriteCtx, cancelUpstreamWrite = context.WithDeadline(ctx, sessionExpiresAt)
+		}
+		writeErr := lease.WriteJSONWithContextTimeout(upstreamWriteCtx, json.RawMessage(payload), s.openAIWSWriteTimeout())
+		cancelUpstreamWrite()
+		if writeErr != nil {
+			if !sessionExpiresAt.IsZero() && !time.Now().Before(sessionExpiresAt) {
+				return nil, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "gateway access token expired", writeErr)
+			}
 			return nil, wrapOpenAIWSIngressTurnError(
 				"write_upstream",
-				fmt.Errorf("write upstream websocket request: %w", err),
+				fmt.Errorf("write upstream websocket request: %w", writeErr),
 				false,
 			)
 		}
@@ -2774,24 +2864,83 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		lastEventType := ""
 		needModelReplace := false
 		clientDisconnected := false
-		mappedModel := ""
+		mappedModel := strings.TrimSpace(gjson.GetBytes(payload, "model").String())
 		var mappedModelBytes []byte
-		if originalModel != "" {
+		if mappedModel == "" && originalModel != "" {
 			mappedModel = normalizeOpenAIModelForUpstream(account, account.GetMappedModel(originalModel))
-			needModelReplace = mappedModel != "" && mappedModel != originalModel
-			if needModelReplace {
-				mappedModelBytes = []byte(mappedModel)
+		}
+		needModelReplace = mappedModel != "" && mappedModel != originalModel
+		if needModelReplace {
+			mappedModelBytes = []byte(mappedModel)
+		}
+		turnSessionExpired := false
+		var downstreamWriteErr error
+		drainDeadline := time.Time{}
+		beginDrain := func(deadline time.Time) {
+			clientDisconnected = true
+			if drainDeadline.IsZero() || deadline.Before(drainDeadline) {
+				drainDeadline = deadline
 			}
 		}
+		markTurnSessionExpired := func() {
+			if turnSessionExpired {
+				return
+			}
+			turnSessionExpired = true
+			beginDrain(sessionExpiresAt.Add(openAIWSUpstreamDrainTimeoutDefault))
+			logOpenAIWSModeInfo(
+				"ingress_ws_token_expired_drain account_id=%d turn=%d conn_id=%s drain_timeout_ms=%d",
+				account.ID,
+				turn,
+				truncateOpenAIWSLogValue(lease.ConnID(), openAIWSIDValueMaxLen),
+				openAIWSUpstreamDrainTimeoutDefault.Milliseconds(),
+			)
+		}
 		for {
-			upstreamMessage, readErr := lease.ReadMessageWithContextTimeout(ctx, s.openAIWSReadTimeout())
+			readTimeout := s.openAIWSReadTimeout()
+			if !sessionExpiresAt.IsZero() {
+				if !turnSessionExpired && !time.Now().Before(sessionExpiresAt) {
+					markTurnSessionExpired()
+				}
+				// Do not cancel an in-flight coder/websocket read at exp: that
+				// library closes the underlying socket on read-context expiry.
+				// The independent watchdog closes only the downstream at exp;
+				// this read stays alive until the terminal event or exp+drain.
+				expiryDrainDeadline := sessionExpiresAt.Add(openAIWSUpstreamDrainTimeoutDefault)
+				if drainDeadline.IsZero() || expiryDrainDeadline.Before(drainDeadline) {
+					drainDeadline = expiryDrainDeadline
+				}
+			}
+			if !drainDeadline.IsZero() {
+				remaining := time.Until(drainDeadline)
+				if remaining <= 0 {
+					lease.MarkBroken()
+					if turnSessionExpired || (!sessionExpiresAt.IsZero() && !time.Now().Before(sessionExpiresAt)) {
+						return nil, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "gateway access token expired", context.DeadlineExceeded)
+					}
+					return nil, wrapOpenAIWSIngressTurnError("write_client", downstreamWriteErr, wroteDownstream)
+				}
+				if readTimeout <= 0 || remaining < readTimeout {
+					readTimeout = remaining
+				}
+			}
+			upstreamMessage, readErr := lease.ReadMessageWithContextTimeout(ctx, readTimeout)
 			if readErr != nil {
 				lease.MarkBroken()
+				if !sessionExpiresAt.IsZero() && !time.Now().Before(sessionExpiresAt.Add(openAIWSUpstreamDrainTimeoutDefault)) {
+					return nil, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "gateway access token expired", readErr)
+				}
+				if !drainDeadline.IsZero() && !time.Now().Before(drainDeadline) && downstreamWriteErr != nil {
+					return nil, wrapOpenAIWSIngressTurnError("write_client", downstreamWriteErr, wroteDownstream)
+				}
 				return nil, wrapOpenAIWSIngressTurnError(
 					"read_upstream",
 					fmt.Errorf("read upstream websocket event: %w", readErr),
 					wroteDownstream,
 				)
+			}
+			if !turnSessionExpired && !sessionExpiresAt.IsZero() && !time.Now().Before(sessionExpiresAt) {
+				markTurnSessionExpired()
 			}
 
 			eventType, eventResponseID, _ := parseOpenAIWSEventEnvelope(upstreamMessage)
@@ -2892,24 +3041,19 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 					}
 				}
 				if err := writeClientMessage(upstreamMessage); err != nil {
-					if isOpenAIWSClientDisconnectError(err) {
-						clientDisconnected = true
-						closeStatus, closeReason := summarizeOpenAIWSReadCloseError(err)
-						logOpenAIWSModeInfo(
-							"ingress_ws_client_disconnected_drain account_id=%d turn=%d conn_id=%s close_status=%s close_reason=%s",
-							account.ID,
-							turn,
-							truncateOpenAIWSLogValue(lease.ConnID(), openAIWSIDValueMaxLen),
-							closeStatus,
-							truncateOpenAIWSLogValue(closeReason, openAIWSHeaderValueMaxLen),
-						)
-					} else {
-						return nil, wrapOpenAIWSIngressTurnError(
-							"write_client",
-							fmt.Errorf("write client websocket event: %w", err),
-							wroteDownstream,
-						)
-					}
+					downstreamWriteErr = fmt.Errorf("write client websocket event: %w", err)
+					beginDrain(time.Now().Add(openAIWSUpstreamDrainTimeoutDefault))
+					closeStatus, closeReason := summarizeOpenAIWSReadCloseError(err)
+					logOpenAIWSModeInfo(
+						"ingress_ws_client_write_failed_drain account_id=%d turn=%d conn_id=%s close_status=%s close_reason=%s graceful=%v drain_timeout_ms=%d",
+						account.ID,
+						turn,
+						truncateOpenAIWSLogValue(lease.ConnID(), openAIWSIDValueMaxLen),
+						closeStatus,
+						truncateOpenAIWSLogValue(closeReason, openAIWSHeaderValueMaxLen),
+						isOpenAIWSClientDisconnectError(err),
+						openAIWSUpstreamDrainTimeoutDefault.Milliseconds(),
+					)
 				} else {
 					wroteDownstream = true
 				}
@@ -3423,6 +3567,12 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		if result == nil {
 			return errors.New("websocket turn result is nil")
 		}
+		// A turn that was written while the token was valid remains billable and
+		// may drain its terminal usage after expiry. Once that turn completes,
+		// close the session before accepting any further client frame.
+		if openAIWSIngressSessionExpired(hooks, time.Now()) {
+			return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "gateway access token expired", nil)
+		}
 		responseID := strings.TrimSpace(result.RequestID)
 		lastTurnResponseID = responseID
 		lastTurnPayload = cloneOpenAIWSPayloadBytes(currentPayload)
@@ -3470,7 +3620,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			return fmt.Errorf("read client websocket request: %w", readErr)
 		}
 
-		nextPayload, parseErr := parseClientPayload(nextClientMessage)
+		nextPayload, parseErr := parseClientPayload(turn+1, nextClientMessage)
 		if parseErr != nil {
 			return parseErr
 		}

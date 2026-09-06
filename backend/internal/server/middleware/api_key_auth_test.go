@@ -19,7 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestGatewayAuthAcceptsOIDCLocalTokenAsPersistentBillingKey(t *testing.T) {
+func TestGatewayAuthRejectsLocalTabroOIDCTokenOnAllCredentialHeaders(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cfg := &config.Config{RunMode: config.RunModeSimple}
 	cfg.JWT.Secret = "gateway-oidc-token-test-secret"
@@ -86,13 +86,14 @@ func TestGatewayAuthAcceptsOIDCLocalTokenAsPersistentBillingKey(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, "/t", nil)
 			setHeader(req)
 			router.ServeHTTP(w, req)
-			require.Equal(t, http.StatusNoContent, w.Code)
+			require.Equal(t, http.StatusUnauthorized, w.Code)
+			require.Contains(t, w.Body.String(), "INVALID_API_KEY")
 		})
 	}
-	require.Zero(t, getByKeyCalls, "valid OIDC JWT must not be queried as an API key")
+	require.Zero(t, getByKeyCalls, "JWT-shaped credentials must never reach the API-key lookup path")
 }
 
-func TestGatewayAuthFallsBackToImportedDottedAPIKey(t *testing.T) {
+func TestGatewayAuthRejectsImportedDottedBearerInsteadOfFallingBackToAPIKey(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cfg := &config.Config{RunMode: config.RunModeSimple}
 	cfg.JWT.Secret = "gateway-dotted-key-fallback-secret"
@@ -104,8 +105,10 @@ func TestGatewayAuthFallsBackToImportedDottedAPIKey(t *testing.T) {
 		Status: service.StatusAPIKeyActive,
 		User:   user,
 	}
+	getByKeyCalls := 0
 	repo := &stubApiKeyRepo{
 		getByKey: func(_ context.Context, key string) (*service.APIKey, error) {
+			getByKeyCalls++
 			if key != legacyKey.Key {
 				return nil, service.ErrAPIKeyNotFound
 			}
@@ -124,7 +127,9 @@ func TestGatewayAuthFallsBackToImportedDottedAPIKey(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/t", nil)
 	req.Header.Set("Authorization", "Bearer "+legacyKey.Key)
 	router.ServeHTTP(w, req)
-	require.Equal(t, http.StatusNoContent, w.Code)
+	require.Equal(t, http.StatusUnauthorized, w.Code)
+	require.Contains(t, w.Body.String(), "INVALID_API_KEY")
+	require.Zero(t, getByKeyCalls, "JWT-shaped bearer values must never fall back to API-key lookup")
 }
 
 func TestGatewayAuthRejectsOIDCBillingKeyValueAsStandaloneCredential(t *testing.T) {
@@ -218,72 +223,27 @@ func TestGatewayAuthRejectsNonOIDCOrMismatchedLocalTokens(t *testing.T) {
 	}
 }
 
-func TestGatewayAuthOIDCTokenUsesBoundAPIKeyBillingPolicy(t *testing.T) {
+func TestGatewayAuthExternalOIDCTokenUsesBoundAPIKeyBillingPolicy(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	cfg := &config.Config{RunMode: config.RunModeStandard}
-	cfg.JWT.Secret = "gateway-oidc-billing-policy-secret"
-	cfg.JWT.AccessTokenExpireMinutes = 60
+	fixture := newGatewayMiddlewareOAuthFixture(t)
+	fixture.cfg.RunMode = config.RunModeStandard
+	fixture.repo.boundKey.User.Balance = 10
+	fixture.repo.boundKey.Quota = 1
+	fixture.repo.boundKey.QuotaUsed = 1
+	token := fixture.sign(t, fixture.claims())
 
-	user := &service.User{
-		ID:           18,
-		Email:        "billing@example.com",
-		Role:         service.RoleUser,
-		Status:       service.StatusActive,
-		Balance:      10,
-		TokenVersion: 6,
-	}
-	billingKey := &service.APIKey{
-		ID:          180,
-		UserID:      user.ID,
-		Key:         "persistent-billing-policy-key",
-		OIDCManaged: true,
-		Status:      service.StatusAPIKeyActive,
-		Quota:       1,
-		QuotaUsed:   1,
-		User:        user,
-	}
-	ordinaryKey := *billingKey
-	ordinaryKey.ID = 181
-	ordinaryKey.Key = "ordinary-billing-policy-key"
-	ordinaryKey.OIDCManaged = false
-	repo := &stubApiKeyRepo{
-		getByKey: func(_ context.Context, key string) (*service.APIKey, error) {
-			if key != ordinaryKey.Key {
-				return nil, service.ErrAPIKeyNotFound
-			}
-			clone := ordinaryKey
-			return &clone, nil
-		},
-		getByID: func(_ context.Context, id int64) (*service.APIKey, error) {
-			if id != billingKey.ID {
-				return nil, service.ErrAPIKeyNotFound
-			}
-			clone := *billingKey
-			return &clone, nil
-		},
-	}
-	apiKeyService := service.NewAPIKeyService(repo, nil, nil, nil, nil, nil, cfg)
-	authService := service.NewAuthService(nil, nil, nil, nil, cfg, nil, nil, nil, nil, nil, nil)
-	oidcToken := signOIDCGatewayToken(t, cfg.JWT.Secret, user.ID, billingKey.ID, user.TokenVersion, service.AuthMethodOIDC)
+	router := gin.New()
+	router.Use(gin.HandlerFunc(NewGatewayAuthMiddleware(fixture.apiKeys, nil, nil, fixture.cfg)))
+	router.GET("/t", func(c *gin.Context) { c.Status(http.StatusNoContent) })
 
-	for name, credential := range map[string]string{
-		"oidc_access_token": oidcToken,
-		"api_key":           ordinaryKey.Key,
-	} {
-		t.Run(name, func(t *testing.T) {
-			router := gin.New()
-			router.Use(gin.HandlerFunc(NewGatewayAuthMiddleware(apiKeyService, nil, authService, cfg)))
-			router.GET("/t", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/t", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	router.ServeHTTP(w, req)
 
-			w := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodGet, "/t", nil)
-			req.Header.Set("Authorization", "Bearer "+credential)
-			router.ServeHTTP(w, req)
-
-			require.Equal(t, http.StatusTooManyRequests, w.Code)
-			require.Contains(t, w.Body.String(), "API_KEY_QUOTA_EXHAUSTED")
-		})
-	}
+	require.Equal(t, http.StatusTooManyRequests, w.Code)
+	require.Contains(t, w.Body.String(), "API_KEY_QUOTA_EXHAUSTED")
+	require.Equal(t, 1, fixture.repo.identityLookups)
 }
 
 func TestGatewayAuthUsageAliasesSkipBillingPolicy(t *testing.T) {
@@ -330,26 +290,14 @@ func TestGatewayAuthUsageAliasesSkipBillingPolicy(t *testing.T) {
 	}
 }
 
-func TestGatewayAuthOIDCKeyLookupFailureReturnsInternalError(t *testing.T) {
+func TestGatewayAuthOIDCIdentityLookupFailureReturnsUnavailable(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	cfg := &config.Config{RunMode: config.RunModeSimple}
-	cfg.JWT.Secret = "gateway-oidc-lookup-error-secret"
-	user := &service.User{ID: 19, Status: service.StatusActive, TokenVersion: 1}
-
-	repo := &stubApiKeyRepo{
-		getByKey: func(context.Context, string) (*service.APIKey, error) {
-			return nil, service.ErrAPIKeyNotFound
-		},
-		getByID: func(context.Context, int64) (*service.APIKey, error) {
-			return nil, errors.New("database unavailable")
-		},
-	}
-	apiKeyService := service.NewAPIKeyService(repo, nil, nil, nil, nil, nil, cfg)
-	authService := service.NewAuthService(nil, nil, nil, nil, cfg, nil, nil, nil, nil, nil, nil)
-	token := signOIDCGatewayToken(t, cfg.JWT.Secret, user.ID, 190, user.TokenVersion, service.AuthMethodOIDC)
+	fixture := newGatewayMiddlewareOAuthFixture(t)
+	fixture.repo.identityLookupErr = errors.New("database unavailable")
+	token := fixture.sign(t, fixture.claims())
 
 	router := gin.New()
-	router.Use(gin.HandlerFunc(NewGatewayAuthMiddleware(apiKeyService, nil, authService, cfg)))
+	router.Use(gin.HandlerFunc(NewGatewayAuthMiddleware(fixture.apiKeys, nil, nil, fixture.cfg)))
 	router.GET("/t", func(c *gin.Context) { c.Status(http.StatusNoContent) })
 
 	w := httptest.NewRecorder()
@@ -357,8 +305,8 @@ func TestGatewayAuthOIDCKeyLookupFailureReturnsInternalError(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+token)
 	router.ServeHTTP(w, req)
 
-	require.Equal(t, http.StatusInternalServerError, w.Code)
-	require.Contains(t, w.Body.String(), "INTERNAL_ERROR")
+	require.Equal(t, http.StatusServiceUnavailable, w.Code)
+	require.Contains(t, w.Body.String(), "OIDC_PROVIDER_UNAVAILABLE")
 }
 
 func signOIDCGatewayToken(t *testing.T, secret string, userID, billingAPIKeyID, tokenVersion int64, authMethod string) string {
