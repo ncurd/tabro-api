@@ -21,9 +21,9 @@ import (
 )
 
 const (
-	gatewayOIDCTestAudience = "llm-gateway-api"
+	gatewayOIDCTestAudience = "tabro-llm"
 	gatewayOIDCTestClientID = "tabro-agent"
-	gatewayOIDCTestActorID  = "tabro-token-exchange"
+	gatewayOIDCTestActorID  = "tabro-agent"
 )
 
 type gatewayOIDCTestJWKS struct {
@@ -358,9 +358,10 @@ func TestGatewayResourceServerVerifyRejectsUnauthorizedClient(t *testing.T) {
 			},
 		},
 		{
-			name: "client id missing",
+			name: "azp is required even when client id is present",
 			mutate: func(claims jwt.MapClaims) {
 				delete(claims, "azp")
+				claims["client_id"] = gatewayOIDCTestClientID
 			},
 		},
 		{
@@ -403,6 +404,20 @@ func TestGatewayResourceServerVerifyRejectsUnauthorizedClient(t *testing.T) {
 	}
 }
 
+func TestGatewayResourceServerAcceptsMatchingRedundantClientID(t *testing.T) {
+	key := gatewayOIDCTestRSAKey(t)
+	jwks := newGatewayOIDCTestJWKS(t, gatewayOIDCTestRSAJWK("key-1", key))
+	cfg := gatewayOIDCTestConfig(jwks.server.URL, jwks.server.URL+"/jwks")
+	server := newGatewayResourceServerWithClient(cfg, nil, jwks.server.Client())
+	claims := gatewayOIDCTestClaims(cfg.IssuerURL, time.Now())
+	claims["client_id"] = gatewayOIDCTestClientID
+
+	principal, err := server.Verify(context.Background(), gatewayOIDCTestToken(t, key, "key-1", claims))
+
+	require.NoError(t, err)
+	require.Equal(t, gatewayOIDCTestClientID, principal.ClientID)
+}
+
 func TestGatewayResourceServerVerifyTokenExchangeDelegation(t *testing.T) {
 	key := gatewayOIDCTestRSAKey(t)
 	jwks := newGatewayOIDCTestJWKS(t, gatewayOIDCTestRSAJWK("key-1", key))
@@ -412,7 +427,7 @@ func TestGatewayResourceServerVerifyTokenExchangeDelegation(t *testing.T) {
 	t.Run("valid actor", func(t *testing.T) {
 		claims := gatewayOIDCTestClaims(cfg.IssuerURL, time.Now())
 		claims["gty"] = "urn:ietf:params:oauth:grant-type:token-exchange"
-		claims["act"] = map[string]any{"client_id": gatewayOIDCTestActorID}
+		claims["act"] = map[string]any{"sub": gatewayOIDCTestActorID}
 
 		principal, err := server.Verify(context.Background(), gatewayOIDCTestToken(t, key, "key-1", claims))
 
@@ -420,7 +435,40 @@ func TestGatewayResourceServerVerifyTokenExchangeDelegation(t *testing.T) {
 		require.Equal(t, []string{gatewayOIDCTestActorID}, principal.ActorChain)
 	})
 
-	t.Run("matching actor identity aliases are accepted", func(t *testing.T) {
+	t.Run("comma-separated application allowlists accept a future application", func(t *testing.T) {
+		multiApplicationCfg := cfg
+		multiApplicationCfg.AllowedClientIDs = "tabro-agent,tabro-drama"
+		multiApplicationCfg.TokenExchange.AllowedActorClientIDs = "tabro-agent,tabro-drama"
+		multiApplicationServer := newGatewayResourceServerWithClient(multiApplicationCfg, nil, jwks.server.Client())
+		claims := gatewayOIDCTestClaims(cfg.IssuerURL, time.Now())
+		claims["azp"] = "tabro-drama"
+		claims["gty"] = "token_exchange"
+		claims["act"] = map[string]any{"sub": "tabro-drama"}
+
+		principal, err := multiApplicationServer.Verify(context.Background(), gatewayOIDCTestToken(t, key, "key-1", claims))
+
+		require.NoError(t, err)
+		require.Equal(t, "tabro-drama", principal.ClientID)
+		require.Equal(t, []string{"tabro-drama"}, principal.ActorChain)
+	})
+
+	t.Run("cross-application actor and client combination is rejected", func(t *testing.T) {
+		multiApplicationCfg := cfg
+		multiApplicationCfg.AllowedClientIDs = "tabro-agent,tabro-drama"
+		multiApplicationCfg.TokenExchange.AllowedActorClientIDs = "tabro-agent,tabro-drama"
+		multiApplicationServer := newGatewayResourceServerWithClient(multiApplicationCfg, nil, jwks.server.Client())
+		claims := gatewayOIDCTestClaims(cfg.IssuerURL, time.Now())
+		claims["azp"] = "tabro-drama"
+		claims["gty"] = "token_exchange"
+		claims["act"] = map[string]any{"sub": "tabro-agent"}
+
+		principal, err := multiApplicationServer.Verify(context.Background(), gatewayOIDCTestToken(t, key, "key-1", claims))
+
+		require.Nil(t, principal)
+		require.ErrorIs(t, err, ErrGatewayOIDCTokenInvalid)
+	})
+
+	t.Run("matching redundant actor identity aliases are accepted", func(t *testing.T) {
 		claims := gatewayOIDCTestClaims(cfg.IssuerURL, time.Now())
 		claims["gty"] = "token-exchange"
 		claims["act"] = map[string]any{
@@ -435,10 +483,24 @@ func TestGatewayResourceServerVerifyTokenExchangeDelegation(t *testing.T) {
 		require.Equal(t, []string{gatewayOIDCTestActorID}, principal.ActorChain)
 	})
 
+	for _, alias := range []string{"client_id", "azp"} {
+		t.Run("actor "+alias+" cannot replace sub", func(t *testing.T) {
+			claims := gatewayOIDCTestClaims(cfg.IssuerURL, time.Now())
+			claims["gty"] = "token-exchange"
+			claims["act"] = map[string]any{alias: gatewayOIDCTestActorID}
+
+			principal, err := server.Verify(context.Background(), gatewayOIDCTestToken(t, key, "key-1", claims))
+
+			require.Nil(t, principal)
+			require.ErrorIs(t, err, ErrGatewayOIDCTokenInvalid)
+		})
+	}
+
 	t.Run("conflicting actor identity aliases are rejected", func(t *testing.T) {
 		claims := gatewayOIDCTestClaims(cfg.IssuerURL, time.Now())
 		claims["gty"] = "token-exchange"
 		claims["act"] = map[string]any{
+			"sub":       gatewayOIDCTestActorID,
 			"client_id": gatewayOIDCTestActorID,
 			"azp":       "different-actor",
 		}
@@ -467,11 +529,25 @@ func TestGatewayResourceServerVerifyTokenExchangeDelegation(t *testing.T) {
 		claims := gatewayOIDCTestClaims(cfg.IssuerURL, time.Now())
 		claims["gty"] = "token-exchange"
 		claims["act"] = map[string]any{
-			"client_id": gatewayOIDCTestActorID,
+			"sub": gatewayOIDCTestActorID,
 			"act": map[string]any{
 				"client_id": gatewayOIDCTestActorID,
 				"sub":       "different-actor",
 			},
+		}
+
+		principal, err := server.Verify(context.Background(), gatewayOIDCTestToken(t, key, "key-1", claims))
+
+		require.Nil(t, principal)
+		require.ErrorIs(t, err, ErrGatewayOIDCTokenInvalid)
+	})
+
+	t.Run("nested actor also requires sub", func(t *testing.T) {
+		claims := gatewayOIDCTestClaims(cfg.IssuerURL, time.Now())
+		claims["gty"] = "token-exchange"
+		claims["act"] = map[string]any{
+			"sub": gatewayOIDCTestActorID,
+			"act": map[string]any{"client_id": gatewayOIDCTestActorID},
 		}
 
 		principal, err := server.Verify(context.Background(), gatewayOIDCTestToken(t, key, "key-1", claims))
@@ -491,11 +567,28 @@ func TestGatewayResourceServerVerifyTokenExchangeDelegation(t *testing.T) {
 	})
 
 	t.Run("actor must be allowlisted", func(t *testing.T) {
+		actorDeniedCfg := cfg
+		actorDeniedCfg.TokenExchange.AllowedActorClientIDs = "tabro-drama"
+		actorDeniedServer := newGatewayResourceServerWithClient(actorDeniedCfg, nil, jwks.server.Client())
 		claims := gatewayOIDCTestClaims(cfg.IssuerURL, time.Now())
 		claims["gty"] = "token_exchange"
-		claims["act"] = map[string]any{"sub": "untrusted-actor"}
+		claims["act"] = map[string]any{"sub": gatewayOIDCTestActorID}
 
-		principal, err := server.Verify(context.Background(), gatewayOIDCTestToken(t, key, "key-1", claims))
+		principal, err := actorDeniedServer.Verify(context.Background(), gatewayOIDCTestToken(t, key, "key-1", claims))
+
+		require.Nil(t, principal)
+		require.ErrorIs(t, err, ErrGatewayOIDCTokenInvalid)
+	})
+
+	t.Run("actor allowlist is deny by default", func(t *testing.T) {
+		denyByDefaultCfg := cfg
+		denyByDefaultCfg.TokenExchange.AllowedActorClientIDs = ""
+		denyByDefaultServer := newGatewayResourceServerWithClient(denyByDefaultCfg, nil, jwks.server.Client())
+		claims := gatewayOIDCTestClaims(cfg.IssuerURL, time.Now())
+		claims["gty"] = "token_exchange"
+		claims["act"] = map[string]any{"sub": gatewayOIDCTestActorID}
+
+		principal, err := denyByDefaultServer.Verify(context.Background(), gatewayOIDCTestToken(t, key, "key-1", claims))
 
 		require.Nil(t, principal)
 		require.ErrorIs(t, err, ErrGatewayOIDCTokenInvalid)
@@ -508,8 +601,8 @@ func TestGatewayResourceServerVerifyTokenExchangeDelegation(t *testing.T) {
 		claims := gatewayOIDCTestClaims(cfg.IssuerURL, time.Now())
 		claims["gty"] = "token-exchange"
 		claims["act"] = map[string]any{
-			"client_id": gatewayOIDCTestActorID,
-			"act":       map[string]any{"client_id": gatewayOIDCTestActorID},
+			"sub": gatewayOIDCTestActorID,
+			"act": map[string]any{"sub": gatewayOIDCTestActorID},
 		}
 
 		principal, err := depthServer.Verify(context.Background(), gatewayOIDCTestToken(t, key, "key-1", claims))
@@ -517,6 +610,23 @@ func TestGatewayResourceServerVerifyTokenExchangeDelegation(t *testing.T) {
 		require.Nil(t, principal)
 		require.ErrorIs(t, err, ErrGatewayOIDCTokenInvalid)
 	})
+}
+
+func TestGatewayResourceServerVerifyClientCredentialsWithoutActor(t *testing.T) {
+	key := gatewayOIDCTestRSAKey(t)
+	jwks := newGatewayOIDCTestJWKS(t, gatewayOIDCTestRSAJWK("key-1", key))
+	cfg := gatewayOIDCTestConfig(jwks.server.URL, jwks.server.URL+"/jwks")
+	cfg.TokenExchange.RequireActor = false
+	cfg.TokenExchange.AllowedActorClientIDs = ""
+	server := newGatewayResourceServerWithClient(cfg, nil, jwks.server.Client())
+	claims := gatewayOIDCTestClaims(cfg.IssuerURL, time.Now())
+	claims["grant_type"] = "client_credentials"
+
+	principal, err := server.Verify(context.Background(), gatewayOIDCTestToken(t, key, "key-1", claims))
+
+	require.NoError(t, err)
+	require.Equal(t, gatewayOIDCTestClientID, principal.ClientID)
+	require.Empty(t, principal.ActorChain)
 }
 
 func TestGatewayResourceServerJWKSCacheRotationAndUnknownKID(t *testing.T) {

@@ -25,8 +25,8 @@ import (
 )
 
 const (
-	gatewayMiddlewareAudience = "llm-gateway-api"
-	gatewayMiddlewareClientID = "tabro-client"
+	gatewayMiddlewareAudience = "tabro-llm"
+	gatewayMiddlewareClientID = "tabro-agent"
 	gatewayMiddlewareSubject  = "tabro-user-42"
 	gatewayMiddlewareTenant   = "tenant-acme"
 )

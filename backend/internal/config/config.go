@@ -17,6 +17,11 @@ import (
 const (
 	RunModeStandard = "standard"
 	RunModeSimple   = "simple"
+
+	// Resource-server trust policy is intentionally file-only. Unlike operational
+	// tuning, issuer and identity allowlists must be reviewable as one YAML block
+	// and must not be silently replaced by a container environment value.
+	gatewayResourceServerEnvironmentPrefix = "GATEWAY_RESOURCE_SERVER_"
 )
 
 // 使用量记录队列溢出策略
@@ -333,8 +338,8 @@ type ConcurrencyConfig struct {
 // GatewayConfig API网关相关配置
 type GatewayConfig struct {
 	// ResourceServer configures gateway-only OAuth 2.0 access-token validation.
-	// It is deliberately independent from oidc_connect, which is an interactive
-	// browser-login client and therefore has a different client ID/audience.
+	// It is deliberately independent from oidc_connect, which governs the
+	// gateway administration UI rather than model-call access tokens.
 	ResourceServer GatewayResourceServerConfig `mapstructure:"resource_server"`
 
 	// 等待上游响应头的超时时间（秒），0表示无超时
@@ -437,8 +442,8 @@ type GatewayConfig struct {
 }
 
 // GatewayResourceServerConfig turns the LLM gateway into an OAuth 2.0 Resource
-// Server. Comma/space-separated string fields are used so the same values work
-// consistently in YAML and environment variables.
+// Server. Its trust policy is loaded only from config.yaml; comma/space-separated
+// fields keep human-edited allowlists and scopes concise.
 type GatewayResourceServerConfig struct {
 	Enabled             bool   `mapstructure:"enabled"`
 	IssuerURL           string `mapstructure:"issuer_url"`
@@ -994,6 +999,10 @@ func LoadForBootstrap() (*Config, error) {
 }
 
 func load(allowMissingJWTSecret bool) (*Config, error) {
+	if err := rejectGatewayResourceServerEnvironmentOverrides(); err != nil {
+		return nil, err
+	}
+
 	viper.SetConfigName("config")
 	viper.SetConfigType("yaml")
 
@@ -1156,6 +1165,22 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+func rejectGatewayResourceServerEnvironmentOverrides() error {
+	for _, entry := range os.Environ() {
+		name, value, found := strings.Cut(entry, "=")
+		if !found || value == "" {
+			continue
+		}
+		if strings.HasPrefix(strings.ToUpper(name), gatewayResourceServerEnvironmentPrefix) {
+			return fmt.Errorf(
+				"gateway.resource_server must be configured in config.yaml; remove unsupported environment variable %s",
+				name,
+			)
+		}
+	}
+	return nil
 }
 
 func setDefaults() {
@@ -1408,7 +1433,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.resource_server.issuer_url", "")
 	viper.SetDefault("gateway.resource_server.discovery_url", "")
 	viper.SetDefault("gateway.resource_server.jwks_url", "")
-	viper.SetDefault("gateway.resource_server.audience", "llm-gateway-api")
+	viper.SetDefault("gateway.resource_server.audience", "tabro-llm")
 	viper.SetDefault("gateway.resource_server.required_scopes", "llm.invoke")
 	viper.SetDefault("gateway.resource_server.allowed_client_ids", "")
 	viper.SetDefault("gateway.resource_server.allowed_signing_algs", "RS256,ES256,PS256")
@@ -1416,7 +1441,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.resource_server.jwks_cache_ttl_seconds", 300)
 	viper.SetDefault("gateway.resource_server.tenant_claim", "tenant_id")
 	viper.SetDefault("gateway.resource_server.require_tenant", false)
-	viper.SetDefault("gateway.resource_server.token_exchange.require_actor", false)
+	viper.SetDefault("gateway.resource_server.token_exchange.require_actor", true)
 	viper.SetDefault("gateway.resource_server.token_exchange.actor_claim", "act")
 	viper.SetDefault("gateway.resource_server.token_exchange.allowed_actor_client_ids", "")
 	viper.SetDefault("gateway.resource_server.token_exchange.max_delegation_depth", 4)

@@ -242,6 +242,12 @@ func (s *GatewayResourceServer) Verify(ctx context.Context, rawToken string) (*G
 	if err != nil {
 		return nil, err
 	}
+	// The immediate act.sub represents the OAuth client that obtained the token.
+	// Bind it to the required top-level azp so two allowlisted applications cannot
+	// be combined into an otherwise-valid delegated token.
+	if len(actors) > 0 && actors[0] != clientID {
+		return nil, ErrGatewayOIDCTokenInvalid
+	}
 
 	// Scope is authorization, so evaluate it only after every authentication
 	// property above has been validated. A token with an invalid client,
@@ -471,8 +477,20 @@ func (s *GatewayResourceServer) validateDelegation(claims jwt.MapClaims) ([]stri
 }
 
 func gatewayOIDCActorID(actor map[string]any) (string, error) {
-	actorID := ""
-	for _, claimName := range []string{"client_id", "azp", "sub"} {
+	rawSubject, present := actor["sub"]
+	if !present {
+		return "", ErrGatewayOIDCTokenInvalid
+	}
+	actorID, ok := rawSubject.(string)
+	actorID = strings.TrimSpace(actorID)
+	if !ok || actorID == "" {
+		return "", ErrGatewayOIDCTokenInvalid
+	}
+
+	// RFC 8693 identifies each actor with sub. Some issuers also emit
+	// client_id/azp; accept those only as redundant claims that agree with sub,
+	// never as a substitute for it.
+	for _, claimName := range []string{"client_id", "azp"} {
 		raw, present := actor[claimName]
 		if !present {
 			continue
@@ -482,38 +500,35 @@ func gatewayOIDCActorID(actor map[string]any) (string, error) {
 		if !ok || value == "" {
 			return "", ErrGatewayOIDCTokenInvalid
 		}
-		if actorID != "" && actorID != value {
+		if actorID != value {
 			return "", ErrGatewayOIDCTokenInvalid
 		}
-		actorID = value
-	}
-	if actorID == "" {
-		return "", ErrGatewayOIDCTokenInvalid
 	}
 	return actorID, nil
 }
 
 func gatewayOIDCClientID(claims jwt.MapClaims) (string, error) {
-	resolved := ""
-	for _, claimName := range []string{"azp", "client_id"} {
-		raw, present := claims[claimName]
-		if !present {
-			continue
-		}
-		value, ok := raw.(string)
-		value = strings.TrimSpace(value)
-		if !ok || value == "" {
-			return "", ErrGatewayOIDCTokenInvalid
-		}
-		if resolved != "" && resolved != value {
-			return "", ErrGatewayOIDCTokenInvalid
-		}
-		resolved = value
-	}
-	if resolved == "" {
+	rawAuthorizedParty, present := claims["azp"]
+	if !present {
 		return "", ErrGatewayOIDCTokenInvalid
 	}
-	return resolved, nil
+	clientID, ok := rawAuthorizedParty.(string)
+	clientID = strings.TrimSpace(clientID)
+	if !ok || clientID == "" {
+		return "", ErrGatewayOIDCTokenInvalid
+	}
+
+	// client_id is not the policy identity for this resource server. If an
+	// issuer includes it, require it to be a well-formed duplicate of azp so a
+	// conflicting secondary identity cannot be ignored.
+	if rawClientID, clientIDPresent := claims["client_id"]; clientIDPresent {
+		secondary, secondaryOK := rawClientID.(string)
+		secondary = strings.TrimSpace(secondary)
+		if !secondaryOK || secondary == "" || secondary != clientID {
+			return "", ErrGatewayOIDCTokenInvalid
+		}
+	}
+	return clientID, nil
 }
 
 func gatewayOIDCScopes(claims jwt.MapClaims) map[string]struct{} {

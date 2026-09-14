@@ -1,9 +1,12 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
 )
 
@@ -15,36 +18,45 @@ func TestLoadGatewayResourceServerDefaults(t *testing.T) {
 	require.NoError(t, err)
 	rs := cfg.Gateway.ResourceServer
 	require.False(t, rs.Enabled)
-	require.Equal(t, "llm-gateway-api", rs.Audience)
+	require.Equal(t, "tabro-llm", rs.Audience)
 	require.Equal(t, "llm.invoke", rs.RequiredScopes)
+	require.Empty(t, rs.AllowedClientIDs)
 	require.Equal(t, "RS256,ES256,PS256", rs.AllowedSigningAlgs)
 	require.Equal(t, 120, rs.ClockSkewSeconds)
 	require.Equal(t, 300, rs.JWKSCacheTTLSeconds)
 	require.Equal(t, "tenant_id", rs.TenantClaim)
 	require.False(t, rs.RequireTenant)
-	require.False(t, rs.TokenExchange.RequireActor)
+	require.True(t, rs.TokenExchange.RequireActor)
 	require.Equal(t, "act", rs.TokenExchange.ActorClaim)
+	require.Empty(t, rs.TokenExchange.AllowedActorClientIDs)
 	require.Equal(t, 4, rs.TokenExchange.MaxDelegationDepth)
 }
 
-func TestLoadGatewayResourceServerFromEnvironment(t *testing.T) {
+func TestLoadGatewayResourceServerFromYAML(t *testing.T) {
 	resetViperWithJWTSecret(t)
-	t.Setenv("GATEWAY_RESOURCE_SERVER_ENABLED", "true")
-	t.Setenv("GATEWAY_RESOURCE_SERVER_ISSUER_URL", "https://identity.example.com/realms/production")
-	t.Setenv("GATEWAY_RESOURCE_SERVER_DISCOVERY_URL", "https://identity.example.com/.well-known/openid-configuration")
-	t.Setenv("GATEWAY_RESOURCE_SERVER_JWKS_URL", "https://identity.example.com/oauth2/jwks")
-	t.Setenv("GATEWAY_RESOURCE_SERVER_AUDIENCE", "https://llm.example.com")
-	t.Setenv("GATEWAY_RESOURCE_SERVER_REQUIRED_SCOPES", "llm.invoke,llm.stream")
-	t.Setenv("GATEWAY_RESOURCE_SERVER_ALLOWED_CLIENT_IDS", "tabro-agent,tabro-worker")
-	t.Setenv("GATEWAY_RESOURCE_SERVER_ALLOWED_SIGNING_ALGS", "RS256,PS256")
-	t.Setenv("GATEWAY_RESOURCE_SERVER_CLOCK_SKEW_SECONDS", "45")
-	t.Setenv("GATEWAY_RESOURCE_SERVER_JWKS_CACHE_TTL_SECONDS", "600")
-	t.Setenv("GATEWAY_RESOURCE_SERVER_TENANT_CLAIM", "https://tabro.example/tenant_id")
-	t.Setenv("GATEWAY_RESOURCE_SERVER_REQUIRE_TENANT", "true")
-	t.Setenv("GATEWAY_RESOURCE_SERVER_TOKEN_EXCHANGE_REQUIRE_ACTOR", "true")
-	t.Setenv("GATEWAY_RESOURCE_SERVER_TOKEN_EXCHANGE_ACTOR_CLAIM", "delegation.actor")
-	t.Setenv("GATEWAY_RESOURCE_SERVER_TOKEN_EXCHANGE_ALLOWED_ACTOR_CLIENT_IDS", "token-broker")
-	t.Setenv("GATEWAY_RESOURCE_SERVER_TOKEN_EXCHANGE_MAX_DELEGATION_DEPTH", "2")
+	tempDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "config.yaml"), []byte(`
+gateway:
+  resource_server:
+    enabled: true
+    issuer_url: "https://identity.example.com/realms/production"
+    discovery_url: "https://identity.example.com/.well-known/openid-configuration"
+    jwks_url: "https://identity.example.com/oauth2/jwks"
+    audience: "https://llm.example.com"
+    required_scopes: "llm.invoke,llm.stream"
+    allowed_client_ids: "tabro-agent,tabro-drama"
+    allowed_signing_algs: "RS256,PS256"
+    clock_skew_seconds: 45
+    jwks_cache_ttl_seconds: 600
+    tenant_claim: "https://tabro.example/tenant_id"
+    require_tenant: true
+    token_exchange:
+      require_actor: true
+      actor_claim: "delegation.actor"
+      allowed_actor_client_ids: "tabro-agent"
+      max_delegation_depth: 2
+`), 0o600))
+	t.Setenv("DATA_DIR", tempDir)
 
 	cfg, err := Load()
 	require.NoError(t, err)
@@ -56,7 +68,7 @@ func TestLoadGatewayResourceServerFromEnvironment(t *testing.T) {
 	require.Equal(t, "https://identity.example.com/oauth2/jwks", rs.JWKSURL)
 	require.Equal(t, "https://llm.example.com", rs.Audience)
 	require.Equal(t, "llm.invoke,llm.stream", rs.RequiredScopes)
-	require.Equal(t, "tabro-agent,tabro-worker", rs.AllowedClientIDs)
+	require.Equal(t, "tabro-agent,tabro-drama", rs.AllowedClientIDs)
 	require.Equal(t, "RS256,PS256", rs.AllowedSigningAlgs)
 	require.Equal(t, 45, rs.ClockSkewSeconds)
 	require.Equal(t, 600, rs.JWKSCacheTTLSeconds)
@@ -64,8 +76,55 @@ func TestLoadGatewayResourceServerFromEnvironment(t *testing.T) {
 	require.True(t, rs.RequireTenant)
 	require.True(t, rs.TokenExchange.RequireActor)
 	require.Equal(t, "delegation.actor", rs.TokenExchange.ActorClaim)
-	require.Equal(t, "token-broker", rs.TokenExchange.AllowedActorClientIDs)
+	require.Equal(t, "tabro-agent", rs.TokenExchange.AllowedActorClientIDs)
 	require.Equal(t, 2, rs.TokenExchange.MaxDelegationDepth)
+}
+
+func TestLoadGatewayResourceServerRejectsEnvironmentOverride(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	t.Setenv("GATEWAY_RESOURCE_SERVER_ENABLED", "true")
+
+	_, err := Load()
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "gateway.resource_server must be configured in config.yaml")
+	require.Contains(t, err.Error(), "GATEWAY_RESOURCE_SERVER_ENABLED")
+}
+
+func TestDeployConfigExampleContainsCompleteFailClosedResourceServerPolicy(t *testing.T) {
+	example := viper.New()
+	example.SetConfigFile(filepath.Join("..", "..", "..", "deploy", "config.example.yaml"))
+	require.NoError(t, example.ReadInConfig())
+
+	keys := []string{
+		"enabled",
+		"issuer_url",
+		"discovery_url",
+		"jwks_url",
+		"audience",
+		"required_scopes",
+		"allowed_client_ids",
+		"allowed_signing_algs",
+		"clock_skew_seconds",
+		"jwks_cache_ttl_seconds",
+		"tenant_claim",
+		"require_tenant",
+		"token_exchange.require_actor",
+		"token_exchange.actor_claim",
+		"token_exchange.allowed_actor_client_ids",
+		"token_exchange.max_delegation_depth",
+	}
+	for _, key := range keys {
+		require.Truef(t, example.IsSet("gateway.resource_server."+key), "missing gateway.resource_server.%s", key)
+	}
+
+	var rs GatewayResourceServerConfig
+	require.NoError(t, example.UnmarshalKey("gateway.resource_server", &rs))
+	require.False(t, rs.Enabled)
+	require.Empty(t, rs.IssuerURL)
+	require.Empty(t, rs.AllowedClientIDs)
+	require.True(t, rs.TokenExchange.RequireActor)
+	require.Empty(t, rs.TokenExchange.AllowedActorClientIDs)
 }
 
 func TestValidateGatewayResourceServerConfig(t *testing.T) {
@@ -79,16 +138,16 @@ func TestValidateGatewayResourceServerConfig(t *testing.T) {
 			IssuerURL:           "https://identity.example.com/realms/tabro",
 			DiscoveryURL:        "https://identity.example.com/realms/tabro/.well-known/openid-configuration",
 			JWKSURL:             "https://identity.example.com/realms/tabro/protocol/openid-connect/certs",
-			Audience:            "llm-gateway-api",
+			Audience:            "tabro-llm",
 			RequiredScopes:      "llm.invoke",
-			AllowedClientIDs:    "tabro-web,tabro-agent",
+			AllowedClientIDs:    "tabro-agent,tabro-drama",
 			AllowedSigningAlgs:  "RS256,ES256,PS256",
 			ClockSkewSeconds:    120,
 			JWKSCacheTTLSeconds: 300,
 			TenantClaim:         "tenant_id",
 			TokenExchange: GatewayTokenExchangeConfig{
 				ActorClaim:            "act",
-				AllowedActorClientIDs: "tabro-token-exchange",
+				AllowedActorClientIDs: "tabro-agent",
 				MaxDelegationDepth:    4,
 			},
 		}

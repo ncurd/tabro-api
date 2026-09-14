@@ -4,7 +4,7 @@
 
 ## 先区分两种 OIDC 用途
 
-`oidc_connect` 和 `gateway.resource_server` 是两套独立的安全边界。它们可以使用同一个身份提供方（IdP），但不能因为 issuer 相同就复用 Client、audience 或令牌。
+`oidc_connect` 和 `gateway.resource_server` 是两套独立的安全边界。它们可以使用同一个身份提供方（IdP），但 `gateway.resource_server` 本身只是令牌验证方，不需要 Client registration 或 Client Secret。`oidc_connect` 应保留已有的后台登录 Client；Agent 的授权码、刷新和 Token Exchange 则复用已有的 confidential `tabro-agent` Client。不要为了网关验证或 Token Exchange 再创建重复 Client，也不能混用两条链路的登录令牌、网关令牌或权限。Client Secret 始终只能由受信任后端持有。
 
 | 用途 | 配置位置 | 令牌给谁使用 | 主要作用 |
 |---|---|---|---|
@@ -14,7 +14,7 @@
 重要约束：
 
 - `oidc_connect` 登录后得到的 Tabro 本地 `access_token` 不是 LLM 网关令牌，不能用来调用模型端点。
-- 网关 OAuth access token 必须由受信任 IdP 签发，且 `aud` 只能是网关自己的 audience，例如 `llm-gateway-api`。
+- 网关 OAuth access token 必须由受信任 IdP 签发，且 `aud` 只能是网关自己的 audience；Tabro 的统一约定为 `tabro-llm`。
 - 普通 Tabro API Key 仍可按原方式调用网关；外部 OAuth JWT 只能放在 `Authorization: Bearer` 中，不能放在 `x-api-key`、`x-goog-api-key` 或查询参数中。
 - 为防止外部 JWT 或 Tabro 本地 JWT 退回 API Key 路径，任何恰好包含两个 `.`、外形类似 JWT 的旧 API Key 都会被拒绝；这类导入 Key 必须在升级前轮换为非 JWT 外形的新 Key。
 - 同一个请求不要同时携带 OAuth Bearer Token 和其他 API Key，否则会被当作冲突凭证拒绝。
@@ -24,7 +24,7 @@
 ```text
 Tabro Client ──向 IdP 申请 access token──> IdP
       │
-      │ Authorization: Bearer <aud=llm-gateway-api>
+      │ Authorization: Bearer <aud=tabro-llm>
       ▼
 LLM 网关
   1. 验证签名、iss、唯一 aud、exp/nbf、scope、Client 和 act
@@ -48,38 +48,40 @@ LLM 网关
 - `aud` 只有一个值，且该值与 `gateway.resource_server.audience` 完全一致。
 - 必须存在有效的 `exp`；如果存在 `nbf`，也必须已经生效。仅允许配置范围内的时钟偏差。
 - `scope` 或 `scp` 包含所有 `required_scopes`，默认要求 `llm.invoke`。Scope 按完整词匹配，不做子串匹配。
-- `azp` 或 `client_id` 必须存在且位于 `allowed_client_ids` 中；若两个 claim 同时存在，它们必须相同。
+- 顶层 `azp` 必须是非空字符串且位于 `allowed_client_ids` 中；`client_id` 不能替代它，若存在则必须与 `azp` 相同。
 - `sub` 必须存在且非空，并且 `(iss, sub)` 已显式绑定到一条有效的 Tabro 内部 API Key。
 - 如果启用了租户强制校验，配置的 tenant claim 必须存在。租户值只能来自已经验签的 Token。
-- Token Exchange Token 必须携带有效的 `act` 委托信息；所有 actor 都必须位于 actor allowlist 中，嵌套深度不能超过配置值。
+- Token Exchange Token 必须携带有效的 `act` 委托信息；immediate `act.sub` 必须与顶层 `azp` 相同，每层 `act.sub` 都必须位于 actor allowlist 中，嵌套深度不能超过配置值。
 
 不要采用以下“兼容”方式：
 
-- 不要把 audience 设置为 Tabro 管理 API 的 audience。
-- 不要签发同时包含 `llm-gateway-api` 和 `tabro-api` 的多 audience Token；即使其中包含网关 audience，也会被拒绝。
-- 不要关闭 audience 校验来解决两个 Client ID 不同的问题。`aud` 表示资源，`azp/client_id` 表示获准调用该资源的 Client，二者必须分别校验。
+- 当前统一使用 `tabro-llm` 作为 Agent 登录 subject token 与模型交换 token 的 audience；两者依靠 `tabro.run` 与 `llm.invoke`/`act` 分层，不能只看 audience 放行。
+- 不要签发同时包含 `tabro-llm` 和 `tabro-api` 的多 audience Token；即使其中包含网关 audience，也会被拒绝。
+- 不要关闭 audience 校验来解决两个 Client ID 不同的问题。`aud` 表示资源，必需的顶层 `azp` 表示获准调用该资源的 Client，二者必须分别校验；`client_id` 不能替代 `azp`。
 - 不要使用邮箱、用户名、`X-Tabro-*` Header 或 Token 中携带的本地 Key ID 推断计费身份。
 
-## 在 IdP 中创建资源和 Client
+## 在 IdP 中配置资源和 Client
 
 不同 IdP 的界面名称可能是 API、Resource Server、Authorization Server、Audience、API Identifier 或 Resource Indicator，但应实现相同结果。
 
 1. 创建一个专属于 LLM 网关的资源：
 
-   - 建议 audience：`llm-gateway-api`
-   - 也可以使用 URI，例如 `https://llm.example.com`
-   - 不要复用 Tabro UI/管理 API 的 audience
+   - 统一 audience：`tabro-llm`
+   - Auth、Agent Framework 和网关必须使用完全相同的 `tabro-llm`，不要改成 API URL 或 Client ID
+   - 当前允许登录 subject token 与模型交换 token 复用该 audience；网关仍必须要求模型 Scope，并校验 `act`
 
 2. 为该资源创建 Scope：
 
    - 必需：`llm.invoke`
    - 如果配置了多个 `required_scopes`，Token 必须包含全部 Scope
 
-3. 创建或选择 Tabro 调用端 Client：
+3. 更新或选择 Tabro 调用端 Client（当前直接使用已有的 `tabro-agent`，不要再创建一个仅用于 Token Exchange 的重复 Client）：
 
+   - 当前调用应用 Client ID 为 `tabro-agent`
+   - 将来增加 `tabro-drama` 时，把它作为独立 Client，并在 allowlist 中用逗号追加
    - 把它授权给 LLM 网关资源及 `llm.invoke` Scope
    - 确保 access token 中有稳定、可信的 `sub`
-   - 确保 access token 中的 `azp` 或 `client_id` 是该 Client ID
+   - 确保 access token 中必需的顶层 `azp` 是该 Client ID；可选 `client_id` 若存在也必须相同
    - 把 Client ID 加入网关的 `allowed_client_ids`
 
 4. 配置 access token：
@@ -89,15 +91,15 @@ LLM 网关
    - 发布标准 OIDC Discovery 和 JWKS，或向网关提供固定的 JWKS URL
    - 多租户计费时，加入稳定的签名 tenant claim，例如 `tenant_id`
 
-如果还需要网页单点登录，应在 IdP 另外创建 Web Login Client，并单独配置 `oidc_connect`。例如：
+`oidc_connect` 只负责 tabro-api 自身管理界面的单点登录，与 Agent 调用模型的资源服务器链路无关。若已经启用，请保持现有后台登录 Client；不要为了 Token Exchange 再创建一个 Client。配置示意：
 
 ```yaml
 oidc_connect:
   enabled: true
   provider_name: "Company SSO"
-  # 与下方 allowed_client_ids 中的网关调用 Client 不同
-  client_id: "tabro-web-login"
-  client_secret: "<web-login-client-secret>"
+  # 使用现有的后台登录 Client；这不是模型 Token Exchange Client
+  client_id: "<existing-admin-login-client-id>"
+  client_secret: "<existing-admin-login-client-secret>"
   issuer_url: "https://idp.example.com/realms/production"
   scopes: "openid email profile"
   redirect_url: "https://llm.example.com/api/v1/auth/oauth/oidc/callback"
@@ -108,23 +110,27 @@ oidc_connect:
   require_email_verified: true
 ```
 
-这套 Client 的 secret 只服务于浏览器登录回调。不要把它放进 `gateway.resource_server`，也不要把网页登录得到的 ID token 或 Tabro 本地登录令牌发给 LLM 网关。
+Client Secret 只能由 Auth、Token Broker、Agent Framework 服务端等受信任后端持有，绝不能下发到浏览器或不受信任的前端。如果 Auth 按目标架构复用同一个 confidential `tabro-agent` registration，后端可以使用同一组客户端凭据完成授权码交换和 Token Exchange；但不要把 Secret 放进 `gateway.resource_server`，也不要把网页登录得到的 ID token 或 Tabro 本地登录令牌发给 LLM 网关。
 
 ### Token Exchange / 委托调用
 
 如果 Tabro 通过 OAuth 2.0 Token Exchange 代表另一个 Client 或服务调用网关：
 
+- 当前 Tabro Auth 约定 subject token 和 exchanged token 的 `aud` 都是 `tabro-llm`。交互登录流程不能直接取得 `llm.invoke`；只有 exchange 后的 Token 才携带该 Scope 和 `act`。
+- Auth 在 exchanged token 中用 `azp` 标识调用应用，并按三仓约定生成 `act: {"sub":"<调用应用 Client ID>"}`，例如 `azp: "tabro-agent"` 和 `act: {"sub":"tabro-agent"}`。未来 `tabro-drama` 调用时，两处值都应为 `tabro-drama`。
 - IdP 应在 `gty` 或 `grant_type` 中标记 Token Exchange，并生成 RFC 8693 风格的 `act` 对象。
-- `act` 中可使用 `client_id`、`azp` 或 `sub` 标识 actor；嵌套委托可继续包含 `act`。
-- 同一层 `act` 同时携带 `client_id`、`azp` 或 `sub` 中的多个字段时，所有非空值必须完全一致；任一字段类型非字符串、为空或值冲突都会使整个 Token 被拒绝。
-- 将每一层允许的 actor ID 加入 `allowed_actor_client_ids`。
+- 每一层 `act` 都必须用非空字符串 `sub` 标识 actor；`client_id` 或 `azp` 不能替代 `sub`。嵌套委托可继续包含 `act`。
+- 同一层 `act` 若额外携带 `client_id` 或 `azp`，它们必须是非空字符串并与该层 `sub` 完全一致；任一字段类型错误、为空或值冲突都会使整个 Token 被拒绝。
+- 调用应用必须同时加入 `allowed_client_ids`；Token Exchange 中的每一层 actor ID 还必须加入 `allowed_actor_client_ids`。
 - 只要 Token 携带 `act`，actor allowlist 就不能留空；留空会拒绝该 Token。
-- `require_actor: true` 表示所有网关 Token 都必须携带 `act`，只应在所有调用都经过委托时开启。
+- 仅接受 Token Exchange 的部署建议设置 `require_actor: true`，强制所有网关 Token 都携带 `act`。如果还要接受没有 `act` 的 `client_credentials` 服务 Token，则必须保持 `false`；但只要 Token 实际携带 `act`，无论该开关为何值，actor 仍会严格校验且空 allowlist 仍会拒绝。
 - 将 `max_delegation_depth` 保持在业务实际需要的最小值。
 
 ## 网关配置
 
 ### YAML 配置
+
+Resource Server 的 issuer、audience、Scope 和身份 allowlist 是一组需要整体审阅的信任策略，**只允许在 `config.yaml` 中配置**。进程会拒绝非空的 `GATEWAY_RESOURCE_SERVER_*` 环境变量，避免容器环境悄悄覆盖 YAML；其他通用环境变量的加载方式不变。
 
 在 `config.yaml` 中加入：
 
@@ -141,10 +147,10 @@ gateway:
     jwks_url: ""
 
     # 必须是网关专属、唯一的 audience
-    audience: "llm-gateway-api"
+    audience: "tabro-llm"
     required_scopes: "llm.invoke"
 
-    # 逗号、分号或空格分隔
+    # 逗号、分号或空格分隔；新增应用时可改为 "tabro-agent,tabro-drama"
     allowed_client_ids: "tabro-agent"
     allowed_signing_algs: "RS256,ES256,PS256"
     clock_skew_seconds: 120
@@ -155,9 +161,12 @@ gateway:
     require_tenant: false
 
     token_exchange:
-      require_actor: false
+      # Agent/Drama 的 Token Exchange 部署必须为 true；仅在明确还要接受
+      # client_credentials Token 时才可按独立风险评估改为 false
+      require_actor: true
       actor_claim: "act"
-      allowed_actor_client_ids: ""
+      # 显式 allowlist；留空会拒绝所有携带 act 的 Token
+      allowed_actor_client_ids: "tabro-agent"
       max_delegation_depth: 4
 ```
 
@@ -165,40 +174,27 @@ gateway:
 
 生产环境应使用 HTTPS issuer、Discovery 和 JWKS。`issuer_url` 不能从请求 Token 动态决定；必须由运维配置固定。
 
-### 环境变量 / Docker Compose
+### Docker Compose
 
-使用 `.env` 或容器环境变量时，对应配置为：
+不要把这组配置写入 `.env`。复制完整 YAML 示例，修改其中的 `gateway.resource_server`，并在所用 Compose 文件中启用已经预留的单文件挂载：
 
 ```bash
-GATEWAY_RESOURCE_SERVER_ENABLED=true
-GATEWAY_RESOURCE_SERVER_ISSUER_URL=https://idp.example.com/realms/production
-GATEWAY_RESOURCE_SERVER_DISCOVERY_URL=
-GATEWAY_RESOURCE_SERVER_JWKS_URL=
-GATEWAY_RESOURCE_SERVER_AUDIENCE=llm-gateway-api
-GATEWAY_RESOURCE_SERVER_REQUIRED_SCOPES=llm.invoke
-GATEWAY_RESOURCE_SERVER_ALLOWED_CLIENT_IDS=tabro-agent
-GATEWAY_RESOURCE_SERVER_ALLOWED_SIGNING_ALGS=RS256,ES256,PS256
-GATEWAY_RESOURCE_SERVER_CLOCK_SKEW_SECONDS=120
-GATEWAY_RESOURCE_SERVER_JWKS_CACHE_TTL_SECONDS=300
-GATEWAY_RESOURCE_SERVER_TENANT_CLAIM=tenant_id
-GATEWAY_RESOURCE_SERVER_REQUIRE_TENANT=false
-GATEWAY_RESOURCE_SERVER_TOKEN_EXCHANGE_REQUIRE_ACTOR=false
-GATEWAY_RESOURCE_SERVER_TOKEN_EXCHANGE_ACTOR_CLAIM=act
-GATEWAY_RESOURCE_SERVER_TOKEN_EXCHANGE_ALLOWED_ACTOR_CLIENT_IDS=
-GATEWAY_RESOURCE_SERVER_TOKEN_EXCHANGE_MAX_DELEGATION_DEPTH=4
+cd deploy
+cp config.example.yaml config.yaml
+# 编辑 config.yaml，并取消 Compose 中 ./config.yaml:/app/data/config.yaml 的注释
 ```
 
-修改环境变量后重建或重启服务，例如：
+已有安装也可以直接更新持久化数据卷里的 `/app/data/config.yaml`。完成后重建或重启服务：
 
 ```bash
 docker compose up -d --force-recreate
 ```
 
-## 附件中的 Tabro Compose 要怎么处理
+## Tabro Agent 侧怎么配置
 
-附件里的 `TABRO_AUTH__OIDC__*` 和 `TABRO_AUTH__OAuth2__*` 都属于 Tabro Control Plane 的网页登录或入站 API 鉴权，不能拿来给 LLM 网关取 Token。保留它们原本面向 Tabro 的 audience（例如 `tabro-api`），另行配置“模型 Provider 出站 OAuth”。不要把这些变量的 audience 改成 `llm-gateway-api`，也不要把登录 Client Secret 复用给模型调用。
+不要通过 Compose 环境变量配置这条认证链。登录 OIDC 与模型 Provider 都应在 Tabro Agent 的安装/设置页面中完成；页面提交的 confidential `tabro-agent` Client Secret 由 Control Plane 写入受限的安装密钥文件，不会进入浏览器持久化、Runtime Worker 或本 Resource Server 配置。subject token 和 exchanged token 的 audience 都统一为 `tabro-llm`，但只有 exchanged token 才有 `llm.invoke` 和 `act`。
 
-附件对应的已提交版本只会用模型 API Key 调用上游；仅在 Compose 中增加几个环境变量并不能让它自动执行 OAuth Client Credentials 或 Token Exchange。Tabro 侧需要先升级到支持模型 Provider 独立 OAuth 的版本，再在模型 Provider 设置中配置认证方式。OpenAI-compatible Provider 的最小示例为：
+在 Agent 的安装页面选择 OIDC 登录并填写已有的 `tabro-agent` Client ID、Client Secret、Authority、回调地址和登录 Scope；模型 Provider 选择 `oauth-token-exchange`。对应的非秘密模型参数如下：
 
 ```json
 {
@@ -206,11 +202,10 @@ docker compose up -d --force-recreate
   "slug": "llm-gateway-openai",
   "protocol": "openai-compatible",
   "baseUrl": "https://llm.example.com/v1",
-  "authMode": "oauth-client-credentials",
-  "issuer": "https://idp.example.com",
-  "clientId": "tabro-model-service",
-  "clientSecretEnvVar": "TABRO_LLM_OAUTH_CLIENT_SECRET",
-  "audience": "llm-gateway-api",
+  "authMode": "oauth-token-exchange",
+  "issuer": "https://idp.example.com/realms/production",
+  "clientId": "tabro-agent",
+  "audience": "tabro-llm",
   "scopes": "llm.invoke",
   "clientAuthMethod": "client_secret_basic",
   "requiresApiKey": false,
@@ -218,26 +213,16 @@ docker compose up -d --force-recreate
 }
 ```
 
-Anthropic Messages 应另建一个 `protocol: "anthropic-messages"` 的 Provider，OAuth 参数可以相同。Compose 只注入秘密，不保存短期 access token：
+Token Exchange 不配置第二份模型 Client Secret；它复用安装页面中已有的 OIDC Secret。Control Plane 执行交换，Runtime Worker 只拿安装程序自动生成的 broker key。Anthropic Messages 应另建一个 `protocol: "anthropic-messages"` 的 Provider，OAuth 参数可以相同。不要把短期 access token 当作模型 API Key 保存，也不要保留会让模型目录缺失时意外直连供应商的 OpenAI/Anthropic Key fallback。
 
-```yaml
-services:
-  control-plane:
-    environment:
-      TABRO_LLM_OAUTH_CLIENT_SECRET: ${TABRO_LLM_OAUTH_CLIENT_SECRET}
-  runtime-worker:
-    environment:
-      TABRO_LLM_OAUTH_CLIENT_SECRET: ${TABRO_LLM_OAUTH_CLIENT_SECRET}
-```
-
-具体只需向哪个容器注入秘密，应以所用 Tabro 版本的 Token Broker/Runtime 部署方式为准，并遵循最小权限。不要把短期 access token 填进 `TABRO_OPENAI_API_KEY`，也不要保留会让模型目录缺失时意外直连供应商的 OpenAI/Anthropic Key fallback。
+如果确实需要独立的 `client_credentials` 服务身份模式，应另用 `tabro-model-service`，在 Agent 设置页面填写并由服务端加密保存它自己的 Client Secret；同时把该 Client 加入 `allowed_client_ids`，并保持 `require_actor: false` 以接受不带 `act` 的服务 Token。它不是当前 `tabro-agent` 的用户委托模式，也不要因为它没有 `act` 就把它加入 actor allowlist。
 
 认证模式的选择会直接影响计费身份：
 
 - `oauth-client-credentials` 的 `sub` 是服务身份，只适合把费用统一记到 Tabro 服务账号。
-- 要按最终用户计费，应使用 `oauth-token-exchange`：交换后的 Token 保留可信用户 `sub`，并带有可验证、在 allowlist 中的 `act` 委托链。用户登录 Token 只交给受信任的 Token Broker，不能直接发送给 LLM 网关或模型供应商。
+- 要按最终用户计费，应使用 `oauth-token-exchange`：交换后的 Token 保留可信用户 `sub`，`aud` 为 `tabro-llm`，并以 `azp` 和可验证的 `act` 委托链标识调用应用。用户登录 Token 只交给受信任的 Token Broker，不能直接发送给 LLM 网关或模型供应商。
 
-已有安装还要注意配置优先级：挂载卷里的 `/data/config/installation.json` 可能覆盖 Compose 环境变量。因此不能只改 `.env`；应同时通过该版本支持的 Model Provider 设置或安装配置迁移更新现有实例，并在切流前检查最终生效配置。
+已有安装必须通过 Agent 的 Model Provider 设置或随版本提供的离线安装配置迁移更新，不能只改 Compose。切流前应检查安装文件、页面显示的非秘密配置和最终签发 Token 是否一致。
 
 ## 将外部身份绑定到内部计费 Key
 
@@ -278,7 +263,7 @@ curl -X PUT 'https://llm.example.com/api/v1/admin/api-keys/<key-id>/oidc-identit
 建议每次逻辑模型调用都发送以下 Header：
 
 ```http
-Authorization: Bearer <IdP access token，aud 仅为 llm-gateway-api>
+Authorization: Bearer <IdP access token，aud 仅为 tabro-llm>
 Idempotency-Key: <runId>:<nodeId>:<logicalCallId>
 X-Tabro-Run-Id: <runId>
 X-Tabro-Project-Id: <projectId>
@@ -355,7 +340,7 @@ OpenAI、Anthropic 等供应商的 API Key 或上游 OAuth 凭证应配置在网
 
 1. 备份 PostgreSQL，并先在预发布环境完成升级。
 2. 部署新版本但暂时保持 `gateway.resource_server.enabled: false`。现有普通 API Key 调用不受影响。
-3. 在 IdP 创建网关资源、Scope 和 Tabro Client，确认 JWT claim 符合本文要求。
+3. 在 IdP 创建/更新 `tabro-llm` 网关资源与 Scope，并给已有 `tabro-agent` Client 补齐授权，确认 JWT claim 符合本文要求。
 4. 为计划迁移的每个 `(iss, sub)` 创建或选择内部计费 Key，并完成绑定。
 5. 配置 Resource Server 并开启，在预发布环境分别验证成功、错误 audience、缺少 Scope、过期 Token 和未绑定身份。
 6. 修改 Tabro Client，使其申请网关专属 Token，并为每次逻辑调用发送稳定的 `Idempotency-Key`。
@@ -391,9 +376,9 @@ OpenAI、Anthropic 等供应商的 API Key 或上游 OAuth 凭证应配置在网
 ## 上线检查清单
 
 - [ ] `oidc_connect` 与 `gateway.resource_server` 的用途、Client 和 audience 已明确区分。
-- [ ] Token `iss` 与配置完全一致，`aud` 只有 `llm-gateway-api`。
-- [ ] Token 有 `exp`、可信 `sub`、`llm.invoke`，以及 allowlist 中的 `azp/client_id`。
-- [ ] 使用 Token Exchange 时，每层 `act` actor 都在 allowlist 中。
+- [ ] Token `iss` 与配置完全一致，`aud` 只有 `tabro-llm`。
+- [ ] Token 有 `exp`、可信 `sub`、`llm.invoke`，以及 allowlist 中的顶层字符串 `azp`；`client_id` 没有被当作替代值。
+- [ ] 使用 Token Exchange 时，每层 `act.sub` 都存在且在 actor allowlist 中，immediate `act.sub` 与顶层 `azp` 完全一致。
 - [ ] 每个 `(iss, sub)` 已绑定到正确的内部计费/路由 Key。
 - [ ] Tabro Client 在网络重试时复用同一 `Idempotency-Key`。
 - [ ] `X-Tabro-*` 只用于关联，没有参与身份或计费归属判断。
