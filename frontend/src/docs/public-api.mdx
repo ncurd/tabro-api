@@ -98,7 +98,13 @@ curl https://<host>/v1/responses \
 
 | 方法 | 路径 | 平台 | 说明 |
 | --- | --- | --- | --- |
-| `POST` | `/v1/images/generations` | `openai` | OpenAI 图像生成，支持 `gpt-image-2` 等模型，具体取决于账号可用模型 |
+| `POST` | `/v1/images/generations` | `openai` | OpenAI 图像生成，支持 `gpt-image-2.5-sunburst`、`gpt-image-2.5-flare` 和 `gpt-image-2` 等模型，具体取决于账号可用模型 |
+
+GPT Image 2.5 提供两个模型：`gpt-image-2.5-sunburst` 侧重精确编辑，`gpt-image-2.5-flare` 侧重快速日常生成。请使用完整模型 ID。
+
+Image 2.5 的 `quality` 支持 `low`、`medium`、`high`、`xhigh`、`max` 和 `auto`。模型与参数说明参见 [OpenAI 图像生成文档](https://developers.openai.com/api/docs/guides/image-generation)。
+
+通过 `/v1/responses` 的 `image_generation` 工具调用时，在工具的 `model` 字段指定图片模型，例如 `{"type":"image_generation","model":"gpt-image-2.5-flare"}`。未指定图片模型时仍使用 `gpt-image-2`。账号配置了模型白名单时，需要将所选图片模型加入白名单。
 
 请求示例：
 
@@ -107,9 +113,10 @@ curl https://<host>/v1/images/generations \
   -H "Authorization: Bearer sk-your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gpt-image-2",
+    "model": "gpt-image-2.5-flare",
     "prompt": "A clean product photo on a white background",
-    "size": "1024x1024"
+    "size": "1024x1024",
+    "quality": "high"
   }'
 ```
 

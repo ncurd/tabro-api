@@ -45,6 +45,10 @@ func TestFallbackPricingFile_ContainsLatestOpenAIAndAnthropicModels(t *testing.T
 		"gpt-5.5-pro",
 		"gpt-image-2",
 		"gpt-image-2-2026-04-21",
+		"gpt-image-2.5-sunburst",
+		"gpt-image-2.5-sunburst-2026-09-08",
+		"gpt-image-2.5-flare",
+		"gpt-image-2.5-flare-2026-09-08",
 		"gpt-realtime-1.5",
 		"gpt-realtime-2",
 		"gpt-realtime-mini",
@@ -92,6 +96,44 @@ func TestFallbackPricingFile_NewModelsUseOfficialPricing(t *testing.T) {
 			require.InDelta(t, tt.cacheWrite, pricing.CacheCreationInputTokenCost, 1e-12)
 			require.InDelta(t, tt.cacheRead, pricing.CacheReadInputTokenCost, 1e-12)
 			require.InDelta(t, tt.cacheWrite1h, pricing.CacheCreationInputTokenCostAbove1hr, 1e-12)
+		})
+	}
+}
+
+func TestFallbackPricingFile_GPTImage25UsesOfficialImagePricing(t *testing.T) {
+	path := filepath.Join("..", "..", "resources", "model-pricing", "model_prices_and_context_window.json")
+	body, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	svc := &PricingService{}
+	svc.pricingData, err = svc.parsePricingData(body)
+	require.NoError(t, err)
+
+	var raw map[string]struct {
+		ImageInput       float64  `json:"input_cost_per_image_token"`
+		CachedImageInput float64  `json:"cache_read_input_image_token_cost"`
+		Endpoints        []string `json:"supported_endpoints"`
+	}
+	require.NoError(t, json.Unmarshal(body, &raw))
+
+	for _, model := range []string{
+		"gpt-image-2.5-sunburst",
+		"gpt-image-2.5-sunburst-2026-09-08",
+		"gpt-image-2.5-flare",
+		"gpt-image-2.5-flare-2026-09-08",
+	} {
+		t.Run(model, func(t *testing.T) {
+			pricing := svc.GetModelPricing(model)
+			require.NotNil(t, pricing)
+			require.Equal(t, "image_generation", pricing.Mode)
+			require.Equal(t, "openai", pricing.LiteLLMProvider)
+			require.InDelta(t, 5e-6, pricing.InputCostPerToken, 1e-12)
+			require.InDelta(t, 1.25e-6, pricing.CacheReadInputTokenCost, 1e-12)
+			require.InDelta(t, 30e-6, pricing.OutputCostPerImageToken, 1e-12)
+			require.Zero(t, pricing.OutputCostPerToken, "GPT Image 2.5 does not bill text output")
+			require.InDelta(t, 8e-6, raw[model].ImageInput, 1e-12)
+			require.InDelta(t, 2e-6, raw[model].CachedImageInput, 1e-12)
+			require.ElementsMatch(t, []string{"/v1/images/generations", "/v1/images/edits"}, raw[model].Endpoints)
 		})
 	}
 }
@@ -662,4 +704,14 @@ func TestParsePricingData_PreservesServiceTierPriorityFields(t *testing.T) {
 	require.InDelta(t, 0.00000025, pricing.CacheReadInputTokenCost, 1e-12)
 	require.InDelta(t, 0.0000005, pricing.CacheReadInputTokenCostPriority, 1e-12)
 	require.True(t, pricing.SupportsServiceTier)
+}
+
+// Account probe defaults and historical billing fallbacks are independent.
+func TestGetModelPricing_UnknownModelKeepsHistoricalFallback(t *testing.T) {
+	legacy := &LiteLLMModelPricing{InputCostPerToken: 1.25e-6}
+	svc := &PricingService{pricingData: map[string]*LiteLLMModelPricing{
+		"gpt-5.1-codex": legacy,
+		"gpt-5.6-luna":  {InputCostPerToken: 0.2e-6},
+	}}
+	require.Same(t, legacy, svc.GetModelPricing("gpt-unknown-custom-model"))
 }

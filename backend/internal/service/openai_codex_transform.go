@@ -294,7 +294,7 @@ func normalizeCodexModel(model string) string {
 		return "gpt-5.6-sol"
 	}
 	if strings.Contains(normalized, "gpt-5.5") || strings.Contains(normalized, "gpt 5.5") {
-		return "gpt-5.4"
+		return "gpt-5.5"
 	}
 	if strings.Contains(normalized, "gpt-5.4-mini") || strings.Contains(normalized, "gpt 5.4 mini") {
 		return "gpt-5.4-mini"

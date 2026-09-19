@@ -25,6 +25,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
@@ -137,7 +138,7 @@ func anthropicStreamEventIsTerminal(eventName, data string) bool {
 }
 
 func cloneStringSlice(src []string) []string {
-	if len(src) == 0 {
+	if src == nil {
 		return nil
 	}
 	dst := make([]string, len(src))
@@ -8899,7 +8900,8 @@ func (s *GatewayService) validateUpstreamBaseURL(raw string) (string, error) {
 }
 
 // GetAvailableModels returns the list of models available for a group
-// It aggregates model_mapping keys from all schedulable accounts in the group
+// It aggregates supported mapping targets and account-specific default catalogs.
+// A nil result requests the handler fallback; an empty result is an empty catalog.
 func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64, platform string) []string {
 	cacheKey := modelsListCacheKey(groupID, platform)
 	if s.modelsListCache != nil {
@@ -8941,16 +8943,42 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 	hasAnyMapping := false
 
 	for _, acc := range accounts {
+		if acc.IsOpenAI() {
+			// OAuth and API-key defaults have different retirement schedules.
+			hasAnyMapping = true
+			for _, model := range acc.AvailableOpenAIModels() {
+				modelSet[model.ID] = struct{}{}
+			}
+			continue
+		}
 		mapping := acc.GetModelMapping()
+		if len(mapping) == 0 {
+			// Include every supported platform's defaults in mixed groups;
+			// adding OpenAI defaults must not hide unmapped Claude/Gemini accounts.
+			switch acc.Platform {
+			case PlatformAnthropic:
+				hasAnyMapping = true
+				for _, model := range claude.DefaultModels {
+					modelSet[model.ID] = struct{}{}
+				}
+			case PlatformGemini:
+				hasAnyMapping = true
+				for _, model := range geminicli.DefaultModels {
+					modelSet[model.ID] = struct{}{}
+				}
+			}
+		}
 		if len(mapping) > 0 {
 			hasAnyMapping = true
-			for model := range mapping {
-				modelSet[model] = struct{}{}
+			for model, upstreamModel := range mapping {
+				if !acc.IsRetiredModel(upstreamModel) {
+					modelSet[model] = struct{}{}
+				}
 			}
 		}
 	}
 
-	// If no account has model_mapping, return nil (use default)
+	// No explicit catalog: let the handler use the platform default list.
 	if !hasAnyMapping {
 		if s.modelsListCache != nil {
 			s.modelsListCache.Set(cacheKey, []string(nil), s.modelsListCacheTTL)

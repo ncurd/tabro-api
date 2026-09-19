@@ -121,6 +121,7 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import type { AccountType } from '@/types'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import ModelIcon from '@/components/common/ModelIcon.vue'
@@ -133,6 +134,7 @@ const props = defineProps<{
   modelValue: string[]
   platform?: string
   platforms?: string[]
+  accountType?: AccountType
 }>()
 
 const emit = defineEmits<{
@@ -169,12 +171,12 @@ const availableOptions = computed(() => {
 
   const allowedModels = new Set<string>()
   for (const platform of normalizedPlatforms.value) {
-    for (const model of getModelsByPlatform(platform)) {
+    for (const model of getModelsByPlatform(platform, props.accountType)) {
       allowedModels.add(model)
     }
   }
 
-  return allModels.filter(model => allowedModels.has(model.value))
+  return Array.from(allowedModels, model => ({ value: model, label: model }))
 })
 
 const filteredModels = computed(() => {
@@ -220,7 +222,7 @@ const handleEnter = () => {
 const fillRelated = () => {
   const newModels = [...props.modelValue]
   for (const platform of normalizedPlatforms.value) {
-    for (const model of getModelsByPlatform(platform)) {
+    for (const model of getModelsByPlatform(platform, props.accountType)) {
       if (!newModels.includes(model)) {
         newModels.push(model)
       }

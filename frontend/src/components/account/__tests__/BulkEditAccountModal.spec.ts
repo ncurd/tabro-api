@@ -14,6 +14,10 @@ vi.mock('@/stores/app', () => ({
 
 vi.mock('@/api/admin', () => ({
   adminAPI: {
+    settings: {
+      getWebSearchEmulationConfig: vi.fn().mockResolvedValue({ enabled: false }),
+      getSettings: vi.fn().mockResolvedValue({})
+    },
     accounts: {
       bulkUpdate: vi.fn(),
       checkMixedChannelRisk: vi.fn()
@@ -86,6 +90,26 @@ describe('BulkEditAccountModal', () => {
     vi.mocked(adminAPI.accounts.checkMixedChannelRisk).mockResolvedValue({
       has_risk: false
     } as any)
+  })
+
+  it('filters OAuth-retired OpenAI suggestions when a bulk selection includes OAuth accounts', async () => {
+    const wrapper = mountModal({
+      selectedPlatforms: ['openai'],
+      selectedTypes: ['oauth', 'apikey']
+    })
+    const selector = wrapper.findComponent(ModelWhitelistSelector)
+    await selector.find('div.cursor-pointer').trigger('click')
+    const modelOptions = selector.findAll('button').map(button => button.text())
+    expect(modelOptions).toContain('gpt-5.6-terra')
+    expect(modelOptions).not.toContain('gpt-5.4')
+    expect(modelOptions).not.toContain('gpt-5.4-mini')
+
+    const mappingTab = wrapper.findAll('button').find(button => button.text().includes('admin.accounts.modelMapping'))
+    await mappingTab!.trigger('click')
+    const presetLabels = wrapper.findAll('button').map(button => button.text())
+    expect(presetLabels).not.toContain('+ GPT-5.4')
+    expect(presetLabels).not.toContain('+ GPT-5.2')
+    expect(presetLabels).toContain('+ Haiku→5.6 Luna')
   })
 
   it('antigravity 白名单包含 Gemini 图片模型且过滤掉普通 GPT 模型', async () => {

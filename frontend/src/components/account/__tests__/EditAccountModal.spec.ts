@@ -23,6 +23,10 @@ vi.mock('@/stores/auth', () => ({
 
 vi.mock('@/api/admin', () => ({
   adminAPI: {
+    settings: {
+      getWebSearchEmulationConfig: vi.fn().mockResolvedValue({ enabled: false }),
+      getSettings: vi.fn().mockResolvedValue({})
+    },
     accounts: {
       update: updateAccountMock,
       checkMixedChannelRisk: checkMixedChannelRiskMock
@@ -60,6 +64,7 @@ const BaseDialogStub = defineComponent({
 const ModelWhitelistSelectorStub = defineComponent({
   name: 'ModelWhitelistSelector',
   props: {
+    accountType: String,
     modelValue: {
       type: Array,
       default: () => []
@@ -111,7 +116,7 @@ function buildAccount() {
 function mountModal(account = buildAccount()) {
   return mount(EditAccountModal, {
     props: {
-      show: true,
+      show: false,
       account,
       proxies: [],
       groups: []
@@ -138,6 +143,7 @@ describe('EditAccountModal', () => {
     updateAccountMock.mockResolvedValue(account)
 
     const wrapper = mountModal(account)
+    await wrapper.setProps({ show: true })
 
     expect(wrapper.get('[data-testid="model-whitelist-value"]').text()).toBe('gpt-5.2')
 
@@ -154,6 +160,27 @@ describe('EditAccountModal', () => {
     expect(updateAccountMock).toHaveBeenCalledTimes(1)
     expect(updateAccountMock.mock.calls[0]?.[1]?.credentials?.model_mapping).toEqual({
       'gpt-5.2': 'gpt-5.2'
+    })
+  })
+
+  it('passes OAuth availability context without removing an existing retired-model whitelist', async () => {
+    const account = buildAccount()
+    account.type = 'oauth'
+    account.credentials = {
+      access_token: 'test-token',
+      model_mapping: { 'gpt-5.4': 'gpt-5.4' }
+    }
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+    const wrapper = mountModal(account)
+    await wrapper.setProps({ show: true })
+
+    expect(wrapper.findComponent(ModelWhitelistSelectorStub).props('accountType')).toBe('oauth')
+    expect(wrapper.get('[data-testid="model-whitelist-value"]').text()).toBe('gpt-5.4')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials?.model_mapping).toEqual({
+      'gpt-5.4': 'gpt-5.4'
     })
   })
 })

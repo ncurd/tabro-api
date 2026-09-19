@@ -228,6 +228,7 @@
               <ModelWhitelistSelector
                 v-model="allowedModels"
                 :platforms="selectedPlatforms"
+                :account-type="modelAccountType"
               />
 
               <p class="text-xs text-gray-500 dark:text-gray-400">
@@ -976,12 +977,17 @@ const allAnthropicOAuthOrSetupToken = computed(() => {
   )
 })
 
+// Bulk suggestions must also work for any selected OAuth accounts.
+const modelAccountType = computed(() => props.selectedTypes.includes('oauth')
+  ? 'oauth'
+  : props.selectedTypes.length === 1 ? props.selectedTypes[0] : undefined)
+
 const filteredPresets = computed(() => {
   if (props.selectedPlatforms.length === 0) return []
 
   const dedupedPresets = new Map<string, ReturnType<typeof getPresetMappingsByPlatform>[number]>()
   for (const platform of props.selectedPlatforms) {
-    for (const preset of getPresetMappingsByPlatform(platform)) {
+    for (const preset of getPresetMappingsByPlatform(platform, modelAccountType.value)) {
       const key = `${preset.from}=>${preset.to}`
       if (!dedupedPresets.has(key)) {
         dedupedPresets.set(key, preset)

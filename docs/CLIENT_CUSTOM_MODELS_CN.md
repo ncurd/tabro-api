@@ -192,8 +192,8 @@ Codex CLI / IDE 扩展共用 `~/.codex/config.toml`。Tabro 推荐使用 Respons
 
 ```toml
 model_provider = "tabro"
-model = "gpt-5.4"
-review_model = "gpt-5.4"
+model = "gpt-5.6-terra"
+review_model = "gpt-5.6-terra"
 model_reasoning_effort = "xhigh"
 disable_response_storage = true
 network_access = "enabled"
@@ -269,13 +269,13 @@ https://github.com/farion1231/cc-switch/releases
 4. 选择 `Custom` 或 OpenAI/Responses 兼容预设。
 5. Endpoint 填 `https://tabro.example.com/v1`。
 6. API Key 填 `sk-xxxx`。
-7. Model 填 `gpt-5.4`，或填你在 Tabro 分组里允许的模型。
+7. Model 填 `gpt-5.6-terra`，或填你在 Tabro 分组里允许的模型。
 8. 协议选择 Responses；如果有 `Needs Local Routing` / 本地路由映射开关，Tabro Responses 入口不需要开启。
 9. 如果 CC Switch 打开配置编辑区，可用：
 
 ```toml
 model_provider = "tabro"
-model = "gpt-5.4"
+model = "gpt-5.6-terra"
 model_reasoning_effort = "xhigh"
 disable_response_storage = true
 

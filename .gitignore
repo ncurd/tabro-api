@@ -129,6 +129,7 @@ deploy/docker-compose.override.yml
 vite.config.js
 docs/*
 !docs/CLIENT_CUSTOM_MODELS_CN.md
+!docs/MODEL_AVAILABILITY_CN.md
 !docs/OIDC_RESOURCE_SERVER_CN.md
 !docs/PAYMENT.md
 !docs/PAYMENT_CN.md

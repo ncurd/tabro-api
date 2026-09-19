@@ -41,3 +41,17 @@ func TestHasFallbackModel_RecognizesCustomtoolsModel(t *testing.T) {
 		t.Fatalf("did not expect unknown model to exist in fallback catalog")
 	}
 }
+
+func TestHasFallbackModel_ExcludesRetiredModelAndRetainsSupportedAlias(t *testing.T) {
+	t.Parallel()
+
+	for _, id := range []string{"gemini-2.0-flash", "models/gemini-2.0-flash"} {
+		if HasFallbackModel(id) {
+			t.Fatalf("retired model %q must not be offered in fallback models", id)
+		}
+	}
+	// Google redirects this model ID to Gemini 3.1 Pro Preview.
+	if !HasFallbackModel("gemini-3-pro-preview") {
+		t.Fatal("expected the supported Gemini 3 Pro compatibility alias to remain available")
+	}
+}

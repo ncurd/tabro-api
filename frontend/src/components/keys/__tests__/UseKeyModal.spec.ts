@@ -37,6 +37,8 @@ describe('UseKeyModal', () => {
       }
     })
 
+    expect(wrapper.text()).toContain('model = "gpt-5.6-terra"')
+    expect(wrapper.text()).toContain('review_model = "gpt-5.6-terra"')
     const opencodeTab = wrapper.findAll('button').find((button) =>
       button.text().includes('keys.useKeyModal.cliTabs.opencode')
     )
@@ -74,6 +76,9 @@ describe('UseKeyModal', () => {
         xhigh: {},
         max: {}
       })
+    }
+    for (const retired of ['gpt-5-codex', 'gpt-5.1-codex', 'gpt-5.1-codex-max', 'gpt-5.1-codex-mini', 'codex-mini-latest']) {
+      expect(config.provider.openai.models).not.toHaveProperty(retired)
     }
     expect(codeBlock.text()).toContain('"name": "GPT-5.4 Mini"')
     expect(codeBlock.text()).toContain('"name": "GPT-5.4 Nano"')

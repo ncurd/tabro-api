@@ -3103,7 +3103,7 @@ const form = reactive<SettingsForm>({
   oidc_connect_userinfo_username_path: '',
   // Model fallback
   enable_model_fallback: false,
-  fallback_model_anthropic: 'claude-3-5-sonnet-20241022',
+  fallback_model_anthropic: 'claude-sonnet-4-6',
   fallback_model_openai: 'gpt-4o',
   fallback_model_gemini: 'gemini-2.5-pro',
   fallback_model_antigravity: 'gemini-2.5-pro',

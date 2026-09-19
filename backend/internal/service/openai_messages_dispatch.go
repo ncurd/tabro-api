@@ -3,9 +3,9 @@ package service
 import "strings"
 
 const (
-	defaultOpenAIMessagesDispatchOpusMappedModel   = "gpt-5.4"
-	defaultOpenAIMessagesDispatchSonnetMappedModel = "gpt-5.3-codex"
-	defaultOpenAIMessagesDispatchHaikuMappedModel  = "gpt-5.4-mini"
+	defaultOpenAIMessagesDispatchOpusMappedModel   = "gpt-5.6-terra"
+	defaultOpenAIMessagesDispatchSonnetMappedModel = "gpt-5.6-terra"
+	defaultOpenAIMessagesDispatchHaikuMappedModel  = "gpt-5.6-luna"
 )
 
 func normalizeOpenAIMessagesDispatchMappedModel(model string) string {

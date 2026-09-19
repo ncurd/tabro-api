@@ -44,7 +44,7 @@ func TestAccountHandlerGetAvailableModels_OpenAIOAuthUsesExplicitModelMapping(t 
 			Status:   service.StatusActive,
 			Credentials: map[string]any{
 				"model_mapping": map[string]any{
-					"gpt-5": "gpt-5.1",
+					"gpt-5": "gpt-5.6-sol",
 				},
 			},
 		},
@@ -102,4 +102,57 @@ func TestAccountHandlerGetAvailableModels_OpenAIOAuthPassthroughFallsBackToDefau
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.NotEmpty(t, resp.Data)
 	require.NotEqual(t, "gpt-5", resp.Data[0].ID)
+}
+
+func TestAccountHandlerGetAvailableModels_FiltersRetiredModelsByAccount(t *testing.T) {
+	for _, accountType := range []string{service.AccountTypeOAuth, service.AccountTypeAPIKey} {
+		t.Run(accountType, func(t *testing.T) {
+			svc := &availableModelsAdminService{
+				stubAdminService: newStubAdminService(),
+				account:          service.Account{ID: 44, Platform: service.PlatformOpenAI, Type: accountType},
+			}
+			router := setupAvailableModelsRouter(svc)
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/44/models", nil))
+			require.Equal(t, http.StatusOK, rec.Code)
+			var resp struct {
+				Data []struct {
+					ID string `json:"id"`
+				} `json:"data"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			var ids []string
+			for _, model := range resp.Data {
+				ids = append(ids, model.ID)
+			}
+			require.NotContains(t, ids, "gpt-5.1-codex")
+			require.Contains(t, ids, "gpt-image-2.5-flare")
+			require.Contains(t, ids, "gpt-5.6-luna")
+			if accountType == service.AccountTypeOAuth {
+				require.NotContains(t, ids, "gpt-5.4-mini")
+			} else {
+				require.Contains(t, ids, "gpt-5.4-mini")
+			}
+		})
+	}
+}
+
+func TestAccountHandlerGetAvailableModels_RetiredOnlyMappingReturnsEmptyList(t *testing.T) {
+	svc := &availableModelsAdminService{
+		stubAdminService: newStubAdminService(),
+		account: service.Account{
+			ID: 45, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth,
+			Credentials: map[string]any{"model_mapping": map[string]any{"gpt-5.4-mini": "gpt-5.4-mini"}},
+		},
+	}
+	router := setupAvailableModelsRouter(svc)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/45/models", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp struct {
+		Data []any `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NotNil(t, resp.Data)
+	require.Empty(t, resp.Data)
 }

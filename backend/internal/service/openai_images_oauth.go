@@ -16,7 +16,9 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-const openAIImagesResponsesMainModel = "gpt-5.4-mini"
+// ChatGPT-authenticated Codex retired gpt-5.4-mini on 2026-08-31.
+// Keep the supported orchestration model separate from the requested image model.
+const openAIImagesResponsesMainModel = "gpt-5.6-luna"
 
 type openAIImageOAuthResult struct {
 	Result        string

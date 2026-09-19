@@ -5650,6 +5650,66 @@
     "supports_pdf_input": true,
     "supports_vision": true
   },
+  "gpt-image-2.5-flare": {
+    "cache_read_input_image_token_cost": 0.000002,
+    "cache_read_input_token_cost": 0.00000125,
+    "input_cost_per_image_token": 0.000008,
+    "input_cost_per_token": 0.000005,
+    "litellm_provider": "openai",
+    "mode": "image_generation",
+    "output_cost_per_image_token": 0.00003,
+    "output_cost_per_token": 0,
+    "supported_endpoints": [
+      "/v1/images/generations",
+      "/v1/images/edits"
+    ],
+    "supports_vision": true
+  },
+  "gpt-image-2.5-flare-2026-09-08": {
+    "cache_read_input_image_token_cost": 0.000002,
+    "cache_read_input_token_cost": 0.00000125,
+    "input_cost_per_image_token": 0.000008,
+    "input_cost_per_token": 0.000005,
+    "litellm_provider": "openai",
+    "mode": "image_generation",
+    "output_cost_per_image_token": 0.00003,
+    "output_cost_per_token": 0,
+    "supported_endpoints": [
+      "/v1/images/generations",
+      "/v1/images/edits"
+    ],
+    "supports_vision": true
+  },
+  "gpt-image-2.5-sunburst": {
+    "cache_read_input_image_token_cost": 0.000002,
+    "cache_read_input_token_cost": 0.00000125,
+    "input_cost_per_image_token": 0.000008,
+    "input_cost_per_token": 0.000005,
+    "litellm_provider": "openai",
+    "mode": "image_generation",
+    "output_cost_per_image_token": 0.00003,
+    "output_cost_per_token": 0,
+    "supported_endpoints": [
+      "/v1/images/generations",
+      "/v1/images/edits"
+    ],
+    "supports_vision": true
+  },
+  "gpt-image-2.5-sunburst-2026-09-08": {
+    "cache_read_input_image_token_cost": 0.000002,
+    "cache_read_input_token_cost": 0.00000125,
+    "input_cost_per_image_token": 0.000008,
+    "input_cost_per_token": 0.000005,
+    "litellm_provider": "openai",
+    "mode": "image_generation",
+    "output_cost_per_image_token": 0.00003,
+    "output_cost_per_token": 0,
+    "supported_endpoints": [
+      "/v1/images/generations",
+      "/v1/images/edits"
+    ],
+    "supports_vision": true
+  },
   "gpt-realtime": {
     "cache_creation_input_audio_token_cost": 4E-7,
     "cache_read_input_token_cost": 4E-7,

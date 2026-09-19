@@ -4607,7 +4607,10 @@ func BuildOpenAICodexImageGenerationRequest(body []byte) ([]byte, bool, error) {
 		return nil, false, nil
 	}
 	if !modelIsImage {
-		model = "gpt-image-2"
+		model = strings.TrimSpace(tool.Get("model").String())
+		if model == "" {
+			model = "gpt-image-2"
+		}
 	}
 	prompt := extractOpenAIImagePrompt(body)
 	if prompt == "" {

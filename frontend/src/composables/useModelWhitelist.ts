@@ -1,3 +1,5 @@
+import type { AccountType } from '@/types'
+
 // =====================
 // 模型列表（硬编码，与 new-api 一致）
 // =====================
@@ -5,25 +7,23 @@
 // OpenAI
 const openaiModels = [
   'gpt-3.5-turbo', 'gpt-3.5-turbo-0125', 'gpt-3.5-turbo-1106', 'gpt-3.5-turbo-16k',
-  'gpt-4', 'gpt-4-turbo', 'gpt-4-turbo-preview',
+  'gpt-4', 'gpt-4-turbo',
   'gpt-4o', 'gpt-4o-2024-08-06', 'gpt-4o-2024-11-20',
   'gpt-4o-mini', 'gpt-4o-mini-2024-07-18',
-  'gpt-4.5-preview',
   'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano',
-  'o1', 'o1-preview', 'o1-mini', 'o1-pro',
+  'o1', 'o1-pro',
   'o3', 'o3-mini', 'o3-pro',
   'o4-mini',
   // GPT-5 系列（同步后端定价文件）
-  'gpt-5', 'gpt-5-2025-08-07', 'gpt-5-chat', 'gpt-5-chat-latest',
-  'gpt-5-codex', 'gpt-5.3-codex-spark', 'gpt-5-pro', 'gpt-5-pro-2025-10-06',
+  'gpt-5', 'gpt-5-2025-08-07', 'gpt-5-chat',
+  'gpt-5-pro', 'gpt-5-pro-2025-10-06',
   'gpt-5-mini', 'gpt-5-mini-2025-08-07',
   'gpt-5-nano', 'gpt-5-nano-2025-08-07',
   // GPT-5.1 系列
-  'gpt-5.1', 'gpt-5.1-2025-11-13', 'gpt-5.1-chat-latest',
-  'gpt-5.1-codex', 'gpt-5.1-codex-max', 'gpt-5.1-codex-mini',
+  'gpt-5.1', 'gpt-5.1-2025-11-13',
   // GPT-5.2 系列
-  'gpt-5.2', 'gpt-5.2-2025-12-11', 'gpt-5.2-chat-latest',
-  'gpt-5.2-codex', 'gpt-5.2-pro', 'gpt-5.2-pro-2025-12-11',
+  'gpt-5.2', 'gpt-5.2-2025-12-11',
+  'gpt-5.2-pro', 'gpt-5.2-pro-2025-12-11',
   // GPT-5.4 系列
   'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-nano', 'gpt-5.4-pro', 'gpt-5.4-2026-03-05',
   // GPT-6 系列
@@ -35,11 +35,11 @@ const openaiModels = [
   // 图片和 Realtime 系列
   'gpt-image-1-mini', 'gpt-image-1.5', 'gpt-image-1.5-2025-12-16',
   'gpt-image-2', 'gpt-image-2-2026-04-21',
+  'gpt-image-2.5-sunburst', 'gpt-image-2.5-sunburst-2026-09-08',
+  'gpt-image-2.5-flare', 'gpt-image-2.5-flare-2026-09-08',
   'gpt-realtime-1.5', 'gpt-realtime-2', 'gpt-realtime-mini', 'gpt-realtime-translate',
   // GPT-5.3 系列
   'gpt-5.3-codex', 'gpt-5.3-codex-spark',
-  'chatgpt-4o-latest',
-  'gpt-4o-audio-preview', 'gpt-4o-realtime-preview'
 ]
 
 // Anthropic Claude
@@ -47,18 +47,22 @@ export const claudeModels = [
   'claude-fable-5-1',
   'claude-opus-5',
   'claude-fable-5',
-  'claude-3-5-sonnet-20241022', 'claude-3-5-sonnet-20240620',
-  'claude-3-5-haiku-20241022',
-  'claude-3-opus-20240229', 'claude-3-sonnet-20240229', 'claude-3-haiku-20240307',
-  'claude-3-7-sonnet-20250219',
-  'claude-sonnet-4-20250514', 'claude-opus-4-20250514',
-  'claude-opus-4-1-20250805',
   'claude-sonnet-4-5-20250929', 'claude-haiku-4-5-20251001',
   'claude-opus-4-5-20251101',
   'claude-opus-4-6',
   'claude-opus-4-7',
   'claude-opus-4-8',
   'claude-sonnet-4-6',
+]
+
+// Bedrock has its own lifecycle. Keep its previously offered model names until
+// the corresponding partner retirement is confirmed.
+const bedrockClaudeModels = [
+  ...claudeModels,
+  'claude-3-5-sonnet-20241022', 'claude-3-5-sonnet-20240620',
+  'claude-3-opus-20240229', 'claude-3-sonnet-20240229', 'claude-3-haiku-20240307',
+  'claude-3-7-sonnet-20250219',
+  'claude-sonnet-4-20250514', 'claude-opus-4-20250514', 'claude-opus-4-1-20250805',
   'claude-2.1', 'claude-2.0', 'claude-instant-1.2'
 ]
 
@@ -68,7 +72,6 @@ const geminiModels = [
   // This list is intentionally conservative (models commonly available across OAuth/API key).
   'gemini-3.1-flash-image',
   'gemini-2.5-flash-image',
-  'gemini-2.0-flash',
   'gemini-2.5-flash',
   'gemini-2.5-pro',
   'gemini-3-flash-preview',
@@ -120,13 +123,8 @@ const zhipuModels = [
 
 // 阿里 通义千问
 const qwenModels = [
-  'qwen-turbo', 'qwen-plus', 'qwen-max', 'qwen-max-longcontext', 'qwen-long',
-  'qwen2-72b-instruct', 'qwen2-57b-a14b-instruct', 'qwen2-7b-instruct',
-  'qwen2.5-72b-instruct', 'qwen2.5-32b-instruct', 'qwen2.5-14b-instruct',
-  'qwen2.5-7b-instruct', 'qwen2.5-3b-instruct', 'qwen2.5-1.5b-instruct',
-  'qwen2.5-coder-32b-instruct', 'qwen2.5-coder-14b-instruct', 'qwen2.5-coder-7b-instruct',
+  'qwen-turbo', 'qwen-plus', 'qwen-max', 'qwen-long',
   'qwen3-235b-a22b',
-  'qwq-32b', 'qwq-32b-preview'
 ]
 
 // DeepSeek
@@ -141,7 +139,6 @@ const deepseekModels = [
 // Mistral
 const mistralModels = [
   'mistral-small-latest', 'mistral-medium-latest', 'mistral-large-latest',
-  'open-mistral-7b', 'open-mixtral-8x7b', 'open-mixtral-8x22b',
   'codestral-latest', 'codestral-mamba',
   'pixtral-12b-2409', 'pixtral-large-latest'
 ]
@@ -205,11 +202,7 @@ const minimaxModels = [
 
 // 百度 文心
 const baiduModels = [
-  'ernie-4.0-8k-latest', 'ernie-4.0-8k', 'ernie-4.0-turbo-8k',
-  'ernie-3.5-8k', 'ernie-3.5-128k',
-  'ernie-speed-8k', 'ernie-speed-128k', 'ernie-speed-pro-128k',
-  'ernie-lite-8k', 'ernie-lite-pro-128k',
-  'ernie-tiny-8k'
+  'ernie-4.0-8k-latest', 'ernie-3.5-128k'
 ]
 
 // 讯飞 星火
@@ -221,16 +214,12 @@ const sparkModels = [
 
 // 腾讯 混元
 const hunyuanModels = [
-  'hunyuan-lite', 'hunyuan-standard', 'hunyuan-standard-256k',
-  'hunyuan-pro', 'hunyuan-turbo', 'hunyuan-large',
-  'hunyuan-vision', 'hunyuan-code'
+  'hunyuan-vision'
 ]
 
 // Perplexity
 const perplexityModels = [
-  'sonar', 'sonar-pro', 'sonar-reasoning',
-  'llama-3-sonar-small-32k-online', 'llama-3-sonar-large-32k-online',
-  'llama-3-sonar-small-32k-chat', 'llama-3-sonar-large-32k-chat'
+  'sonar', 'sonar-pro'
 ]
 
 // 所有模型（去重）
@@ -266,14 +255,12 @@ const anthropicPresetMappings = [
   { label: 'Fable 5.1', from: 'claude-fable-5-1', to: 'claude-fable-5-1', color: 'bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/30 dark:text-rose-400' },
   { label: 'Opus 5', from: 'claude-opus-5', to: 'claude-opus-5', color: 'bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-400' },
   { label: 'Fable 5', from: 'claude-fable-5', to: 'claude-fable-5', color: 'bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/30 dark:text-rose-400' },
-  { label: 'Sonnet 4', from: 'claude-sonnet-4-20250514', to: 'claude-sonnet-4-20250514', color: 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400' },
   { label: 'Sonnet 4.5', from: 'claude-sonnet-4-5-20250929', to: 'claude-sonnet-4-5-20250929', color: 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400' },
   { label: 'Sonnet 4.6', from: 'claude-sonnet-4-6', to: 'claude-sonnet-4-6', color: 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400' },
   { label: 'Opus 4.5', from: 'claude-opus-4-5-20251101', to: 'claude-opus-4-5-20251101', color: 'bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-400' },
   { label: 'Opus 4.6', from: 'claude-opus-4-6', to: 'claude-opus-4-6', color: 'bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-400' },
   { label: 'Opus 4.7', from: 'claude-opus-4-7', to: 'claude-opus-4-7', color: 'bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-400' },
   { label: 'Opus 4.8', from: 'claude-opus-4-8', to: 'claude-opus-4-8', color: 'bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-400' },
-  { label: 'Haiku 3.5', from: 'claude-3-5-haiku-20241022', to: 'claude-3-5-haiku-20241022', color: 'bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400' },
   { label: 'Haiku 4.5', from: 'claude-haiku-4-5-20251001', to: 'claude-haiku-4-5-20251001', color: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400' },
   { label: 'Opus->Sonnet', from: 'claude-opus-4-6', to: 'claude-sonnet-4-5-20250929', color: 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400' }
 ]
@@ -293,14 +280,12 @@ const openaiPresetMappings = [
   { label: 'GPT-5.6 Sol', from: 'gpt-5.6', to: 'gpt-5.6', color: 'bg-violet-100 text-violet-700 hover:bg-violet-200 dark:bg-violet-900/30 dark:text-violet-400' },
   { label: 'GPT-5.6 Terra', from: 'gpt-5.6-terra', to: 'gpt-5.6-terra', color: 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-400' },
   { label: 'GPT-5.6 Luna', from: 'gpt-5.6-luna', to: 'gpt-5.6-luna', color: 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800/60 dark:text-slate-300' },
-  { label: 'GPT-5.1 Codex', from: 'gpt-5.1-codex', to: 'gpt-5.1-codex', color: 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-400' },
-  { label: 'Haiku→5.4', from: 'claude-haiku-4-5-20251001', to: 'gpt-5.4', color: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400' },
-  { label: 'Opus→5.4', from: 'claude-opus-4-6', to: 'gpt-5.4', color: 'bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-400' },
-  { label: 'Sonnet→5.4', from: 'claude-sonnet-4-6', to: 'gpt-5.4', color: 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400' }
+  { label: 'Haiku→5.6 Luna', from: 'claude-haiku-4-5-20251001', to: 'gpt-5.6-luna', color: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400' },
+  { label: 'Opus→5.6 Terra', from: 'claude-opus-4-6', to: 'gpt-5.6-terra', color: 'bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-400' },
+  { label: 'Sonnet→5.6 Terra', from: 'claude-sonnet-4-6', to: 'gpt-5.6-terra', color: 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400' }
 ]
 
 const geminiPresetMappings = [
-  { label: 'Flash 2.0', from: 'gemini-2.0-flash', to: 'gemini-2.0-flash', color: 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400' },
   { label: '2.5 Flash', from: 'gemini-2.5-flash', to: 'gemini-2.5-flash', color: 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400' },
   { label: '2.5 Image', from: 'gemini-2.5-flash-image', to: 'gemini-2.5-flash-image', color: 'bg-sky-100 text-sky-700 hover:bg-sky-200 dark:bg-sky-900/30 dark:text-sky-400' },
   { label: '2.5 Pro', from: 'gemini-2.5-pro', to: 'gemini-2.5-pro', color: 'bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-400' },
@@ -394,12 +379,26 @@ export const commonErrorCodes = [
 // 辅助函数
 // =====================
 
-// 按平台获取模型
-export function getModelsByPlatform(platform: string): string[] {
+// These names resolve to retired Codex models for ChatGPT OAuth; API keys retain them.
+const retiredOpenAIOAuthModels = new Set([
+  'gpt-5', 'gpt-5-2025-08-07', 'gpt-5-chat', 'gpt-5-pro', 'gpt-5-pro-2025-10-06',
+  'gpt-5-mini', 'gpt-5-mini-2025-08-07', 'gpt-5-nano', 'gpt-5-nano-2025-08-07',
+  'gpt-5.1', 'gpt-5.1-2025-11-13',
+  'gpt-5.2', 'gpt-5.2-2025-12-11',
+  'gpt-5.2-pro', 'gpt-5.2-pro-2025-12-11',
+  'gpt-5.3-codex', 'gpt-5.3-codex-spark',
+  'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-pro', 'gpt-5.4-2026-03-05'
+])
+
+// 按平台和账号类型获取可选模型，不改写账号已有配置。
+export function getModelsByPlatform(platform: string, accountType?: AccountType): string[] {
   switch (platform) {
-    case 'openai': return openaiModels
+    case 'openai': return accountType === 'oauth'
+      ? openaiModels.filter(model => !retiredOpenAIOAuthModels.has(model))
+      : openaiModels
     case 'anthropic':
-    case 'claude': return claudeModels
+    case 'claude': return accountType === 'bedrock' ? bedrockClaudeModels : claudeModels
+    case 'bedrock': return bedrockClaudeModels
     case 'gemini': return geminiModels
     case 'antigravity': return antigravityModels
     case 'zhipu': return zhipuModels
@@ -422,11 +421,13 @@ export function getModelsByPlatform(platform: string): string[] {
 }
 
 // 按平台获取预设映射
-export function getPresetMappingsByPlatform(platform: string) {
-  if (platform === 'openai') return openaiPresetMappings
+export function getPresetMappingsByPlatform(platform: string, accountType?: AccountType) {
+  if (platform === 'bedrock' || accountType === 'bedrock') return bedrockPresetMappings
+  if (platform === 'openai') return accountType === 'oauth'
+    ? openaiPresetMappings.filter(preset => !retiredOpenAIOAuthModels.has(preset.to))
+    : openaiPresetMappings
   if (platform === 'gemini') return geminiPresetMappings
   if (platform === 'antigravity') return antigravityPresetMappings
-  if (platform === 'bedrock') return bedrockPresetMappings
   return anthropicPresetMappings
 }
 

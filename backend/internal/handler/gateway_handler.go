@@ -868,10 +868,34 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 	// Get available models from account configurations (without platform filter)
 	availableModels := h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, "")
 
-	if len(availableModels) > 0 {
+	if availableModels != nil {
+		if platform == service.PlatformOpenAI {
+			defaults := make(map[string]openai.Model, len(openai.DefaultModels))
+			for _, model := range openai.DefaultModels {
+				defaults[model.ID] = model
+			}
+			models := make([]openai.Model, 0, len(availableModels))
+			for _, id := range availableModels {
+				model, ok := defaults[id]
+				if !ok {
+					model = openai.Model{ID: id, Object: "model", Type: "model", OwnedBy: "system", DisplayName: id}
+				}
+				models = append(models, model)
+			}
+			c.JSON(http.StatusOK, gin.H{"object": "list", "data": models})
+			return
+		}
 		// Build model list from whitelist
+		defaults := make(map[string]claude.Model, len(claude.DefaultModels))
+		for _, model := range claude.DefaultModels {
+			defaults[model.ID] = model
+		}
 		models := make([]claude.Model, 0, len(availableModels))
 		for _, modelID := range availableModels {
+			if model, ok := defaults[modelID]; ok {
+				models = append(models, model)
+				continue
+			}
 			models = append(models, claude.Model{
 				ID:          modelID,
 				Type:        "model",
