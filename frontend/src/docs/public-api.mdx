@@ -3,7 +3,7 @@ title: 对外接口文档
 description: 面向 API 调用方的 Tabro 网关、媒体生成、用户、支付和管理接口概览。
 category: API Reference
 order: 1
-updatedAt: 2026-05-16
+updatedAt: 2026-09-20
 ---
 
 # 对外接口文档
@@ -22,7 +22,7 @@ updatedAt: 2026-05-16
     "datasets": [
       {
         "label": "接口组数量",
-        "data": [5, 1, 2, 2, 8, 5, 10],
+        "data": [5, 2, 2, 2, 8, 5, 10],
         "backgroundColor": ["#0f766e", "#2563eb", "#7c3aed", "#db2777", "#ea580c", "#16a34a", "#475569"]
       }
     ]
@@ -43,7 +43,7 @@ updatedAt: 2026-05-16
 | 控制台 API Base URL | `https://<host>/api/v1` |
 | 网关认证 | `Authorization: Bearer <API_KEY>` |
 | 控制台认证 | `Authorization: Bearer <JWT>` |
-| 请求格式 | JSON，媒体二进制响应除外 |
+| 请求格式 | JSON；媒体素材使用公网 URL 或带 MIME 类型的 base64 data URL |
 | 错误格式 | 网关接口尽量保持对应上游兼容格式；控制台接口使用项目统一响应结构 |
 
 ## 网关接口
@@ -57,8 +57,8 @@ updatedAt: 2026-05-16
 | `POST` | `/v1/chat/completions` | OpenAI Chat Completions 兼容入口 |
 | `POST` | `/v1/responses` | OpenAI Responses 兼容入口 |
 | `GET` | `/v1/responses` | OpenAI Responses WebSocket 入口 |
-| `POST` | `/v1/embeddings` | Embeddings 兼容入口 |
 | `POST` | `/v1/images/generations` | OpenAI 图像生成入口 |
+| `POST` | `/v1/images/edits` | OpenAI 图片编辑、参考图生成入口 |
 | `GET` | `/v1/models` | 模型列表 |
 
 常用请求头：
@@ -99,6 +99,7 @@ curl https://<host>/v1/responses \
 | 方法 | 路径 | 平台 | 说明 |
 | --- | --- | --- | --- |
 | `POST` | `/v1/images/generations` | `openai` | OpenAI 图像生成，支持 `gpt-image-2.5-sunburst`、`gpt-image-2.5-flare` 和 `gpt-image-2` 等模型，具体取决于账号可用模型 |
+| `POST` | `/v1/images/edits` | `openai` | 参考图生成、编辑、蒙版编辑，支持 URL/base64 和流式响应 |
 
 GPT Image 2.5 提供两个模型：`gpt-image-2.5-sunburst` 侧重精确编辑，`gpt-image-2.5-flare` 侧重快速日常生成。请使用完整模型 ID。
 
@@ -119,6 +120,24 @@ curl https://<host>/v1/images/generations \
     "quality": "high"
   }'
 ```
+
+### 参考图生成与编辑
+
+`/v1/images/edits` 和 `/images/edits` 使用相同鉴权、账号调度、并发限制与图片用量记录。API Key 账号转发至上游 Images Edits；OAuth 账号通过 Responses 的 `image_generation` 编辑工具处理参考图。
+
+JSON 请求使用 `images` 数组，每项的 `image_url` 为公网 URL 或 `data:image/png;base64,...`。蒙版使用 `mask.image_url`，支持同样两种格式。网关不下载或上传参考素材，公网 URL 应由调用方提前准备：
+
+```json
+{
+  "model": "gpt-image-2.5-sunburst",
+  "prompt": "保留产品外观，将背景改为白色摄影棚",
+  "images": [{ "image_url": "https://example.com/product.png" }],
+  "quality": "high",
+  "stream": false
+}
+```
+
+将 `image_url` 替换为 `data:image/png;base64,<完整base64数据>` 即可内联传图；不要仅传没有 MIME 前缀的 base64 字符串。JSON 总大小受 `gateway.max_body_size` 限制。设置 `stream=true` 时返回 SSE，事件为 `image_edit.partial_image` / `image_edit.completed`。旧客户端的 multipart 和上游 `file_id` 引用保留兼容，但无需使用文件上传流程。完整参数见 [OpenAI Images Edits API](https://developers.openai.com/api/reference/resources/images/methods/edit)。
 
 ## 音频生成
 
@@ -178,9 +197,62 @@ curl https://<host>/v1/audio/speech/jobs/audjob_xxx \
   -H "Authorization: Bearer sk-your-api-key"
 ```
 
+## 语音转写与克隆
+
+使用 `dashscope` 平台的 API Key 账号，分组和账号平台保持一致。转写模型为 `qwen3-asr-flash`，克隆音色的目标合成模型为 `qwen3-tts-vc-2026-01-22`。账号 `base_url` 和 API Key 必须属于开通这些模型的同一地域/业务空间；Wan 3.0 与 Qwen 音频的可用端点不同，需要时分别建立账号并用模型白名单区分。
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `POST` | `/v1/audio/transcriptions` | JSON 音频转写，返回 `text`、`model`、`usage` |
+| `POST` | `/v1/audio/voices` | 用参考录音创建克隆音色 |
+| `GET` | `/v1/audio/voices?limit=20&offset=0` | 列出当前 API Key、用户和分组拥有的音色 |
+| `GET` | `/v1/audio/voices/:id` | 查询克隆音色 |
+| `DELETE` | `/v1/audio/voices/:id` | 删除克隆音色，重复删除返回已删除状态 |
+| `POST` | `/v1/audio/speech` | 使用 `voice_*` 克隆音色合成，返回音频 `url` |
+
+这些路由也支持省略 `/v1` 前缀。转写与克隆都接受 `audio_url` 或 `audio_base64`，二者只能提供一个；`audio_url` 可为公网 HTTP(S) URL 或 audio data URL。`audio_base64` 必须同时提供 `mime_type`。不接受文件上传。内联录音限制为 10 MiB，转写的 base64 编码后请求也需在上游的 10 MiB 限制内；克隆内联录音支持 `audio/wav`、`audio/mpeg`、`audio/mp4`。
+
+转写请求示例：
+
+```json
+{
+  "model": "qwen3-asr-flash",
+  "audio_url": "https://example.com/recording.wav",
+  "language": "zh",
+  "enable_itn": true
+}
+```
+
+创建克隆音色：
+
+```json
+{
+  "model": "qwen3-tts-vc-2026-01-22",
+  "name": "my_voice",
+  "audio_base64": "<完整base64录音数据>",
+  "mime_type": "audio/wav",
+  "text": "参考录音中说出的文字",
+  "language": "zh"
+}
+```
+
+`name` 为 1–16 个英文字母、数字或下划线。成功后保存返回的本地 `voice_*` ID；该音色绑定创建时的上游账号，合成时使用相同目标模型和调用方身份：
+
+```json
+{
+  "model": "qwen3-tts-vc-2026-01-22",
+  "voice": "voice_xxx",
+  "input": "你好，这是使用克隆音色合成的语音。",
+  "language": "zh",
+  "response_format": "url"
+}
+```
+
+克隆合成目前为非流式 URL 响应，输入最多 600 个字符；`response_format` 可省略或设为 `url`。Azure 的原有 `/audio/speech` 请求仍返回音频二进制。参考录音和样本文字不会存入本地音色记录。接口依据：[Qwen ASR](https://help.aliyun.com/zh/model-studio/qwen-asr-api-reference)、[音色克隆与设计 API](https://help.aliyun.com/zh/model-studio/voice-clone-design-http-api)、[音色克隆指南](https://help.aliyun.com/zh/model-studio/voice-cloning-user-guide)。
+
 ## 视频生成
 
-视频生成目前支持 DashScope HappyHorse 和 Volcengine Ark Seedance 2.0。两者均为异步任务。
+视频生成支持阿里云 Wan 3.0、HappyHorse，以及火山方舟 Seedance 2.0、2.5，均采用创建任务后轮询的异步流程。以下接口是 Tabro 的统一视频协议，不等同于 OpenAI `/v1/videos` 或供应商原生路径。
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
@@ -192,7 +264,41 @@ curl https://<host>/v1/audio/speech/jobs/audjob_xxx \
 | 模型关键字 | 平台 | 账号平台 |
 | --- | --- | --- |
 | `happyhorse` | 阿里云 DashScope | `dashscope` |
+| `wan` | 阿里云百炼 | `dashscope` |
 | `seedance` | 火山方舟 Ark | `volcengine_ark` |
+
+在后台创建对应平台的分组和 API Key 账号，将网关 Key 绑定到该分组，并配置模型白名单或 `model_mapping`。可使用以下官方模型 ID：
+
+| 模型 | 请求 `model` |
+| --- | --- |
+| Wan 3.0 标准版 | `wan3.0-video` |
+| Wan 3.0 高速版 | `wan3.0-video-prime` |
+| Seedance 2.0 | `doubao-seedance-2-0-260128` |
+| Seedance 2.5 | `doubao-seedance-2-5-260628` |
+
+若启用了 `security.url_allowlist.enabled`，还需把实际视频上游域名加入 `security.url_allowlist.upstream_hosts`，例如业务空间的 `*.maas.aliyuncs.com` 域名或 `ark.cn-beijing.volces.com`。媒体请求遵循项目已有的 HTTPS 和主机白名单配置。
+
+### Wan 3.0 示例
+
+Wan 3.0 的账号 `base_url` 必须配置为实际业务空间和地域的地址，例如 `https://<WorkspaceId>.cn-beijing.maas.aliyuncs.com`，API Key 必须属于同一地域。不要使用 HappyHorse 的默认 DashScope 地址调用 Wan 3.0。依据：[阿里云 Wan 3.0 API](https://help.aliyun.com/zh/model-studio/wan3-video-generation-api-reference)。
+
+```bash
+curl https://<host>/v1/videos/generations \
+  -H "Authorization: Bearer sk-your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "wan3.0-video",
+    "prompt": "镜头缓慢推进，保持人物和服装一致",
+    "media": [{ "type": "first_frame", "url": "https://example.com/first.png" }],
+    "duration": 5,
+    "resolution": "720P",
+    "ratio": "16:9",
+    "generate_audio": true,
+    "prompt_extend": true
+  }'
+```
+
+统一请求中的 `generate_audio` 在 Wan 上转换为 `parameters.audio`，`media` 保留顺序并传入 `input.media`。支持 `first_frame`、`last_frame`、`reference_image`、`reference_video`、`reference_audio`、`file`、`link`；素材组合限制由上游校验。`duration=-1` 表示由模型决定时长，`prompt` 与 `media` 至少提供一项。
 
 ### DashScope HappyHorse 示例
 
@@ -227,14 +333,14 @@ DashScope 账号凭证：
 | `api_key` | 是 | DashScope API Key |
 | `base_url` | 否 | 地域 Endpoint，例如 `https://dashscope.aliyuncs.com`、`https://dashscope-intl.aliyuncs.com` |
 
-### Seedance 2.0 示例
+### Seedance 2.0 / 2.5 示例
 
 ```bash
 curl https://<host>/v1/videos/generations \
   -H "Authorization: Bearer sk-your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "doubao-seedance-2-0-260128",
+    "model": "doubao-seedance-2-5-260628",
     "prompt": "参考图片1中的产品外观，生成一段干净的产品展示视频。",
     "media": [
       {
@@ -253,6 +359,12 @@ curl https://<host>/v1/videos/generations \
   }'
 ```
 
+使用 Seedance 2.0 时将 `model` 改为 `doubao-seedance-2-0-260128`，也可通过账号模型映射转到已有推理接入点。2.5 模型 ID 依据 [ByteDance 官方示例](https://github.com/bytedance/agentkit-samples/blob/main/skills/byted-seedance-video-generate/SKILL.md)。
+
+支持 `first_frame`、`last_frame` 和图像、视频、音频参考素材；网关转换为 Ark `content` 中对应的类型和角色。还支持 `return_last_frame`、`camera_fixed`、`output_format`、`omni_reference_task_type`、`callback_url`、`service_tier`、`execution_expires_after`，由上游校验所选模型是否接受这些参数。`file` / `link` 不是 Ark 素材类型，会返回参数错误。
+
+`callback_url` 直接传给 Ark，供应商回调使用上游任务 ID，不会自动更新网关中的任务状态。客户端仍使用创建响应中的 `vidjob_*` 查询；请求 `return_last_frame=true` 且上游返回尾帧时，查询响应同时包含 `last_frame_url`。
+
 Seedance 账号凭证：
 
 | 字段 | 必填 | 说明 |
@@ -267,7 +379,53 @@ curl https://<host>/v1/videos/generations/vidjob_xxx \
   -H "Authorization: Bearer sk-your-api-key"
 ```
 
-成功后响应中的 `result_url` 为上游返回的视频地址。部分上游临时地址有效期较短，应尽快下载或转存。
+成功后响应中的 `url` 为上游返回的视频地址。部分上游临时地址有效期较短，应尽快下载或转存。查询沿用创建任务时的账号，无需客户端保存上游密钥。
+
+### 素材 URL 与 base64
+
+`media[].url` 可以使用公网 URL；参考图可替换为 `data:image/png;base64,...`。网关校验格式后原样转发，不提供文件上传或自动 URL 转换。
+
+| 素材 | Wan 3.0 | Seedance / Ark |
+| --- | --- | --- |
+| 参考图、首尾帧 | 公网 URL / image data URL | 公网 URL / image data URL |
+| 参考音频 | 公网 URL | 公网 URL / audio data URL |
+| 参考视频 | 公网 URL | 公网 URL |
+
+不受上游支持的内联素材返回 400，调用方应先转换为公网 URL。Wan 图片上限 20 MiB，Ark 图片 30 MiB、音频 15 MiB；网关请求体上限仍适用。依据：[Wan 3.0 素材要求](https://www.alibabacloud.com/help/en/model-studio/wan3-video-generation-api-reference)、[Ark 视频生成 API](https://docs.byteplus.com/en/docs/ModelArk/1520757)。
+
+### 视频与 Qwen 音频计费
+
+在后台“渠道”中关联媒体分组，添加模型定价，将视频的计费模式选为“视频（按秒）”，填写每生成秒单价。可以设置默认单价，或分别添加 `480P`、`720P`、`1080P` 分辨率单价。填写 `0` 表示明确免费，留空表示没有配置；无匹配价格时会在调用上游前拒绝请求。
+
+视频余额费用 = 上游实际生成秒数 × 对应分辨率每秒单价 × 有效分组倍率（用户专属倍率优先）。订阅额度沿用现有账本规则，消耗未乘用户倍率的基础费用。支持小数秒，不使用客户端请求的 `duration` 估算费用。任务创建时保存定价和倍率，后续修改价格不会影响已创建任务。任务失败或取消不扣费；成功且用量完整时通过统一账本结算余额/订阅额度、API Key 配额及账号额度。重复查询和后台重试不会重复扣款。
+
+部署时需包含数据库迁移 `117_media_generation_billing.sql`，新增持久化账单快照和后台重试字段。后台会自动轮询并结算已保存上游任务 ID 的任务，客户端不查询也会处理。若上游已接单但本地持续无法保存任务 ID，服务只重试数据库写入，不重复提交付费请求；管理员可依据日志中的本地任务 ID 与上游任务 ID 恢复。上游缺少实际时长或结算暂时失败时保留待结算状态并重试，不静默按零元处理。结果中的 `billing_status` 区分 `pending`、`settled`、`not_due`、`unpriced`；旧任务及简易模式没有价格快照时使用 `unpriced`。
+
+Qwen 音频需要配置相应模型价格：
+
+| 模型 | 计费模式 | 单价单位 |
+| --- | --- | --- |
+| `qwen3-asr-flash`（或实际使用的日期版本/别名） | 音频（按用量） | 每输入音频秒 |
+| `qwen3-tts-vc-2026-01-22`（或别名） | 音频（按用量） | 每合成字符 |
+| `qwen-voice-enrollment` | 按次 | 每次成功创建音色 |
+
+音色查询、列表、删除不收费。上述价格均由管理员设置；图片继续使用已有图片计费，原有 Azure TTS 的计费行为不在本次变更范围内。
+
+## 接口覆盖与边界
+
+以下列出本次范围之外的接口，避免将模型可用误认为所有接口均已透传：
+
+| 接口 | 当前状态 |
+| --- | --- |
+| `/v1/images/variations` | 未实现；参考图生成使用 `/v1/images/edits` |
+| OpenAI 原生视频协议 | 不接入；Wan / Seedance 使用上文统一视频任务接口 |
+| 视频任务列表、取消、删除、网关代理下载 | 未实现；当前支持创建、查询和返回上游结果 URL |
+| `/v1/files` | 不提供上传服务；由调用方准备 URL/base64 |
+| `/v1/audio/translations`、实时语音/流式 ASR | 未实现；已接入 JSON 转写、克隆及克隆语音合成 |
+| `/v1/embeddings`、`/v1/moderations` | 未实现；旧文档中的 Embeddings 可用声明已移除 |
+| `GET/DELETE /v1/responses/:id` | 未实现 Responses 对象存取；现有入口主要用于生成请求 |
+
+模型出现在 `/v1/models` 中只表示可用于相应平台调度，不代表所有供应商接口均已透传。
 
 ## 用户控制台接口
 

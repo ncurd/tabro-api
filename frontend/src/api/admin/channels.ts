@@ -5,7 +5,7 @@
 
 import { apiClient } from '../client'
 
-export type BillingMode = 'token' | 'per_request' | 'image'
+export type BillingMode = 'token' | 'per_request' | 'image' | 'video' | 'audio'
 
 export interface PricingInterval {
   id?: number

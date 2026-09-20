@@ -2,11 +2,66 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestModelPricingPageUsesMediaUnitsAndKeepsFreeDistinctFromMissing(t *testing.T) {
+	zero, videoDefault, videoTier := 0.0, 0.12, 0.25
+	for _, tt := range []struct {
+		name      string
+		model     string
+		resolved  *ResolvedPricing
+		unit      string
+		available bool
+		price     *float64
+	}{
+		{"video", "wan3.0-video", &ResolvedPricing{Mode: BillingModeVideo, DefaultPriceConfigured: true, DefaultPerRequestPrice: videoDefault, RequestTiers: []PricingInterval{{TierLabel: "1080P", PerRequestPrice: &videoTier}}}, "second", true, &videoDefault},
+		{"free", "wan3.0-video", &ResolvedPricing{Mode: BillingModeVideo, DefaultPriceConfigured: true}, "second", true, &zero},
+		{"unconfigured", "wan3.0-video", &ResolvedPricing{Mode: BillingModeVideo, BasePricing: &ModelPricing{InputPricePerToken: 1e-6}}, "second", false, nil},
+		{"tier_only", "wan3.0-video", &ResolvedPricing{Mode: BillingModeVideo, RequestTiers: []PricingInterval{{TierLabel: "720P", PerRequestPrice: &zero}}}, "second", true, nil},
+		{"tts", "qwen3-tts-flash", &ResolvedPricing{Mode: BillingModeAudio, DefaultPriceConfigured: true}, "character", true, &zero},
+		{"asr", "qwen3-asr-flash", &ResolvedPricing{Mode: BillingModeAudio, DefaultPriceConfigured: true}, "second", true, &zero},
+		{"request", "qwen-voice-enrollment", &ResolvedPricing{Mode: BillingModePerRequest, DefaultPriceConfigured: true}, "request", true, &zero},
+		{"image", "gpt-image-2", &ResolvedPricing{Mode: BillingModeImage, DefaultPriceConfigured: true}, "image", true, &zero},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &ModelPricingPageService{resolver: modelPricingResolverStub{byModel: map[string]*ResolvedPricing{tt.model: tt.resolved}}}
+			result := svc.resolveModelPricing(context.Background(), 1, tt.model, 2)
+			require.Equal(t, tt.resolved.Mode, result.BillingMode)
+			require.Equal(t, tt.unit, result.PriceUnit)
+			require.Equal(t, tt.available, result.PricingAvailable)
+			if tt.price == nil {
+				require.Nil(t, result.UnitPrice)
+			} else {
+				require.NotNil(t, result.UnitPrice)
+				require.Equal(t, *tt.price*2, *result.UnitPrice)
+			}
+			for i, tier := range result.Tiers {
+				require.Equal(t, *tt.resolved.RequestTiers[i].PerRequestPrice*2, tier.UnitPrice)
+			}
+			encoded, err := json.Marshal(result)
+			require.NoError(t, err)
+			require.NotContains(t, string(encoded), "price_per_million")
+			if tt.name == "free" {
+				require.Contains(t, string(encoded), `"unit_price":0`)
+			}
+		})
+	}
+}
+
+func TestModelPricingPageMediaDefaultsStaySeparateFromAliyunLLM(t *testing.T) {
+	for _, platform := range []string{PlatformDashScope, PlatformVolcengineArk, PlatformAzureSpeech} {
+		require.Equal(t, DefaultMediaModels(platform), defaultModelIDsForPricingPlatform(platform))
+	}
+	platform := pricingDefaultPlatformForGroup(PlatformOpenAI, []Account{{Credentials: map[string]any{"base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1"}}})
+	require.Equal(t, "aliyun", platform)
+	require.Contains(t, defaultModelIDsForPricingPlatform(platform), "qwen-plus")
+	require.NotContains(t, defaultModelIDsForPricingPlatform(platform), "wan3.0-video")
+}
 
 type modelPricingGroupsStub struct {
 	groups []Group

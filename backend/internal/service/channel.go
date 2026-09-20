@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -14,8 +15,8 @@ const (
 	BillingModeToken      BillingMode = "token"       // 按 token 区间计费
 	BillingModePerRequest BillingMode = "per_request" // 按次计费（支持上下文窗口分层）
 	BillingModeImage      BillingMode = "image"       // 图片计费（当前按次，预留 token 计费）
-	BillingModeAudio      BillingMode = "audio"       // 音频计费（当前零成本记录，预留按次计费）
-	BillingModeVideo      BillingMode = "video"       // 视频计费（当前零成本记录，预留按次计费）
+	BillingModeAudio      BillingMode = "audio"       // 音频用量计费（TTS 字符 / ASR 秒）
+	BillingModeVideo      BillingMode = "video"       // 视频按生成秒计费
 )
 
 // IsValid 检查 BillingMode 是否为合法值
@@ -303,8 +304,8 @@ func validateIntervalPrices(iv *PricingInterval, idx int) error {
 		{"per_request_price", iv.PerRequestPrice},
 	}
 	for _, p := range prices {
-		if p.val != nil && *p.val < 0 {
-			return fmt.Errorf("interval #%d: %s must be >= 0", idx+1, p.name)
+		if p.val != nil && (*p.val < 0 || math.IsNaN(*p.val) || math.IsInf(*p.val, 0)) {
+			return fmt.Errorf("interval #%d: %s must be finite and >= 0", idx+1, p.name)
 		}
 	}
 	return nil

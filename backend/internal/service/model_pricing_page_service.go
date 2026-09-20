@@ -59,17 +59,28 @@ type AvailableModelPricingGroup struct {
 }
 
 type AvailableModelPricingModel struct {
-	ID                               string  `json:"id"`
-	PricingAvailable                 bool    `json:"pricing_available"`
-	InputPricePerMillion             float64 `json:"input_price_per_million,omitempty"`
-	OutputPricePerMillion            float64 `json:"output_price_per_million,omitempty"`
-	CacheWritePricePerMillion        float64 `json:"cache_write_price_per_million,omitempty"`
-	CacheReadPricePerMillion         float64 `json:"cache_read_price_per_million,omitempty"`
-	PriorityInputPricePerMillion     float64 `json:"priority_input_price_per_million,omitempty"`
-	PriorityOutputPricePerMillion    float64 `json:"priority_output_price_per_million,omitempty"`
-	PriorityCacheReadPricePerMillion float64 `json:"priority_cache_read_price_per_million,omitempty"`
-	ImageOutputPricePerMillion       float64 `json:"image_output_price_per_million,omitempty"`
-	Source                           string  `json:"source,omitempty"`
+	ID                               string                      `json:"id"`
+	PricingAvailable                 bool                        `json:"pricing_available"`
+	BillingMode                      BillingMode                 `json:"billing_mode"`
+	UnitPrice                        *float64                    `json:"unit_price,omitempty"`
+	PriceUnit                        string                      `json:"price_unit"`
+	Tiers                            []AvailableModelPricingTier `json:"tiers,omitempty"`
+	InputPricePerMillion             float64                     `json:"input_price_per_million,omitempty"`
+	OutputPricePerMillion            float64                     `json:"output_price_per_million,omitempty"`
+	CacheWritePricePerMillion        float64                     `json:"cache_write_price_per_million,omitempty"`
+	CacheReadPricePerMillion         float64                     `json:"cache_read_price_per_million,omitempty"`
+	PriorityInputPricePerMillion     float64                     `json:"priority_input_price_per_million,omitempty"`
+	PriorityOutputPricePerMillion    float64                     `json:"priority_output_price_per_million,omitempty"`
+	PriorityCacheReadPricePerMillion float64                     `json:"priority_cache_read_price_per_million,omitempty"`
+	ImageOutputPricePerMillion       float64                     `json:"image_output_price_per_million,omitempty"`
+	Source                           string                      `json:"source,omitempty"`
+}
+
+type AvailableModelPricingTier struct {
+	Label     string  `json:"label"`
+	UnitPrice float64 `json:"unit_price"`
+	MinTokens int     `json:"min_tokens,omitempty"`
+	MaxTokens *int    `json:"max_tokens,omitempty"`
 }
 
 func (s *ModelPricingPageService) ListAvailablePricing(ctx context.Context, userID int64) (*AvailableModelPricingResponse, error) {
@@ -146,7 +157,7 @@ func (s *ModelPricingPageService) availableModelIDsForGroup(ctx context.Context,
 
 func pricingDefaultPlatformForGroup(groupPlatform string, accounts []Account) string {
 	if strings.EqualFold(strings.TrimSpace(groupPlatform), PlatformOpenAI) && hasAliyunCompatibleBaseURL(accounts) {
-		return "dashscope"
+		return "aliyun"
 	}
 	return groupPlatform
 }
@@ -177,7 +188,9 @@ func defaultModelIDsForPricingPlatform(platform string) []string {
 			ids = append(ids, model.Name)
 		}
 		return ids
-	case "aliyun", "dashscope", "qwen":
+	case PlatformDashScope, PlatformVolcengineArk, PlatformAzureSpeech:
+		return DefaultMediaModels(strings.ToLower(strings.TrimSpace(platform)))
+	case "aliyun", "qwen":
 		return []string{
 			"qwen-turbo",
 			"qwen-plus",
@@ -250,7 +263,7 @@ func defaultModelIDsForPricingPlatform(platform string) []string {
 }
 
 func (s *ModelPricingPageService) resolveModelPricing(ctx context.Context, groupID int64, modelID string, effectiveRate float64) AvailableModelPricingModel {
-	result := AvailableModelPricingModel{ID: modelID}
+	result := AvailableModelPricingModel{ID: modelID, BillingMode: BillingModeToken, PriceUnit: "million_tokens"}
 	if s.resolver == nil {
 		return result
 	}
@@ -263,6 +276,28 @@ func (s *ModelPricingPageService) resolveModelPricing(ctx context.Context, group
 		return result
 	}
 	result.Source = resolved.Source
+	if resolved.Mode != "" {
+		result.BillingMode = resolved.Mode
+	}
+	if result.BillingMode != BillingModeToken {
+		result.PriceUnit = modelPricingUnit(result.BillingMode, modelID)
+		if resolved.DefaultPriceConfigured {
+			price := resolved.DefaultPerRequestPrice * effectiveRate
+			result.UnitPrice = &price
+			result.PricingAvailable = true
+		}
+		for _, tier := range resolved.RequestTiers {
+			if tier.PerRequestPrice == nil {
+				continue
+			}
+			result.Tiers = append(result.Tiers, AvailableModelPricingTier{
+				Label: tier.TierLabel, UnitPrice: *tier.PerRequestPrice * effectiveRate,
+				MinTokens: tier.MinTokens, MaxTokens: tier.MaxTokens,
+			})
+			result.PricingAvailable = true
+		}
+		return result
+	}
 
 	pricing := s.resolver.GetIntervalPricing(resolved, 0)
 	if pricing == nil {
@@ -279,6 +314,28 @@ func (s *ModelPricingPageService) resolveModelPricing(ctx context.Context, group
 	result.PriorityCacheReadPricePerMillion = toEffectivePerMillion(pricing.CacheReadPricePerTokenPriority, effectiveRate)
 	result.ImageOutputPricePerMillion = toEffectivePerMillion(pricing.ImageOutputPricePerToken, effectiveRate)
 	return result
+}
+
+func modelPricingUnit(mode BillingMode, modelID string) string {
+	switch mode {
+	case BillingModeVideo:
+		return "second"
+	case BillingModeImage:
+		return "image"
+	case BillingModePerRequest:
+		return "request"
+	case BillingModeAudio:
+		model := strings.ToLower(modelID)
+		if strings.Contains(model, "asr") || strings.Contains(model, "transcri") {
+			return "second"
+		}
+		if strings.Contains(model, "tts") || strings.Contains(model, "speech") {
+			return "character"
+		}
+		return "audio_unit"
+	default:
+		return "million_tokens"
+	}
 }
 
 func toEffectivePerMillion(pricePerToken float64, effectiveRate float64) float64 {

@@ -1823,7 +1823,9 @@ export default {
       billingMode: {
         token: 'Token',
         perRequest: 'Per Request',
-        image: 'Image (Per Request)'
+        image: 'Image (Per Request)',
+        video: 'Video (per second)',
+        audio: 'Audio (per unit)',
       },
       form: {
         name: 'Name',
@@ -1855,7 +1857,7 @@ export default {
         noTiersYet: 'No tiers yet. Click add to configure per-request pricing.',
         noPricingRules: 'No pricing rules yet. Click "Add" to create one.',
         perRequestPrice: 'Price per Request',
-        perRequestPriceRequired: 'Per-request price or billing tiers required for per-request/image billing mode',
+        perRequestPriceRequired: 'Set a default unit price or at least one billing tier',
         tierLabel: 'Tier',
         resolution: 'Resolution',
         modelMapping: 'Model Mapping',
@@ -1874,6 +1876,12 @@ export default {
         restrictModels: 'Restrict Models',
         restrictModelsHint: 'When enabled, only models in the pricing list are allowed. Others will be rejected.',
         defaultPerRequestPrice: 'Default per-request price (fallback when no tier matches)',
+        videoSecondPrice: 'Price per generated second',
+        audioUnitPrice: 'Audio unit price',
+        videoResolutionTiers: 'Resolution prices',
+        audioTiers: 'Audio pricing tiers',
+        videoBillingHint: 'Bill actual output seconds with the effective group rate. Prices are locked when the task is created. Enter 0 for free; blank means unconfigured.',
+        audioBillingHint: 'Transcription uses input audio seconds; synthesis uses characters. Use per-request billing for voice cloning. Enter 0 for free.',
         defaultImagePrice: 'Default image price (fallback when no tier matches)',
         platformConfig: 'Platform Configuration',
         webSearchEmulation: 'Web Search Emulation',
@@ -2011,6 +2019,12 @@ export default {
 
     // Accounts
     accounts: {
+      media: {
+        wanBaseUrlHint: 'Wan 3.0 requires a workspace endpoint, e.g. https://<WorkspaceId>.cn-beijing.maas.aliyuncs.com, with an API key from the same region. The default DashScope endpoint is for HappyHorse.',
+        region: 'Azure region',
+        baseUrlHint: 'Use the provider endpoint for your region. Ark endpoints include /api/v3; DashScope uses the domain root.',
+        apiKeyHint: 'Enter the API key issued by this provider (Azure Speech uses a subscription key).'
+      },
       title: 'Account Management',
       description: 'Manage AI platform accounts and credentials',
       createAccount: 'Create Account',
@@ -3439,6 +3453,8 @@ export default {
       billingModeToken: 'Token',
       billingModePerRequest: 'Per Request',
       billingModeImage: 'Image',
+      billingModeVideo: 'Video (per second)',
+      billingModeAudio: 'Audio (per unit)',
       allBillingModes: 'All Billing Modes',
       ipAddress: 'IP',
       clickToViewBalance: 'Click to view balance history',

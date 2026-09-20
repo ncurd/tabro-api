@@ -37,6 +37,8 @@ type MediaGenerationJob struct {
 	AccountID            int64
 	Model                string
 	RequestJSON          []byte
+	BillingSnapshotJSON  []byte
+	NextPollAt           *time.Time
 	UpstreamResponseJSON []byte
 	ResultURL            string
 	ResultContentType    string
@@ -65,6 +67,8 @@ type MediaGenerationJobRepository interface {
 }
 
 type MediaGenerationJobUpdate struct {
+	AudioVoice           string
+	UpstreamTaskID       string
 	Status               string
 	UpstreamStatus       string
 	UpstreamRequestID    string
@@ -79,4 +83,14 @@ type MediaGenerationJobUpdate struct {
 	ErrorCode            string
 	ErrorMessage         string
 	CompletedAt          *time.Time
+}
+
+// GeneratedVideoDurationSeconds preserves upstream fractional seconds without
+// changing the historical integer summary column used by older installations.
+func (job *MediaGenerationJob) GeneratedVideoDurationSeconds() (float64, bool) {
+	if job == nil || job.Kind != MediaJobKindVideoGeneration {
+		return 0, false
+	}
+	seconds, _, err := mediaBillableUnits(job, MediaJobKindVideoGeneration)
+	return seconds, err == nil && seconds > 0 && validMediaPrice(seconds)
 }

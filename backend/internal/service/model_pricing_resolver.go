@@ -28,6 +28,8 @@ type ResolvedPricing struct {
 
 	// 按次/图片模式：默认价格（未命中层级时使用）
 	DefaultPerRequestPrice float64
+	// DefaultPriceConfigured distinguishes an explicit free price from no price.
+	DefaultPriceConfigured bool
 
 	// 来源标识
 	Source string // "channel", "litellm", "fallback"
@@ -106,7 +108,7 @@ func (r *ModelPricingResolver) applyChannelOverrides(ctx context.Context, groupI
 	switch resolved.Mode {
 	case BillingModeToken:
 		r.applyTokenOverrides(chPricing, resolved)
-	case BillingModePerRequest, BillingModeImage:
+	case BillingModePerRequest, BillingModeImage, BillingModeVideo, BillingModeAudio:
 		r.applyRequestTierOverrides(chPricing, resolved)
 	}
 }
@@ -159,6 +161,7 @@ func (r *ModelPricingResolver) applyRequestTierOverrides(chPricing *ChannelModel
 	resolved.RequestTiers = filterValidIntervals(chPricing.Intervals)
 	if chPricing.PerRequestPrice != nil {
 		resolved.DefaultPerRequestPrice = *chPricing.PerRequestPrice
+		resolved.DefaultPriceConfigured = true
 	}
 }
 

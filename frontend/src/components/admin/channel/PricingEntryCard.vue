@@ -190,10 +190,10 @@
         </div>
 
         <!-- Image mode -->
-        <div v-else-if="entry.billing_mode === 'image'">
+        <div v-else-if="['image', 'video', 'audio'].includes(entry.billing_mode)">
           <!-- Default image price (per-request, same as per_request mode) -->
           <label class="mt-3 block text-xs font-medium text-gray-500 dark:text-gray-400">
-            {{ t('admin.channels.form.defaultImagePrice', '默认图片价格（未命中层级时使用）') }}
+            {{ entry.billing_mode === 'video' ? t('admin.channels.form.videoSecondPrice') : entry.billing_mode === 'audio' ? t('admin.channels.form.audioUnitPrice') : t('admin.channels.form.defaultImagePrice', '默认图片价格（未命中层级时使用）') }}
             <span class="ml-1 font-normal text-gray-400">✦</span>
           </label>
           <div class="mt-1 w-48">
@@ -201,10 +201,13 @@
               type="number" step="any" min="0" class="input text-sm" :placeholder="t('admin.channels.form.pricePlaceholder', '默认')" />
           </div>
 
-          <!-- Image tiers -->
-          <div class="mt-3 flex items-center justify-between">
+          <p v-if="entry.billing_mode === 'video'" class="input-hint">{{ t('admin.channels.form.videoBillingHint') }}</p>
+          <p v-if="entry.billing_mode === 'audio'" class="input-hint">{{ t('admin.channels.form.audioBillingHint') }}</p>
+
+          <!-- Media tiers -->
+          <div v-if="entry.billing_mode !== 'audio'" class="mt-3 flex items-center justify-between">
             <label class="text-xs font-medium text-gray-500 dark:text-gray-400">
-              {{ t('admin.channels.form.imageTiers', '图片计费层级（按次）') }}
+              {{ entry.billing_mode === 'video' ? t('admin.channels.form.videoResolutionTiers') : t('admin.channels.form.imageTiers', '图片计费层级（按次）') }}
             </label>
             <button type="button" @click="addImageTier" class="text-xs text-primary-600 hover:text-primary-700">
               + {{ t('admin.channels.form.addTier', '添加层级') }}
@@ -256,7 +259,9 @@ const collapsed = ref(props.entry.models.length > 0)
 const billingModeOptions = computed(() => [
   { value: 'token', label: 'Token' },
   { value: 'per_request', label: t('admin.channels.billingMode.perRequest', '按次') },
-  { value: 'image', label: t('admin.channels.billingMode.image', '图片（按次）') }
+  { value: 'image', label: t('admin.channels.billingMode.image', '图片（按次）') },
+  { value: 'video', label: t('admin.channels.billingMode.video') },
+  { value: 'audio', label: t('admin.channels.billingMode.audio') }
 ])
 
 const billingModeLabel = computed(() => {
@@ -281,7 +286,7 @@ function addInterval() {
 
 function addImageTier() {
   const intervals = [...(props.entry.intervals || [])]
-  const labels = ['1K', '2K', '4K', 'HD']
+  const labels = props.entry.billing_mode === 'video' ? ['480P', '720P', '1080P'] : props.entry.billing_mode === 'audio' ? [] : ['1K', '2K', '4K', 'HD']
   intervals.push({
     min_tokens: 0, max_tokens: null, tier_label: labels[intervals.length] || '',
     input_price: null, output_price: null, cache_write_price: null,
@@ -309,7 +314,7 @@ async function onModelsUpdate(newModels: string[]) {
 
   // 只在新增模型且当前无价格时自动填充
   const addedModels = newModels.filter(m => !oldModels.includes(m))
-  if (addedModels.length === 0) return
+  if (addedModels.length === 0 || props.entry.billing_mode !== 'token') return
 
   // 检查是否所有价格字段都为空
   const e = props.entry

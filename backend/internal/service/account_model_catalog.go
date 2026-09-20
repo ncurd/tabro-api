@@ -65,3 +65,33 @@ func (a *Account) AvailableOpenAIModels() []openai.Model {
 	sort.Slice(models, func(i, j int) bool { return models[i].ID < models[j].ID })
 	return models
 }
+
+// DefaultMediaModels is a suggestion catalog; configured account mappings take precedence.
+func DefaultMediaModels(platform string) []string {
+	switch platform {
+	case PlatformDashScope:
+		return []string{"wan3.0-video", "wan3.0-video-prime", "happyhorse-1.0-r2v", "qwen3-asr-flash", "qwen3-tts-vc-2026-01-22"}
+	case PlatformVolcengineArk:
+		return []string{"doubao-seedance-2-0-260128", "doubao-seedance-2-5-260628"}
+	case PlatformAzureSpeech:
+		return []string{"azure-tts"}
+	default:
+		return nil
+	}
+}
+
+func (a *Account) AvailableMediaModels() []openai.Model {
+	ids := DefaultMediaModels(a.Platform)
+	if mapping := a.GetModelMapping(); len(mapping) > 0 {
+		ids = make([]string, 0, len(mapping))
+		for model := range mapping {
+			ids = append(ids, model)
+		}
+		sort.Strings(ids)
+	}
+	models := make([]openai.Model, 0, len(ids))
+	for _, id := range ids {
+		models = append(models, openai.Model{ID: id, Object: "model", Type: "model", DisplayName: id, OwnedBy: a.Platform})
+	}
+	return models
+}

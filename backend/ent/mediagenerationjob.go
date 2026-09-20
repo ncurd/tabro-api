@@ -50,6 +50,10 @@ type MediaGenerationJob struct {
 	Model string `json:"model,omitempty"`
 	// RequestJSON holds the value of the "request_json" field.
 	RequestJSON json.RawMessage `json:"request_json,omitempty"`
+	// BillingSnapshotJSON holds the value of the "billing_snapshot_json" field.
+	BillingSnapshotJSON json.RawMessage `json:"billing_snapshot_json,omitempty"`
+	// NextPollAt holds the value of the "next_poll_at" field.
+	NextPollAt *time.Time `json:"next_poll_at,omitempty"`
 	// UpstreamResponseJSON holds the value of the "upstream_response_json" field.
 	UpstreamResponseJSON json.RawMessage `json:"upstream_response_json,omitempty"`
 	// ResultURL holds the value of the "result_url" field.
@@ -90,13 +94,13 @@ func (*MediaGenerationJob) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case mediagenerationjob.FieldRequestJSON, mediagenerationjob.FieldUpstreamResponseJSON:
+		case mediagenerationjob.FieldRequestJSON, mediagenerationjob.FieldBillingSnapshotJSON, mediagenerationjob.FieldUpstreamResponseJSON:
 			values[i] = new([]byte)
 		case mediagenerationjob.FieldID, mediagenerationjob.FieldUserID, mediagenerationjob.FieldAPIKeyID, mediagenerationjob.FieldGroupID, mediagenerationjob.FieldAccountID, mediagenerationjob.FieldAudioCharacterCount, mediagenerationjob.FieldVideoDurationSeconds, mediagenerationjob.FieldVideoCount:
 			values[i] = new(sql.NullInt64)
 		case mediagenerationjob.FieldPublicID, mediagenerationjob.FieldKind, mediagenerationjob.FieldProvider, mediagenerationjob.FieldPlatform, mediagenerationjob.FieldStatus, mediagenerationjob.FieldUpstreamStatus, mediagenerationjob.FieldUpstreamTaskID, mediagenerationjob.FieldUpstreamRequestID, mediagenerationjob.FieldModel, mediagenerationjob.FieldResultURL, mediagenerationjob.FieldResultContentType, mediagenerationjob.FieldAudioVoice, mediagenerationjob.FieldAudioFormat, mediagenerationjob.FieldVideoResolution, mediagenerationjob.FieldVideoRatio, mediagenerationjob.FieldErrorCode, mediagenerationjob.FieldErrorMessage:
 			values[i] = new(sql.NullString)
-		case mediagenerationjob.FieldCreatedAt, mediagenerationjob.FieldUpdatedAt, mediagenerationjob.FieldExpiresAt, mediagenerationjob.FieldUsageRecordedAt, mediagenerationjob.FieldSubmittedAt, mediagenerationjob.FieldCompletedAt:
+		case mediagenerationjob.FieldCreatedAt, mediagenerationjob.FieldUpdatedAt, mediagenerationjob.FieldNextPollAt, mediagenerationjob.FieldExpiresAt, mediagenerationjob.FieldUsageRecordedAt, mediagenerationjob.FieldSubmittedAt, mediagenerationjob.FieldCompletedAt:
 			values[i] = new(sql.NullTime)
 		default:
 			values[i] = new(sql.UnknownType)
@@ -220,6 +224,21 @@ func (_m *MediaGenerationJob) assignValues(columns []string, values []any) error
 				if err := json.Unmarshal(*value, &_m.RequestJSON); err != nil {
 					return fmt.Errorf("unmarshal field request_json: %w", err)
 				}
+			}
+		case mediagenerationjob.FieldBillingSnapshotJSON:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field billing_snapshot_json", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &_m.BillingSnapshotJSON); err != nil {
+					return fmt.Errorf("unmarshal field billing_snapshot_json: %w", err)
+				}
+			}
+		case mediagenerationjob.FieldNextPollAt:
+			if value, ok := values[i].(*sql.NullTime); !ok {
+				return fmt.Errorf("unexpected type %T for field next_poll_at", values[i])
+			} else if value.Valid {
+				_m.NextPollAt = new(time.Time)
+				*_m.NextPollAt = value.Time
 			}
 		case mediagenerationjob.FieldUpstreamResponseJSON:
 			if value, ok := values[i].(*[]byte); !ok {
@@ -422,6 +441,14 @@ func (_m *MediaGenerationJob) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("request_json=")
 	builder.WriteString(fmt.Sprintf("%v", _m.RequestJSON))
+	builder.WriteString(", ")
+	builder.WriteString("billing_snapshot_json=")
+	builder.WriteString(fmt.Sprintf("%v", _m.BillingSnapshotJSON))
+	builder.WriteString(", ")
+	if v := _m.NextPollAt; v != nil {
+		builder.WriteString("next_poll_at=")
+		builder.WriteString(v.Format(time.ANSIC))
+	}
 	builder.WriteString(", ")
 	builder.WriteString("upstream_response_json=")
 	builder.WriteString(fmt.Sprintf("%v", _m.UpstreamResponseJSON))

@@ -266,3 +266,23 @@ func TestRedeemHandlerEndpoints(t *testing.T) {
 	router.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
 }
+
+func TestGroupHandlerMediaPlatformsCanBeConfigured(t *testing.T) {
+	for _, platform := range []string{"dashscope", "volcengine_ark", "azure_speech"} {
+		t.Run(platform, func(t *testing.T) {
+			router, _ := setupAdminRouter()
+			for _, request := range []struct{ method, path string }{
+				{http.MethodPost, "/api/v1/admin/groups"},
+				{http.MethodPut, "/api/v1/admin/groups/1"},
+			} {
+				body, err := json.Marshal(map[string]any{"name": "media", "platform": platform})
+				require.NoError(t, err)
+				rec := httptest.NewRecorder()
+				req := httptest.NewRequest(request.method, request.path, bytes.NewReader(body))
+				req.Header.Set("Content-Type", "application/json")
+				router.ServeHTTP(rec, req)
+				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			}
+		})
+	}
+}

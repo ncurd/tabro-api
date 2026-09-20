@@ -28,23 +28,20 @@
 
       <!-- API Key fields (only for apikey type) -->
       <div v-if="account.type === 'apikey'" class="space-y-4">
-        <div>
+        <div v-if="account.platform === 'azure_speech'">
+          <label class="input-label">{{ t('admin.accounts.media.region') }}</label>
+          <input v-model="editMediaRegion" type="text" required class="input" placeholder="eastus" />
+        </div>
+        <div v-else>
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
             v-model="editBaseUrl"
             type="text"
             class="input"
-            :placeholder="
-              account.platform === 'openai'
-                ? 'https://api.openai.com'
-                : account.platform === 'gemini'
-                  ? 'https://generativelanguage.googleapis.com'
-                  : account.platform === 'antigravity'
-                    ? 'https://cloudcode-pa.googleapis.com'
-                    : 'https://api.anthropic.com'
-            "
+            :placeholder="accountDefaultBaseURL(account.platform)"
           />
           <p class="input-hint">{{ baseUrlHint }}</p>
+          <p v-if="account.platform === 'dashscope'" class="input-hint">{{ t('admin.accounts.media.wanBaseUrlHint') }}</p>
         </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.apiKey') }}</label>
@@ -53,7 +50,9 @@
             type="password"
             class="input font-mono"
             :placeholder="
-              account.platform === 'openai'
+              isMediaPlatform(account.platform)
+                ? 'API Key'
+                : account.platform === 'openai'
                 ? 'sk-proj-...'
                 : account.platform === 'gemini'
                   ? 'AIza...'
@@ -1839,6 +1838,7 @@
 </template>
 
 <script setup lang="ts">
+import { accountDefaultBaseURL, isMediaPlatform } from '@/utils/mediaPlatforms'
 import { ref, reactive, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -1892,6 +1892,7 @@ const authStore = useAuthStore()
 
 // Platform-specific hint for Base URL
 const baseUrlHint = computed(() => {
+  if (props.account && isMediaPlatform(props.account.platform)) return t('admin.accounts.media.baseUrlHint')
   if (!props.account) return t('admin.accounts.baseUrlHint')
   if (props.account.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
   if (props.account.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
@@ -1918,6 +1919,7 @@ interface TempUnschedRuleForm {
 const submitting = ref(false)
 const editBaseUrl = ref('https://api.anthropic.com')
 const editApiKey = ref('')
+const editMediaRegion = ref('eastus')
 // Bedrock credentials
 const editBedrockAccessKeyId = ref('')
 const editBedrockSecretAccessKey = ref('')
@@ -2078,11 +2080,7 @@ const tempUnschedPresets = computed(() => [
 ])
 
 // Computed: default base URL based on platform
-const defaultBaseUrl = computed(() => {
-  if (props.account?.platform === 'openai') return 'https://api.openai.com'
-  if (props.account?.platform === 'gemini') return 'https://generativelanguage.googleapis.com'
-  return 'https://api.anthropic.com'
-})
+const defaultBaseUrl = computed(() => accountDefaultBaseURL(props.account?.platform || 'anthropic'))
 
 const mixedChannelWarningMessageText = computed(() => {
   if (mixedChannelWarningDetails.value) {
@@ -2279,13 +2277,9 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   // Initialize API Key fields for apikey type
   if (newAccount.type === 'apikey' && newAccount.credentials) {
     const credentials = newAccount.credentials as Record<string, unknown>
-    const platformDefaultUrl =
-      newAccount.platform === 'openai'
-        ? 'https://api.openai.com'
-        : newAccount.platform === 'gemini'
-          ? 'https://generativelanguage.googleapis.com'
-          : 'https://api.anthropic.com'
+    const platformDefaultUrl = accountDefaultBaseURL(newAccount.platform)
     editBaseUrl.value = (credentials.base_url as string) || platformDefaultUrl
+    editMediaRegion.value = (credentials.region as string) || 'eastus'
 
     // Load model mappings and detect mode
     const existingMappings = credentials.model_mapping as Record<string, string> | undefined
@@ -2377,12 +2371,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     const credentials = newAccount.credentials as Record<string, unknown>
     editBaseUrl.value = (credentials.base_url as string) || ''
   } else {
-    const platformDefaultUrl =
-      newAccount.platform === 'openai'
-        ? 'https://api.openai.com'
-        : newAccount.platform === 'gemini'
-          ? 'https://generativelanguage.googleapis.com'
-          : 'https://api.anthropic.com'
+    const platformDefaultUrl = accountDefaultBaseURL(newAccount.platform)
     editBaseUrl.value = platformDefaultUrl
 
     // Load model mappings for OpenAI OAuth accounts
@@ -2885,15 +2874,21 @@ const handleSubmit = async () => {
       }
 
       // Handle API key
+      const credentialKey = props.account.platform === 'azure_speech' ? 'subscription_key' : 'api_key'
       if (editApiKey.value.trim()) {
         // User provided a new API key
-        newCredentials.api_key = editApiKey.value.trim()
-      } else if (currentCredentials.api_key) {
+        newCredentials[credentialKey] = editApiKey.value.trim()
+      } else if (currentCredentials[credentialKey]) {
         // Preserve existing api_key
-        newCredentials.api_key = currentCredentials.api_key
+        newCredentials[credentialKey] = currentCredentials[credentialKey]
       } else {
         appStore.showError(t('admin.accounts.apiKeyIsRequired'))
         return
+      }
+
+      if (props.account.platform === 'azure_speech') {
+        newCredentials.region = editMediaRegion.value.trim()
+        delete newCredentials.base_url
       }
 
       // Add model mapping if configured（OpenAI 开启自动透传时保留现有映射，不再编辑）

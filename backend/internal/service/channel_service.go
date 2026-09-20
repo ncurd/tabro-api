@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -601,11 +602,11 @@ func validatePricingBillingMode(pricing []ChannelModelPricing) error {
 }
 
 func checkBillingModeRequirements(p ChannelModelPricing) error {
-	if p.BillingMode == BillingModePerRequest || p.BillingMode == BillingModeImage {
+	if p.BillingMode == BillingModePerRequest || p.BillingMode == BillingModeImage || p.BillingMode == BillingModeVideo || p.BillingMode == BillingModeAudio {
 		if p.PerRequestPrice == nil && len(p.Intervals) == 0 {
 			return infraerrors.BadRequest(
 				"BILLING_MODE_MISSING_PRICE",
-				"per-request price or intervals required for per_request/image billing mode",
+				"unit price or tiers required for per_request/image/video/audio billing mode",
 			)
 		}
 	}
@@ -625,8 +626,8 @@ func checkPricesNotNegative(p ChannelModelPricing) error {
 		{"per_request_price", p.PerRequestPrice},
 	}
 	for _, c := range checks {
-		if c.val != nil && *c.val < 0 {
-			return infraerrors.BadRequest("NEGATIVE_PRICE", fmt.Sprintf("%s must be >= 0", c.field))
+		if c.val != nil && (*c.val < 0 || math.IsNaN(*c.val) || math.IsInf(*c.val, 0)) {
+			return infraerrors.BadRequest("NEGATIVE_PRICE", fmt.Sprintf("%s must be finite and >= 0", c.field))
 		}
 	}
 	return nil
@@ -926,6 +927,17 @@ func validateNoConflictingMappings(mapping map[string]map[string]string) error {
 
 func validatePricingIntervals(pricingList []ChannelModelPricing) error {
 	for _, pricing := range pricingList {
+		if pricing.BillingMode == BillingModeVideo || pricing.BillingMode == BillingModeAudio {
+			labels := map[string]bool{}
+			for _, iv := range pricing.Intervals {
+				label := normalizeMediaBillingTier(iv.TierLabel)
+				if label == "" || labels[label] || iv.PerRequestPrice == nil || !validMediaPrice(*iv.PerRequestPrice) {
+					return infraerrors.BadRequest("INVALID_MEDIA_PRICING_TIERS", "media tiers require unique resolution labels and finite nonnegative unit prices")
+				}
+				labels[label] = true
+			}
+			continue
+		}
 		if err := ValidateIntervals(pricing.Intervals); err != nil {
 			return infraerrors.BadRequest(
 				"INVALID_PRICING_INTERVALS",

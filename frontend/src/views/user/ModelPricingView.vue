@@ -25,7 +25,7 @@
       </div>
       <div class="rounded-lg border border-gray-200 bg-white p-4 dark:border-dark-700 dark:bg-dark-800">
         <p class="text-sm text-gray-500 dark:text-gray-400">价格单位</p>
-        <p class="mt-2 text-2xl font-semibold text-gray-900 dark:text-white">✦ / 1M tokens</p>
+        <p class="mt-2 text-xl font-semibold text-gray-900 dark:text-white">按模型计费单位</p>
       </div>
     </div>
 
@@ -97,6 +97,8 @@
             <thead class="bg-gray-50 dark:bg-dark-900/60">
               <tr>
                 <th class="whitespace-nowrap px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">模型</th>
+                <th class="whitespace-nowrap px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">计费单位与单价</th>
+                <template v-if="hasTokenModels(group)">
                 <th class="whitespace-nowrap px-4 py-3 text-right font-medium text-gray-500 dark:text-gray-400">输入</th>
                 <th class="whitespace-nowrap px-4 py-3 text-right font-medium text-gray-500 dark:text-gray-400">输出</th>
                 <th class="whitespace-nowrap px-4 py-3 text-right font-medium text-gray-500 dark:text-gray-400">缓存写入</th>
@@ -104,6 +106,7 @@
                 <th class="whitespace-nowrap px-4 py-3 text-right font-medium text-gray-500 dark:text-gray-400">优先输入</th>
                 <th class="whitespace-nowrap px-4 py-3 text-right font-medium text-gray-500 dark:text-gray-400">优先输出</th>
                 <th class="whitespace-nowrap px-4 py-3 text-right font-medium text-gray-500 dark:text-gray-400">图片输出</th>
+                </template>
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-100 dark:divide-dark-700">
@@ -112,6 +115,18 @@
                   <div class="font-mono text-sm font-medium text-gray-900 dark:text-white">{{ model.id }}</div>
                   <div v-if="model.source" class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{{ model.source }}</div>
                 </td>
+                <td v-if="isUnitBilling(model)" :colspan="hasTokenModels(group) ? 8 : 1" class="px-4 py-3 text-gray-700 dark:text-gray-200">
+                  <div class="flex flex-wrap gap-x-5 gap-y-2 tabular-nums">
+                    <span v-if="model.unit_price != null">默认：{{ formatUnitPrice(model, model.unit_price) }}</span>
+                    <span v-for="(tier, index) in model.tiers ?? []" :key="`${tier.label}-${index}`">
+                      {{ formatTierLabel(tier) }}：{{ formatUnitPrice(model, tier.unit_price) }}
+                    </span>
+                    <span v-if="!model.pricing_available">未配置价格 · {{ unitLabel(model) }}</span>
+                  </div>
+                  <p v-if="model.unit_price == null && model.pricing_available" class="mt-1 text-xs text-gray-500 dark:text-gray-400">仅已配置档位可用</p>
+                </td>
+                <template v-else>
+                <td class="whitespace-nowrap px-4 py-3 text-gray-500 dark:text-gray-400">✦ / 1M tokens</td>
                 <td class="whitespace-nowrap px-4 py-3 text-right tabular-nums text-gray-700 dark:text-gray-200">{{ formatPrice(model, model.input_price_per_million) }}</td>
                 <td class="whitespace-nowrap px-4 py-3 text-right tabular-nums text-gray-700 dark:text-gray-200">{{ formatPrice(model, model.output_price_per_million) }}</td>
                 <td class="whitespace-nowrap px-4 py-3 text-right tabular-nums text-gray-700 dark:text-gray-200">{{ formatPrice(model, model.cache_write_price_per_million) }}</td>
@@ -119,6 +134,7 @@
                 <td class="whitespace-nowrap px-4 py-3 text-right tabular-nums text-gray-700 dark:text-gray-200">{{ formatPrice(model, model.priority_input_price_per_million) }}</td>
                 <td class="whitespace-nowrap px-4 py-3 text-right tabular-nums text-gray-700 dark:text-gray-200">{{ formatPrice(model, model.priority_output_price_per_million) }}</td>
                 <td class="whitespace-nowrap px-4 py-3 text-right tabular-nums text-gray-700 dark:text-gray-200">{{ formatPrice(model, model.image_output_price_per_million) }}</td>
+                </template>
               </tr>
             </tbody>
           </table>
@@ -164,6 +180,29 @@ const filteredGroups = computed(() => {
 
 function formatRate(value: number): string {
   return `${value.toFixed(2)}x`
+}
+
+function isUnitBilling(model: AvailableModelPricingModel): boolean {
+  return !!model.billing_mode && model.billing_mode !== 'token'
+}
+
+function hasTokenModels(group: AvailableModelPricingGroup): boolean {
+  return group.models.some((model) => !isUnitBilling(model))
+}
+
+function unitLabel(model: AvailableModelPricingModel): string {
+  const labels: Record<string, string> = {
+    second: '秒', character: '字符', image: '张', request: '次', audio_unit: '音频单位'
+  }
+  return labels[model.price_unit ?? ''] ?? '单位'
+}
+
+function formatUnitPrice(model: AvailableModelPricingModel, value: number): string {
+  return `${new Intl.NumberFormat('zh-CN', { maximumSignificantDigits: 8 }).format(value)} ✦ / ${unitLabel(model)}`
+}
+
+function formatTierLabel(tier: NonNullable<AvailableModelPricingModel['tiers']>[number]): string {
+  return tier.label || `${tier.min_tokens ?? 0}–${tier.max_tokens ?? '∞'} tokens`
 }
 
 function formatPrice(model: AvailableModelPricingModel, value: number | undefined): string {

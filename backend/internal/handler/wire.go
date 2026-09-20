@@ -127,7 +127,7 @@ var ProviderSet = wire.NewSet(
 	NewRedeemHandler,
 	NewSubscriptionHandler,
 	NewAnnouncementHandler,
-	NewModelPricingHandler,
+	ProvideModelPricingHandler,
 	NewGatewayHandler,
 	NewOpenAIGatewayHandler,
 	NewMediaGenerationHandler,
@@ -168,3 +168,7 @@ var ProviderSet = wire.NewSet(
 	ProvideAdminHandlers,
 	ProvideHandlers,
 )
+
+func ProvideModelPricingHandler(svc *service.ModelPricingPageService) *ModelPricingHandler {
+	return NewModelPricingHandler(svc)
+}

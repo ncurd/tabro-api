@@ -213,3 +213,18 @@ func TestAccountIsRetiredModel_BedrockEOLPreservesOtherChannelModels(t *testing.
 		require.False(t, account.IsRetiredModel(model), "future and region-specific retirements must remain configurable: %s", model)
 	}
 }
+
+func TestGetAvailableModels_MediaPlatformsDefaultsAndAliases(t *testing.T) {
+	for _, platform := range []string{PlatformDashScope, PlatformVolcengineArk, PlatformAzureSpeech} {
+		t.Run(platform, func(t *testing.T) {
+			groupID := int64(93)
+			account := Account{ID: 1, Platform: platform, Type: AccountTypeAPIKey}
+			repo := &modelsListAccountRepoStub{byGroup: map[int64][]Account{groupID: {account}}}
+			svc := &GatewayService{accountRepo: repo}
+			require.ElementsMatch(t, DefaultMediaModels(platform), svc.GetAvailableModels(context.Background(), &groupID, platform))
+			account.Credentials = map[string]any{"model_mapping": map[string]any{"video-alias": "ep-private-deployment"}}
+			repo.byGroup[groupID] = []Account{account}
+			require.Equal(t, []string{"video-alias"}, svc.GetAvailableModels(context.Background(), &groupID, platform))
+		})
+	}
+}

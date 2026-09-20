@@ -869,7 +869,7 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 	availableModels := h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, "")
 
 	if availableModels != nil {
-		if platform == service.PlatformOpenAI {
+		if platform == service.PlatformOpenAI || service.DefaultMediaModels(platform) != nil {
 			defaults := make(map[string]openai.Model, len(openai.DefaultModels))
 			for _, model := range openai.DefaultModels {
 				defaults[model.ID] = model
@@ -907,6 +907,11 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 			"object": "list",
 			"data":   models,
 		})
+		return
+	}
+
+	if service.DefaultMediaModels(platform) != nil {
+		c.JSON(http.StatusOK, gin.H{"object": "list", "data": (&service.Account{Platform: platform}).AvailableMediaModels()})
 		return
 	}
 

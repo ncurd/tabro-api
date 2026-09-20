@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -27,7 +28,7 @@ func TestMediaGenerationServiceForwardAzureSpeech(t *testing.T) {
 			Body: io.NopCloser(bytes.NewReader([]byte("audio-bytes"))),
 		},
 	}
-	svc := NewMediaGenerationService(nil, nil, nil, upstream, &config.Config{})
+	svc := NewMediaGenerationService(nil, nil, nil, upstream, &config.Config{RunMode: config.RunModeSimple}, nil)
 	account := &Account{
 		ID:          42,
 		Platform:    PlatformAzureSpeech,
@@ -61,7 +62,7 @@ func TestMediaGenerationServiceCreateDashScopeVideoJob(t *testing.T) {
 		resp: jsonResponse(http.StatusOK, `{"request_id":"req-1","output":{"task_id":"task-123","task_status":"PENDING"}}`),
 	}
 	jobRepo := newMediaGenerationJobRepoStub()
-	svc := NewMediaGenerationService(nil, jobRepo, nil, upstream, &config.Config{})
+	svc := NewMediaGenerationService(nil, jobRepo, nil, upstream, &config.Config{RunMode: config.RunModeSimple}, nil)
 	account := &Account{
 		ID:          55,
 		Platform:    PlatformDashScope,
@@ -97,7 +98,7 @@ func TestMediaGenerationServiceQueryDashScopeVideoJobRecordsUsageOnce(t *testing
 	}
 	jobRepo := newMediaGenerationJobRepoStub()
 	usageRepo := &mediaGenerationUsageRepoStub{}
-	svc := NewMediaGenerationService(nil, jobRepo, usageRepo, upstream, &config.Config{})
+	svc := NewMediaGenerationService(nil, jobRepo, usageRepo, upstream, &config.Config{RunMode: config.RunModeSimple}, nil)
 	job := &MediaGenerationJob{
 		PublicID:       "vidjob_test",
 		Kind:           MediaJobKindVideoGeneration,
@@ -135,7 +136,7 @@ func TestMediaGenerationServiceCreateArkVideoJob(t *testing.T) {
 		resp: jsonResponse(http.StatusOK, `{"id":"ark-task-1","status":"queued"}`),
 	}
 	jobRepo := newMediaGenerationJobRepoStub()
-	svc := NewMediaGenerationService(nil, jobRepo, nil, upstream, &config.Config{})
+	svc := NewMediaGenerationService(nil, jobRepo, nil, upstream, &config.Config{RunMode: config.RunModeSimple}, nil)
 	account := &Account{
 		ID:          77,
 		Platform:    PlatformVolcengineArk,
@@ -230,6 +231,18 @@ func (r *mediaGenerationJobRepoStub) UpdateFromUpstream(_ context.Context, publi
 	if job == nil {
 		return nil, nil
 	}
+	if update.AudioVoice != "" {
+		job.AudioVoice = update.AudioVoice
+	}
+	if update.UpstreamTaskID != "" {
+		job.UpstreamTaskID = update.UpstreamTaskID
+	}
+	if update.ErrorCode != "" {
+		job.ErrorCode = update.ErrorCode
+	}
+	if update.ErrorMessage != "" {
+		job.ErrorMessage = update.ErrorMessage
+	}
 	if update.Status != "" {
 		job.Status = update.Status
 	}
@@ -285,6 +298,7 @@ func (r *mediaGenerationJobRepoStub) MarkUsageRecorded(_ context.Context, public
 type mediaGenerationUsageRepoStub struct {
 	UsageLogRepository
 	createCalls int
+	err         error
 	lastLog     *UsageLog
 }
 
@@ -292,7 +306,7 @@ func (r *mediaGenerationUsageRepoStub) Create(_ context.Context, log *UsageLog) 
 	r.createCalls++
 	cloned := *log
 	r.lastLog = &cloned
-	return true, nil
+	return r.err == nil, r.err
 }
 
 func jsonResponse(status int, body string) *http.Response {
@@ -309,6 +323,7 @@ func cloneMediaGenerationJobForTest(job *MediaGenerationJob) *MediaGenerationJob
 	}
 	cloned := *job
 	cloned.RequestJSON = append([]byte(nil), job.RequestJSON...)
+	cloned.BillingSnapshotJSON = append([]byte(nil), job.BillingSnapshotJSON...)
 	cloned.UpstreamResponseJSON = append([]byte(nil), job.UpstreamResponseJSON...)
 	return &cloned
 }
@@ -327,4 +342,143 @@ func (u *UsageLog) DurationMsValueSeconds() int {
 		return 0
 	}
 	return *u.DurationMs / 1000
+}
+
+func TestMediaGenerationServiceCreateVideoUsesAccountModelMapping(t *testing.T) {
+	for _, tc := range []struct{ platform, model, mapped, response string }{
+		{PlatformDashScope, "wan3-alias", "wan3.0-video-prime", `{"output":{"task_id":"wan-task","task_status":"PENDING"}}`},
+		{PlatformVolcengineArk, "seedance-2.5", "ep-deployment-id", `{"id":"ark-task"}`},
+	} {
+		t.Run(tc.platform, func(t *testing.T) {
+			upstream := &mediaGenerationHTTPUpstreamRecorder{resp: jsonResponse(http.StatusOK, tc.response)}
+			repo := newMediaGenerationJobRepoStub()
+			svc := NewMediaGenerationService(nil, repo, nil, upstream, &config.Config{RunMode: config.RunModeSimple}, nil)
+			account := &Account{ID: 5, Platform: tc.platform, Credentials: map[string]any{"api_key": "key", "model_mapping": map[string]any{tc.model: tc.mapped}}}
+			job, err := svc.CreateVideoJob(context.Background(), MediaRequestMeta{}, account, VideoGenerationRequest{Model: tc.model, Prompt: "test"})
+			require.NoError(t, err)
+			require.Equal(t, tc.model, job.Model)
+			require.Equal(t, tc.mapped, gjson.GetBytes(upstream.lastBody, "model").String())
+			require.Equal(t, MediaJobStatusQueued, job.Status)
+		})
+	}
+}
+
+func TestMediaGenerationServiceRejectsVideoResponseWithoutTaskID(t *testing.T) {
+	for _, platform := range []string{PlatformDashScope, PlatformVolcengineArk} {
+		t.Run(platform, func(t *testing.T) {
+			repo := newMediaGenerationJobRepoStub()
+			svc := NewMediaGenerationService(nil, repo, nil, &mediaGenerationHTTPUpstreamRecorder{resp: jsonResponse(http.StatusOK, `{"message":"invalid upstream response"}`)}, &config.Config{RunMode: config.RunModeSimple}, nil)
+			_, err := svc.CreateVideoJob(context.Background(), MediaRequestMeta{}, &Account{Platform: platform}, VideoGenerationRequest{Model: "model", Prompt: "test"})
+			require.Error(t, err)
+			require.Len(t, repo.created, 1)
+			persisted, getErr := repo.GetByPublicID(context.Background(), repo.created[0].PublicID)
+			require.NoError(t, getErr)
+			require.Equal(t, MediaJobStatusFailed, persisted.Status)
+			require.Empty(t, persisted.UpstreamTaskID)
+		})
+	}
+}
+
+func TestMediaGenerationServiceRefreshArkReadsNativeMetadataAndCachesCompletion(t *testing.T) {
+	upstream := &mediaGenerationHTTPUpstreamRecorder{resp: jsonResponse(http.StatusOK, `{"id":"ark-task","status":"succeeded","duration":12,"resolution":"720p","ratio":"9:16","output_format":"mov","content":{"video_url":"https://cdn.example.com/video.mov","last_frame_url":"https://cdn.example.com/last.png"},"usage":{"completion_tokens":1234}}`)}
+	repo := newMediaGenerationJobRepoStub()
+	usage := &mediaGenerationUsageRepoStub{}
+	svc := NewMediaGenerationService(nil, repo, usage, upstream, &config.Config{RunMode: config.RunModeSimple}, nil)
+	job := &MediaGenerationJob{PublicID: "job", AccountID: 5, Kind: MediaJobKindVideoGeneration, Provider: MediaProviderVolcengineArk, UpstreamTaskID: "ark-task", Status: MediaJobStatusRunning}
+	require.NoError(t, repo.Create(context.Background(), job))
+	job, err := svc.RefreshVideoJob(context.Background(), job, &Account{ID: 5, Platform: PlatformVolcengineArk})
+	require.NoError(t, err)
+	require.Equal(t, 12, job.VideoDurationSeconds)
+	require.Equal(t, "720p", job.VideoResolution)
+	require.Equal(t, "video/quicktime", job.ResultContentType)
+	require.Equal(t, "https://cdn.example.com/video.mov", job.ResultURL)
+	require.NotNil(t, job.CompletedAt)
+	upstream.lastReq = nil
+	_, err = svc.RefreshVideoJob(context.Background(), job, nil)
+	require.NoError(t, err)
+	require.Nil(t, upstream.lastReq)
+	require.Equal(t, 1, usage.createCalls)
+}
+
+func TestMediaGenerationServiceUsageFailureCanBeRetried(t *testing.T) {
+	repo := newMediaGenerationJobRepoStub()
+	usage := &mediaGenerationUsageRepoStub{err: fmt.Errorf("temporary usage failure")}
+	svc := NewMediaGenerationService(nil, repo, usage, nil, &config.Config{RunMode: config.RunModeSimple}, nil)
+	job := &MediaGenerationJob{PublicID: "job", Kind: MediaJobKindVideoGeneration, Status: MediaJobStatusSucceeded}
+	require.NoError(t, repo.Create(context.Background(), job))
+	require.Error(t, svc.recordMediaUsage(context.Background(), job))
+	persisted, err := repo.GetByPublicID(context.Background(), job.PublicID)
+	require.NoError(t, err)
+	require.Nil(t, persisted.UsageRecordedAt)
+	usage.err = nil
+	require.NoError(t, svc.recordMediaUsage(context.Background(), job))
+	persisted, err = repo.GetByPublicID(context.Background(), job.PublicID)
+	require.NoError(t, err)
+	require.NotNil(t, persisted.UsageRecordedAt)
+	require.Equal(t, 2, usage.createCalls)
+}
+
+func TestMediaGenerationVideoStatusMapping(t *testing.T) {
+	require.Equal(t, MediaJobStatusQueued, mapArkStatus(""))
+	require.Equal(t, MediaJobStatusFailed, mapArkStatus("expired"))
+	require.Equal(t, MediaJobStatusCanceled, mapArkStatus("cancelled"))
+	require.Equal(t, MediaJobStatusCanceled, mapDashScopeStatus("CANCELLED"))
+	require.Equal(t, MediaJobStatusUnknown, mapArkStatus("new-status"))
+}
+
+func TestMediaGenerationServiceRefreshWan3NativeUsage(t *testing.T) {
+	upstream := &mediaGenerationHTTPUpstreamRecorder{resp: jsonResponse(http.StatusOK, `{"output":{"task_id":"wan-task","task_status":"SUCCEEDED","video_url":"https://cdn.example.com/video.mp4"},"usage":{"duration":14,"input_video_duration":4,"output_video_duration":10,"SR":720,"ratio":"16:9","video_count":1}}`)}
+	repo := newMediaGenerationJobRepoStub()
+	svc := NewMediaGenerationService(nil, repo, nil, upstream, &config.Config{RunMode: config.RunModeSimple}, nil)
+	job := &MediaGenerationJob{PublicID: "job", Kind: MediaJobKindVideoGeneration, Provider: MediaProviderDashScope, UpstreamTaskID: "wan-task", Status: MediaJobStatusRunning}
+	require.NoError(t, repo.Create(context.Background(), job))
+	job, err := svc.RefreshVideoJob(context.Background(), job, &Account{Platform: PlatformDashScope, Credentials: map[string]any{"base_url": "https://workspace.cn-beijing.maas.aliyuncs.com"}})
+	require.NoError(t, err)
+	require.Equal(t, "https://workspace.cn-beijing.maas.aliyuncs.com/api/v1/tasks/wan-task", upstream.lastReq.URL.String())
+	require.Equal(t, 10, job.VideoDurationSeconds)
+	require.Equal(t, "720P", job.VideoResolution)
+}
+
+func TestMediaGenerationServiceEnforcesUpstreamURLPolicy(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		target    string
+		policy    config.URLAllowlistConfig
+		nilConfig bool
+		wantError string
+	}{
+		{name: "HTTP rejected by default", target: "http://media.example.com/task", wantError: "invalid url scheme"},
+		{name: "HTTP explicitly allowed without allowlist", target: "http://media.example.com/task", policy: config.URLAllowlistConfig{AllowInsecureHTTP: true}},
+		{name: "host outside allowlist", target: "https://other.example.com/task", policy: config.URLAllowlistConfig{Enabled: true, UpstreamHosts: []string{"media.example.com"}}, wantError: "host is not allowed"},
+		{name: "allowed host preserves path and query", target: "https://media.example.com/tasks/task%2Fid?api-version=2024-04-01", policy: config.URLAllowlistConfig{Enabled: true, UpstreamHosts: []string{"media.example.com"}}},
+		{name: "allowlist still requires HTTPS", target: "http://media.example.com/task", policy: config.URLAllowlistConfig{Enabled: true, AllowInsecureHTTP: true, UpstreamHosts: []string{"media.example.com"}}, wantError: "invalid url scheme"},
+		{name: "empty enabled allowlist", target: "https://media.example.com/task", policy: config.URLAllowlistConfig{Enabled: true}, wantError: "allowlist is not configured"},
+		{name: "private host rejected", target: "https://127.0.0.1/task", policy: config.URLAllowlistConfig{Enabled: true, UpstreamHosts: []string{"127.0.0.1"}}, wantError: "host is not allowed"},
+		{name: "private host explicitly allowed", target: "https://127.0.0.1/task", policy: config.URLAllowlistConfig{Enabled: true, AllowPrivateHosts: true, UpstreamHosts: []string{"127.0.0.1"}}},
+		{name: "nil config permits HTTPS", target: "https://media.example.com/task", nilConfig: true},
+		{name: "nil config rejects HTTP", target: "http://media.example.com/task", nilConfig: true, wantError: "invalid url scheme"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			upstream := &mediaGenerationHTTPUpstreamRecorder{resp: jsonResponse(http.StatusOK, `{}`)}
+			var cfg *config.Config
+			if !tc.nilConfig {
+				cfg = &config.Config{}
+				cfg.Security.URLAllowlist = tc.policy
+			}
+			svc := NewMediaGenerationService(nil, nil, nil, upstream, cfg, nil)
+			req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, tc.target, nil)
+			require.NoError(t, err)
+			resp, err := svc.doUpstream(req, &Account{ID: 42})
+			if tc.wantError != "" {
+				require.ErrorContains(t, err, tc.wantError)
+				require.Nil(t, resp)
+				require.Nil(t, upstream.lastReq, "rejected URLs must not reach the HTTP client")
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, resp)
+			defer resp.Body.Close()
+			require.Equal(t, tc.target, upstream.lastReq.URL.String())
+		})
+	}
 }

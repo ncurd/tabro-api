@@ -718,7 +718,7 @@ const form = reactive({
 let abortController: AbortController | null = null
 
 // ── Platform config ──
-const platformOrder: GroupPlatform[] = ['anthropic', 'openai', 'gemini', 'antigravity']
+const platformOrder: GroupPlatform[] = ['anthropic', 'openai', 'gemini', 'antigravity', 'dashscope', 'volcengine_ark', 'azure_speech']
 
 // ── Helpers ──
 function formatDate(value: string): string {
@@ -1372,7 +1372,7 @@ async function handleSubmit() {
   for (const section of form.platforms.filter(s => s.enabled)) {
     for (const entry of section.model_pricing) {
       if (entry.models.length === 0) continue
-      if ((entry.billing_mode === 'per_request' || entry.billing_mode === 'image') &&
+      if ((entry.billing_mode === 'per_request' || entry.billing_mode === 'image' || entry.billing_mode === 'video' || entry.billing_mode === 'audio') &&
           (entry.per_request_price == null || entry.per_request_price === '') &&
           (!entry.intervals || entry.intervals.length === 0)) {
         appStore.showError(t('admin.channels.form.perRequestPriceRequired', '按次/图片计费模式必须设置默认价格或至少一个计费层级'))
@@ -1385,7 +1385,7 @@ async function handleSubmit() {
   for (const section of form.platforms.filter(s => s.enabled)) {
     for (const entry of section.model_pricing) {
       if (!entry.intervals || entry.intervals.length === 0) continue
-      const intervalErr = validateIntervals(entry.intervals)
+      const intervalErr = validateIntervals(entry.intervals, entry.billing_mode)
       if (intervalErr) {
         const platformLabel = t('admin.groups.platforms.' + section.platform, section.platform)
         const modelLabel = entry.models.join(', ') || t('admin.channels.form.unnamed')

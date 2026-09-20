@@ -512,6 +512,8 @@ var (
 		{Name: "account_id", Type: field.TypeInt64},
 		{Name: "model", Type: field.TypeString, Size: 160},
 		{Name: "request_json", Type: field.TypeJSON, Nullable: true},
+		{Name: "billing_snapshot_json", Type: field.TypeJSON, Nullable: true},
+		{Name: "next_poll_at", Type: field.TypeTime, Nullable: true},
 		{Name: "upstream_response_json", Type: field.TypeJSON, Nullable: true},
 		{Name: "result_url", Type: field.TypeString, Nullable: true},
 		{Name: "result_content_type", Type: field.TypeString, Nullable: true, Size: 120},

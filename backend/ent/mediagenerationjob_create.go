@@ -167,6 +167,26 @@ func (_c *MediaGenerationJobCreate) SetRequestJSON(v json.RawMessage) *MediaGene
 	return _c
 }
 
+// SetBillingSnapshotJSON sets the "billing_snapshot_json" field.
+func (_c *MediaGenerationJobCreate) SetBillingSnapshotJSON(v json.RawMessage) *MediaGenerationJobCreate {
+	_c.mutation.SetBillingSnapshotJSON(v)
+	return _c
+}
+
+// SetNextPollAt sets the "next_poll_at" field.
+func (_c *MediaGenerationJobCreate) SetNextPollAt(v time.Time) *MediaGenerationJobCreate {
+	_c.mutation.SetNextPollAt(v)
+	return _c
+}
+
+// SetNillableNextPollAt sets the "next_poll_at" field if the given value is not nil.
+func (_c *MediaGenerationJobCreate) SetNillableNextPollAt(v *time.Time) *MediaGenerationJobCreate {
+	if v != nil {
+		_c.SetNextPollAt(*v)
+	}
+	return _c
+}
+
 // SetUpstreamResponseJSON sets the "upstream_response_json" field.
 func (_c *MediaGenerationJobCreate) SetUpstreamResponseJSON(v json.RawMessage) *MediaGenerationJobCreate {
 	_c.mutation.SetUpstreamResponseJSON(v)
@@ -650,6 +670,14 @@ func (_c *MediaGenerationJobCreate) createSpec() (*MediaGenerationJob, *sqlgraph
 		_spec.SetField(mediagenerationjob.FieldRequestJSON, field.TypeJSON, value)
 		_node.RequestJSON = value
 	}
+	if value, ok := _c.mutation.BillingSnapshotJSON(); ok {
+		_spec.SetField(mediagenerationjob.FieldBillingSnapshotJSON, field.TypeJSON, value)
+		_node.BillingSnapshotJSON = value
+	}
+	if value, ok := _c.mutation.NextPollAt(); ok {
+		_spec.SetField(mediagenerationjob.FieldNextPollAt, field.TypeTime, value)
+		_node.NextPollAt = &value
+	}
 	if value, ok := _c.mutation.UpstreamResponseJSON(); ok {
 		_spec.SetField(mediagenerationjob.FieldUpstreamResponseJSON, field.TypeJSON, value)
 		_node.UpstreamResponseJSON = value
@@ -997,6 +1025,42 @@ func (u *MediaGenerationJobUpsert) UpdateRequestJSON() *MediaGenerationJobUpsert
 // ClearRequestJSON clears the value of the "request_json" field.
 func (u *MediaGenerationJobUpsert) ClearRequestJSON() *MediaGenerationJobUpsert {
 	u.SetNull(mediagenerationjob.FieldRequestJSON)
+	return u
+}
+
+// SetBillingSnapshotJSON sets the "billing_snapshot_json" field.
+func (u *MediaGenerationJobUpsert) SetBillingSnapshotJSON(v json.RawMessage) *MediaGenerationJobUpsert {
+	u.Set(mediagenerationjob.FieldBillingSnapshotJSON, v)
+	return u
+}
+
+// UpdateBillingSnapshotJSON sets the "billing_snapshot_json" field to the value that was provided on create.
+func (u *MediaGenerationJobUpsert) UpdateBillingSnapshotJSON() *MediaGenerationJobUpsert {
+	u.SetExcluded(mediagenerationjob.FieldBillingSnapshotJSON)
+	return u
+}
+
+// ClearBillingSnapshotJSON clears the value of the "billing_snapshot_json" field.
+func (u *MediaGenerationJobUpsert) ClearBillingSnapshotJSON() *MediaGenerationJobUpsert {
+	u.SetNull(mediagenerationjob.FieldBillingSnapshotJSON)
+	return u
+}
+
+// SetNextPollAt sets the "next_poll_at" field.
+func (u *MediaGenerationJobUpsert) SetNextPollAt(v time.Time) *MediaGenerationJobUpsert {
+	u.Set(mediagenerationjob.FieldNextPollAt, v)
+	return u
+}
+
+// UpdateNextPollAt sets the "next_poll_at" field to the value that was provided on create.
+func (u *MediaGenerationJobUpsert) UpdateNextPollAt() *MediaGenerationJobUpsert {
+	u.SetExcluded(mediagenerationjob.FieldNextPollAt)
+	return u
+}
+
+// ClearNextPollAt clears the value of the "next_poll_at" field.
+func (u *MediaGenerationJobUpsert) ClearNextPollAt() *MediaGenerationJobUpsert {
+	u.SetNull(mediagenerationjob.FieldNextPollAt)
 	return u
 }
 
@@ -1603,6 +1667,48 @@ func (u *MediaGenerationJobUpsertOne) UpdateRequestJSON() *MediaGenerationJobUps
 func (u *MediaGenerationJobUpsertOne) ClearRequestJSON() *MediaGenerationJobUpsertOne {
 	return u.Update(func(s *MediaGenerationJobUpsert) {
 		s.ClearRequestJSON()
+	})
+}
+
+// SetBillingSnapshotJSON sets the "billing_snapshot_json" field.
+func (u *MediaGenerationJobUpsertOne) SetBillingSnapshotJSON(v json.RawMessage) *MediaGenerationJobUpsertOne {
+	return u.Update(func(s *MediaGenerationJobUpsert) {
+		s.SetBillingSnapshotJSON(v)
+	})
+}
+
+// UpdateBillingSnapshotJSON sets the "billing_snapshot_json" field to the value that was provided on create.
+func (u *MediaGenerationJobUpsertOne) UpdateBillingSnapshotJSON() *MediaGenerationJobUpsertOne {
+	return u.Update(func(s *MediaGenerationJobUpsert) {
+		s.UpdateBillingSnapshotJSON()
+	})
+}
+
+// ClearBillingSnapshotJSON clears the value of the "billing_snapshot_json" field.
+func (u *MediaGenerationJobUpsertOne) ClearBillingSnapshotJSON() *MediaGenerationJobUpsertOne {
+	return u.Update(func(s *MediaGenerationJobUpsert) {
+		s.ClearBillingSnapshotJSON()
+	})
+}
+
+// SetNextPollAt sets the "next_poll_at" field.
+func (u *MediaGenerationJobUpsertOne) SetNextPollAt(v time.Time) *MediaGenerationJobUpsertOne {
+	return u.Update(func(s *MediaGenerationJobUpsert) {
+		s.SetNextPollAt(v)
+	})
+}
+
+// UpdateNextPollAt sets the "next_poll_at" field to the value that was provided on create.
+func (u *MediaGenerationJobUpsertOne) UpdateNextPollAt() *MediaGenerationJobUpsertOne {
+	return u.Update(func(s *MediaGenerationJobUpsert) {
+		s.UpdateNextPollAt()
+	})
+}
+
+// ClearNextPollAt clears the value of the "next_poll_at" field.
+func (u *MediaGenerationJobUpsertOne) ClearNextPollAt() *MediaGenerationJobUpsertOne {
+	return u.Update(func(s *MediaGenerationJobUpsert) {
+		s.ClearNextPollAt()
 	})
 }
 
@@ -2423,6 +2529,48 @@ func (u *MediaGenerationJobUpsertBulk) UpdateRequestJSON() *MediaGenerationJobUp
 func (u *MediaGenerationJobUpsertBulk) ClearRequestJSON() *MediaGenerationJobUpsertBulk {
 	return u.Update(func(s *MediaGenerationJobUpsert) {
 		s.ClearRequestJSON()
+	})
+}
+
+// SetBillingSnapshotJSON sets the "billing_snapshot_json" field.
+func (u *MediaGenerationJobUpsertBulk) SetBillingSnapshotJSON(v json.RawMessage) *MediaGenerationJobUpsertBulk {
+	return u.Update(func(s *MediaGenerationJobUpsert) {
+		s.SetBillingSnapshotJSON(v)
+	})
+}
+
+// UpdateBillingSnapshotJSON sets the "billing_snapshot_json" field to the value that was provided on create.
+func (u *MediaGenerationJobUpsertBulk) UpdateBillingSnapshotJSON() *MediaGenerationJobUpsertBulk {
+	return u.Update(func(s *MediaGenerationJobUpsert) {
+		s.UpdateBillingSnapshotJSON()
+	})
+}
+
+// ClearBillingSnapshotJSON clears the value of the "billing_snapshot_json" field.
+func (u *MediaGenerationJobUpsertBulk) ClearBillingSnapshotJSON() *MediaGenerationJobUpsertBulk {
+	return u.Update(func(s *MediaGenerationJobUpsert) {
+		s.ClearBillingSnapshotJSON()
+	})
+}
+
+// SetNextPollAt sets the "next_poll_at" field.
+func (u *MediaGenerationJobUpsertBulk) SetNextPollAt(v time.Time) *MediaGenerationJobUpsertBulk {
+	return u.Update(func(s *MediaGenerationJobUpsert) {
+		s.SetNextPollAt(v)
+	})
+}
+
+// UpdateNextPollAt sets the "next_poll_at" field to the value that was provided on create.
+func (u *MediaGenerationJobUpsertBulk) UpdateNextPollAt() *MediaGenerationJobUpsertBulk {
+	return u.Update(func(s *MediaGenerationJobUpsert) {
+		s.UpdateNextPollAt()
+	})
+}
+
+// ClearNextPollAt clears the value of the "next_poll_at" field.
+func (u *MediaGenerationJobUpsertBulk) ClearNextPollAt() *MediaGenerationJobUpsertBulk {
+	return u.Update(func(s *MediaGenerationJobUpsert) {
+		s.ClearNextPollAt()
 	})
 }
 

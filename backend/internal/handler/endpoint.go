@@ -15,14 +15,17 @@ import (
 // ──────────────────────────────────────────────────────────
 
 const (
-	EndpointMessages          = "/v1/messages"
-	EndpointChatCompletions   = "/v1/chat/completions"
-	EndpointResponses         = "/v1/responses"
-	EndpointImagesGenerations = "/v1/images/generations"
-	EndpointAudioSpeech       = "/v1/audio/speech"
-	EndpointAudioSpeechJobs   = "/v1/audio/speech/jobs"
-	EndpointVideoGenerations  = "/v1/videos/generations"
-	EndpointGeminiModels      = "/v1beta/models"
+	EndpointMessages            = "/v1/messages"
+	EndpointChatCompletions     = "/v1/chat/completions"
+	EndpointResponses           = "/v1/responses"
+	EndpointImagesGenerations   = "/v1/images/generations"
+	EndpointImagesEdits         = "/v1/images/edits"
+	EndpointAudioTranscriptions = "/v1/audio/transcriptions"
+	EndpointAudioVoices         = "/v1/audio/voices"
+	EndpointAudioSpeech         = "/v1/audio/speech"
+	EndpointAudioSpeechJobs     = "/v1/audio/speech/jobs"
+	EndpointVideoGenerations    = "/v1/videos/generations"
+	EndpointGeminiModels        = "/v1beta/models"
 )
 
 // gin.Context keys used by the middleware and helpers below.
@@ -52,11 +55,19 @@ func NormalizeInboundEndpoint(path string) string {
 		return EndpointResponses
 	case strings.Contains(path, EndpointImagesGenerations):
 		return EndpointImagesGenerations
-	case strings.Contains(path, EndpointAudioSpeechJobs):
+	case strings.HasSuffix(path, "/images/generations"):
+		return EndpointImagesGenerations
+	case strings.HasSuffix(path, "/images/edits"):
+		return EndpointImagesEdits
+	case strings.HasSuffix(path, "/audio/transcriptions"):
+		return EndpointAudioTranscriptions
+	case strings.Contains(path, "/audio/voices"):
+		return EndpointAudioVoices
+	case strings.Contains(path, "/audio/speech/jobs"):
 		return EndpointAudioSpeechJobs
-	case strings.Contains(path, EndpointAudioSpeech):
+	case strings.HasSuffix(path, "/audio/speech"):
 		return EndpointAudioSpeech
-	case strings.Contains(path, EndpointVideoGenerations):
+	case strings.Contains(path, "/videos/generations"):
 		return EndpointVideoGenerations
 	case strings.Contains(path, EndpointGeminiModels):
 		return EndpointGeminiModels
@@ -81,10 +92,10 @@ func DeriveUpstreamEndpoint(inbound, rawRequestPath, platform string) string {
 
 	switch platform {
 	case service.PlatformOpenAI:
-		if inbound == EndpointImagesGenerations {
-			return EndpointImagesGenerations
+		if inbound == EndpointImagesGenerations || inbound == EndpointImagesEdits {
+			return inbound
 		}
-		if inbound == EndpointAudioSpeech || inbound == EndpointAudioSpeechJobs || inbound == EndpointVideoGenerations {
+		if inbound == EndpointAudioTranscriptions || inbound == EndpointAudioVoices || inbound == EndpointAudioSpeech || inbound == EndpointAudioSpeechJobs || inbound == EndpointVideoGenerations {
 			return inbound
 		}
 		// OpenAI forwards everything to the Responses API.

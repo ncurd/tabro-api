@@ -45,6 +45,10 @@ const (
 	FieldModel = "model"
 	// FieldRequestJSON holds the string denoting the request_json field in the database.
 	FieldRequestJSON = "request_json"
+	// FieldBillingSnapshotJSON holds the string denoting the billing_snapshot_json field in the database.
+	FieldBillingSnapshotJSON = "billing_snapshot_json"
+	// FieldNextPollAt holds the string denoting the next_poll_at field in the database.
+	FieldNextPollAt = "next_poll_at"
 	// FieldUpstreamResponseJSON holds the string denoting the upstream_response_json field in the database.
 	FieldUpstreamResponseJSON = "upstream_response_json"
 	// FieldResultURL holds the string denoting the result_url field in the database.
@@ -100,6 +104,8 @@ var Columns = []string{
 	FieldAccountID,
 	FieldModel,
 	FieldRequestJSON,
+	FieldBillingSnapshotJSON,
+	FieldNextPollAt,
 	FieldUpstreamResponseJSON,
 	FieldResultURL,
 	FieldResultContentType,
@@ -254,6 +260,11 @@ func ByAccountID(opts ...sql.OrderTermOption) OrderOption {
 // ByModel orders the results by the model field.
 func ByModel(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldModel, opts...).ToFunc()
+}
+
+// ByNextPollAt orders the results by the next_poll_at field.
+func ByNextPollAt(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldNextPollAt, opts...).ToFunc()
 }
 
 // ByResultURL orders the results by the result_url field.

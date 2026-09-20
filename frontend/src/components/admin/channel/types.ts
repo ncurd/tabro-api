@@ -116,8 +116,21 @@ export function findModelConflict(models: string[]): [string, string] | null {
 // ── 区间校验 ──────────────────────────────────────────────
 
 /** 校验区间列表的合法性，返回错误消息；通过则返回 null */
-export function validateIntervals(intervals: IntervalFormEntry[]): string | null {
+export function validateIntervals(intervals: IntervalFormEntry[], mode: BillingMode = 'token'): string | null {
   if (!intervals || intervals.length === 0) return null
+
+  if (mode === 'video' || mode === 'audio') {
+    const labels = new Set<string>()
+    for (const [index, interval] of intervals.entries()) {
+      const label = interval.tier_label.trim().toUpperCase()
+      if (!label || labels.has(label)) return '计费层级标签不能为空或重复'
+      if (interval.per_request_price == null || interval.per_request_price === '' || !Number.isFinite(Number(interval.per_request_price)) || Number(interval.per_request_price) < 0) return '计费层级必须设置有效的非负单价'
+      const error = validateIntervalPrices(interval, index)
+      if (error) return error
+      labels.add(label)
+    }
+    return null
+  }
 
   // 按 min_tokens 排序（不修改原数组）
   const sorted = [...intervals].sort((a, b) => a.min_tokens - b.min_tokens)

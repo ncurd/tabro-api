@@ -288,6 +288,44 @@ func (_u *MediaGenerationJobUpdate) ClearRequestJSON() *MediaGenerationJobUpdate
 	return _u
 }
 
+// SetBillingSnapshotJSON sets the "billing_snapshot_json" field.
+func (_u *MediaGenerationJobUpdate) SetBillingSnapshotJSON(v json.RawMessage) *MediaGenerationJobUpdate {
+	_u.mutation.SetBillingSnapshotJSON(v)
+	return _u
+}
+
+// AppendBillingSnapshotJSON appends value to the "billing_snapshot_json" field.
+func (_u *MediaGenerationJobUpdate) AppendBillingSnapshotJSON(v json.RawMessage) *MediaGenerationJobUpdate {
+	_u.mutation.AppendBillingSnapshotJSON(v)
+	return _u
+}
+
+// ClearBillingSnapshotJSON clears the value of the "billing_snapshot_json" field.
+func (_u *MediaGenerationJobUpdate) ClearBillingSnapshotJSON() *MediaGenerationJobUpdate {
+	_u.mutation.ClearBillingSnapshotJSON()
+	return _u
+}
+
+// SetNextPollAt sets the "next_poll_at" field.
+func (_u *MediaGenerationJobUpdate) SetNextPollAt(v time.Time) *MediaGenerationJobUpdate {
+	_u.mutation.SetNextPollAt(v)
+	return _u
+}
+
+// SetNillableNextPollAt sets the "next_poll_at" field if the given value is not nil.
+func (_u *MediaGenerationJobUpdate) SetNillableNextPollAt(v *time.Time) *MediaGenerationJobUpdate {
+	if v != nil {
+		_u.SetNextPollAt(*v)
+	}
+	return _u
+}
+
+// ClearNextPollAt clears the value of the "next_poll_at" field.
+func (_u *MediaGenerationJobUpdate) ClearNextPollAt() *MediaGenerationJobUpdate {
+	_u.mutation.ClearNextPollAt()
+	return _u
+}
+
 // SetUpstreamResponseJSON sets the "upstream_response_json" field.
 func (_u *MediaGenerationJobUpdate) SetUpstreamResponseJSON(v json.RawMessage) *MediaGenerationJobUpdate {
 	_u.mutation.SetUpstreamResponseJSON(v)
@@ -819,6 +857,23 @@ func (_u *MediaGenerationJobUpdate) sqlSave(ctx context.Context) (_node int, err
 	if _u.mutation.RequestJSONCleared() {
 		_spec.ClearField(mediagenerationjob.FieldRequestJSON, field.TypeJSON)
 	}
+	if value, ok := _u.mutation.BillingSnapshotJSON(); ok {
+		_spec.SetField(mediagenerationjob.FieldBillingSnapshotJSON, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.AppendedBillingSnapshotJSON(); ok {
+		_spec.AddModifier(func(u *sql.UpdateBuilder) {
+			sqljson.Append(u, mediagenerationjob.FieldBillingSnapshotJSON, value)
+		})
+	}
+	if _u.mutation.BillingSnapshotJSONCleared() {
+		_spec.ClearField(mediagenerationjob.FieldBillingSnapshotJSON, field.TypeJSON)
+	}
+	if value, ok := _u.mutation.NextPollAt(); ok {
+		_spec.SetField(mediagenerationjob.FieldNextPollAt, field.TypeTime, value)
+	}
+	if _u.mutation.NextPollAtCleared() {
+		_spec.ClearField(mediagenerationjob.FieldNextPollAt, field.TypeTime)
+	}
 	if value, ok := _u.mutation.UpstreamResponseJSON(); ok {
 		_spec.SetField(mediagenerationjob.FieldUpstreamResponseJSON, field.TypeJSON, value)
 	}
@@ -1195,6 +1250,44 @@ func (_u *MediaGenerationJobUpdateOne) AppendRequestJSON(v json.RawMessage) *Med
 // ClearRequestJSON clears the value of the "request_json" field.
 func (_u *MediaGenerationJobUpdateOne) ClearRequestJSON() *MediaGenerationJobUpdateOne {
 	_u.mutation.ClearRequestJSON()
+	return _u
+}
+
+// SetBillingSnapshotJSON sets the "billing_snapshot_json" field.
+func (_u *MediaGenerationJobUpdateOne) SetBillingSnapshotJSON(v json.RawMessage) *MediaGenerationJobUpdateOne {
+	_u.mutation.SetBillingSnapshotJSON(v)
+	return _u
+}
+
+// AppendBillingSnapshotJSON appends value to the "billing_snapshot_json" field.
+func (_u *MediaGenerationJobUpdateOne) AppendBillingSnapshotJSON(v json.RawMessage) *MediaGenerationJobUpdateOne {
+	_u.mutation.AppendBillingSnapshotJSON(v)
+	return _u
+}
+
+// ClearBillingSnapshotJSON clears the value of the "billing_snapshot_json" field.
+func (_u *MediaGenerationJobUpdateOne) ClearBillingSnapshotJSON() *MediaGenerationJobUpdateOne {
+	_u.mutation.ClearBillingSnapshotJSON()
+	return _u
+}
+
+// SetNextPollAt sets the "next_poll_at" field.
+func (_u *MediaGenerationJobUpdateOne) SetNextPollAt(v time.Time) *MediaGenerationJobUpdateOne {
+	_u.mutation.SetNextPollAt(v)
+	return _u
+}
+
+// SetNillableNextPollAt sets the "next_poll_at" field if the given value is not nil.
+func (_u *MediaGenerationJobUpdateOne) SetNillableNextPollAt(v *time.Time) *MediaGenerationJobUpdateOne {
+	if v != nil {
+		_u.SetNextPollAt(*v)
+	}
+	return _u
+}
+
+// ClearNextPollAt clears the value of the "next_poll_at" field.
+func (_u *MediaGenerationJobUpdateOne) ClearNextPollAt() *MediaGenerationJobUpdateOne {
+	_u.mutation.ClearNextPollAt()
 	return _u
 }
 
@@ -1758,6 +1851,23 @@ func (_u *MediaGenerationJobUpdateOne) sqlSave(ctx context.Context) (_node *Medi
 	}
 	if _u.mutation.RequestJSONCleared() {
 		_spec.ClearField(mediagenerationjob.FieldRequestJSON, field.TypeJSON)
+	}
+	if value, ok := _u.mutation.BillingSnapshotJSON(); ok {
+		_spec.SetField(mediagenerationjob.FieldBillingSnapshotJSON, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.AppendedBillingSnapshotJSON(); ok {
+		_spec.AddModifier(func(u *sql.UpdateBuilder) {
+			sqljson.Append(u, mediagenerationjob.FieldBillingSnapshotJSON, value)
+		})
+	}
+	if _u.mutation.BillingSnapshotJSONCleared() {
+		_spec.ClearField(mediagenerationjob.FieldBillingSnapshotJSON, field.TypeJSON)
+	}
+	if value, ok := _u.mutation.NextPollAt(); ok {
+		_spec.SetField(mediagenerationjob.FieldNextPollAt, field.TypeTime, value)
+	}
+	if _u.mutation.NextPollAtCleared() {
+		_spec.ClearField(mediagenerationjob.FieldNextPollAt, field.TypeTime)
 	}
 	if value, ok := _u.mutation.UpstreamResponseJSON(); ok {
 		_spec.SetField(mediagenerationjob.FieldUpstreamResponseJSON, field.TypeJSON, value)

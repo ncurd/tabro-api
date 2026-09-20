@@ -12420,6 +12420,9 @@ type MediaGenerationJobMutation struct {
 	model                        *string
 	request_json                 *json.RawMessage
 	appendrequest_json           json.RawMessage
+	billing_snapshot_json        *json.RawMessage
+	appendbilling_snapshot_json  json.RawMessage
+	next_poll_at                 *time.Time
 	upstream_response_json       *json.RawMessage
 	appendupstream_response_json json.RawMessage
 	result_url                   *string
@@ -13282,6 +13285,120 @@ func (m *MediaGenerationJobMutation) ResetRequestJSON() {
 	delete(m.clearedFields, mediagenerationjob.FieldRequestJSON)
 }
 
+// SetBillingSnapshotJSON sets the "billing_snapshot_json" field.
+func (m *MediaGenerationJobMutation) SetBillingSnapshotJSON(jm json.RawMessage) {
+	m.billing_snapshot_json = &jm
+	m.appendbilling_snapshot_json = nil
+}
+
+// BillingSnapshotJSON returns the value of the "billing_snapshot_json" field in the mutation.
+func (m *MediaGenerationJobMutation) BillingSnapshotJSON() (r json.RawMessage, exists bool) {
+	v := m.billing_snapshot_json
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldBillingSnapshotJSON returns the old "billing_snapshot_json" field's value of the MediaGenerationJob entity.
+// If the MediaGenerationJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MediaGenerationJobMutation) OldBillingSnapshotJSON(ctx context.Context) (v json.RawMessage, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldBillingSnapshotJSON is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldBillingSnapshotJSON requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldBillingSnapshotJSON: %w", err)
+	}
+	return oldValue.BillingSnapshotJSON, nil
+}
+
+// AppendBillingSnapshotJSON adds jm to the "billing_snapshot_json" field.
+func (m *MediaGenerationJobMutation) AppendBillingSnapshotJSON(jm json.RawMessage) {
+	m.appendbilling_snapshot_json = append(m.appendbilling_snapshot_json, jm...)
+}
+
+// AppendedBillingSnapshotJSON returns the list of values that were appended to the "billing_snapshot_json" field in this mutation.
+func (m *MediaGenerationJobMutation) AppendedBillingSnapshotJSON() (json.RawMessage, bool) {
+	if len(m.appendbilling_snapshot_json) == 0 {
+		return nil, false
+	}
+	return m.appendbilling_snapshot_json, true
+}
+
+// ClearBillingSnapshotJSON clears the value of the "billing_snapshot_json" field.
+func (m *MediaGenerationJobMutation) ClearBillingSnapshotJSON() {
+	m.billing_snapshot_json = nil
+	m.appendbilling_snapshot_json = nil
+	m.clearedFields[mediagenerationjob.FieldBillingSnapshotJSON] = struct{}{}
+}
+
+// BillingSnapshotJSONCleared returns if the "billing_snapshot_json" field was cleared in this mutation.
+func (m *MediaGenerationJobMutation) BillingSnapshotJSONCleared() bool {
+	_, ok := m.clearedFields[mediagenerationjob.FieldBillingSnapshotJSON]
+	return ok
+}
+
+// ResetBillingSnapshotJSON resets all changes to the "billing_snapshot_json" field.
+func (m *MediaGenerationJobMutation) ResetBillingSnapshotJSON() {
+	m.billing_snapshot_json = nil
+	m.appendbilling_snapshot_json = nil
+	delete(m.clearedFields, mediagenerationjob.FieldBillingSnapshotJSON)
+}
+
+// SetNextPollAt sets the "next_poll_at" field.
+func (m *MediaGenerationJobMutation) SetNextPollAt(t time.Time) {
+	m.next_poll_at = &t
+}
+
+// NextPollAt returns the value of the "next_poll_at" field in the mutation.
+func (m *MediaGenerationJobMutation) NextPollAt() (r time.Time, exists bool) {
+	v := m.next_poll_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldNextPollAt returns the old "next_poll_at" field's value of the MediaGenerationJob entity.
+// If the MediaGenerationJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MediaGenerationJobMutation) OldNextPollAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldNextPollAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldNextPollAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldNextPollAt: %w", err)
+	}
+	return oldValue.NextPollAt, nil
+}
+
+// ClearNextPollAt clears the value of the "next_poll_at" field.
+func (m *MediaGenerationJobMutation) ClearNextPollAt() {
+	m.next_poll_at = nil
+	m.clearedFields[mediagenerationjob.FieldNextPollAt] = struct{}{}
+}
+
+// NextPollAtCleared returns if the "next_poll_at" field was cleared in this mutation.
+func (m *MediaGenerationJobMutation) NextPollAtCleared() bool {
+	_, ok := m.clearedFields[mediagenerationjob.FieldNextPollAt]
+	return ok
+}
+
+// ResetNextPollAt resets all changes to the "next_poll_at" field.
+func (m *MediaGenerationJobMutation) ResetNextPollAt() {
+	m.next_poll_at = nil
+	delete(m.clearedFields, mediagenerationjob.FieldNextPollAt)
+}
+
 // SetUpstreamResponseJSON sets the "upstream_response_json" field.
 func (m *MediaGenerationJobMutation) SetUpstreamResponseJSON(jm json.RawMessage) {
 	m.upstream_response_json = &jm
@@ -14137,7 +14254,7 @@ func (m *MediaGenerationJobMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *MediaGenerationJobMutation) Fields() []string {
-	fields := make([]string, 0, 32)
+	fields := make([]string, 0, 34)
 	if m.created_at != nil {
 		fields = append(fields, mediagenerationjob.FieldCreatedAt)
 	}
@@ -14185,6 +14302,12 @@ func (m *MediaGenerationJobMutation) Fields() []string {
 	}
 	if m.request_json != nil {
 		fields = append(fields, mediagenerationjob.FieldRequestJSON)
+	}
+	if m.billing_snapshot_json != nil {
+		fields = append(fields, mediagenerationjob.FieldBillingSnapshotJSON)
+	}
+	if m.next_poll_at != nil {
+		fields = append(fields, mediagenerationjob.FieldNextPollAt)
 	}
 	if m.upstream_response_json != nil {
 		fields = append(fields, mediagenerationjob.FieldUpstreamResponseJSON)
@@ -14274,6 +14397,10 @@ func (m *MediaGenerationJobMutation) Field(name string) (ent.Value, bool) {
 		return m.Model()
 	case mediagenerationjob.FieldRequestJSON:
 		return m.RequestJSON()
+	case mediagenerationjob.FieldBillingSnapshotJSON:
+		return m.BillingSnapshotJSON()
+	case mediagenerationjob.FieldNextPollAt:
+		return m.NextPollAt()
 	case mediagenerationjob.FieldUpstreamResponseJSON:
 		return m.UpstreamResponseJSON()
 	case mediagenerationjob.FieldResultURL:
@@ -14347,6 +14474,10 @@ func (m *MediaGenerationJobMutation) OldField(ctx context.Context, name string) 
 		return m.OldModel(ctx)
 	case mediagenerationjob.FieldRequestJSON:
 		return m.OldRequestJSON(ctx)
+	case mediagenerationjob.FieldBillingSnapshotJSON:
+		return m.OldBillingSnapshotJSON(ctx)
+	case mediagenerationjob.FieldNextPollAt:
+		return m.OldNextPollAt(ctx)
 	case mediagenerationjob.FieldUpstreamResponseJSON:
 		return m.OldUpstreamResponseJSON(ctx)
 	case mediagenerationjob.FieldResultURL:
@@ -14499,6 +14630,20 @@ func (m *MediaGenerationJobMutation) SetField(name string, value ent.Value) erro
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetRequestJSON(v)
+		return nil
+	case mediagenerationjob.FieldBillingSnapshotJSON:
+		v, ok := value.(json.RawMessage)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetBillingSnapshotJSON(v)
+		return nil
+	case mediagenerationjob.FieldNextPollAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetNextPollAt(v)
 		return nil
 	case mediagenerationjob.FieldUpstreamResponseJSON:
 		v, ok := value.(json.RawMessage)
@@ -14744,6 +14889,12 @@ func (m *MediaGenerationJobMutation) ClearedFields() []string {
 	if m.FieldCleared(mediagenerationjob.FieldRequestJSON) {
 		fields = append(fields, mediagenerationjob.FieldRequestJSON)
 	}
+	if m.FieldCleared(mediagenerationjob.FieldBillingSnapshotJSON) {
+		fields = append(fields, mediagenerationjob.FieldBillingSnapshotJSON)
+	}
+	if m.FieldCleared(mediagenerationjob.FieldNextPollAt) {
+		fields = append(fields, mediagenerationjob.FieldNextPollAt)
+	}
 	if m.FieldCleared(mediagenerationjob.FieldUpstreamResponseJSON) {
 		fields = append(fields, mediagenerationjob.FieldUpstreamResponseJSON)
 	}
@@ -14811,6 +14962,12 @@ func (m *MediaGenerationJobMutation) ClearField(name string) error {
 		return nil
 	case mediagenerationjob.FieldRequestJSON:
 		m.ClearRequestJSON()
+		return nil
+	case mediagenerationjob.FieldBillingSnapshotJSON:
+		m.ClearBillingSnapshotJSON()
+		return nil
+	case mediagenerationjob.FieldNextPollAt:
+		m.ClearNextPollAt()
 		return nil
 	case mediagenerationjob.FieldUpstreamResponseJSON:
 		m.ClearUpstreamResponseJSON()
@@ -14906,6 +15063,12 @@ func (m *MediaGenerationJobMutation) ResetField(name string) error {
 		return nil
 	case mediagenerationjob.FieldRequestJSON:
 		m.ResetRequestJSON()
+		return nil
+	case mediagenerationjob.FieldBillingSnapshotJSON:
+		m.ResetBillingSnapshotJSON()
+		return nil
+	case mediagenerationjob.FieldNextPollAt:
+		m.ResetNextPollAt()
 		return nil
 	case mediagenerationjob.FieldUpstreamResponseJSON:
 		m.ResetUpstreamResponseJSON()

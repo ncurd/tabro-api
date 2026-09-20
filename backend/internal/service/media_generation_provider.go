@@ -10,12 +10,12 @@ import (
 )
 
 type AzureSpeechRequest struct {
-	Model          string
-	Input          string
-	Voice          string
-	Language       string
-	ResponseFormat string
-	Speed          float64
+	Model          string  `json:"model"`
+	Input          string  `json:"input"`
+	Voice          string  `json:"voice,omitempty"`
+	Language       string  `json:"language,omitempty"`
+	ResponseFormat string  `json:"response_format,omitempty"`
+	Speed          float64 `json:"speed,omitempty"`
 }
 
 type VideoGenerationMedia struct {
@@ -24,15 +24,110 @@ type VideoGenerationMedia struct {
 }
 
 type VideoGenerationRequest struct {
-	Model         string
-	Prompt        string
-	Media         []VideoGenerationMedia
-	Duration      int
-	Ratio         string
-	Resolution    string
-	Watermark     *bool
-	GenerateAudio *bool
-	Seed          *int64
+	Model                 string                 `json:"model"`
+	Prompt                string                 `json:"prompt,omitempty"`
+	Media                 []VideoGenerationMedia `json:"media,omitempty"`
+	Duration              int                    `json:"duration,omitempty"`
+	Ratio                 string                 `json:"ratio,omitempty"`
+	Resolution            string                 `json:"resolution,omitempty"`
+	Watermark             *bool                  `json:"watermark,omitempty"`
+	GenerateAudio         *bool                  `json:"generate_audio,omitempty"`
+	Seed                  *int64                 `json:"seed,omitempty"`
+	PromptExtend          *bool                  `json:"prompt_extend,omitempty"`
+	ReturnLastFrame       *bool                  `json:"return_last_frame,omitempty"`
+	CameraFixed           *bool                  `json:"camera_fixed,omitempty"`
+	OutputFormat          string                 `json:"output_format,omitempty"`
+	OmniReferenceTaskType string                 `json:"omni_reference_task_type,omitempty"`
+	CallbackURL           string                 `json:"callback_url,omitempty"`
+	ServiceTier           string                 `json:"service_tier,omitempty"`
+	ExecutionExpiresAfter *int64                 `json:"execution_expires_after,omitempty"`
+}
+
+// InvalidMediaRequestError identifies a client request that cannot be forwarded.
+type InvalidMediaRequestError struct{ Message string }
+
+func (e *InvalidMediaRequestError) Error() string { return e.Message }
+
+func (req VideoGenerationRequest) Validate() error {
+	if strings.TrimSpace(req.Model) == "" {
+		return &InvalidMediaRequestError{Message: "model is required"}
+	}
+	if strings.TrimSpace(req.Prompt) == "" && len(req.Media) == 0 {
+		return &InvalidMediaRequestError{Message: "prompt or media is required"}
+	}
+	if req.Duration < -1 {
+		return &InvalidMediaRequestError{Message: "duration must be positive or -1 for automatic duration"}
+	}
+	for i, media := range req.Media {
+		if strings.TrimSpace(media.URL) == "" {
+			return &InvalidMediaRequestError{Message: fmt.Sprintf("media[%d].url is required", i)}
+		}
+		switch media.Type {
+		case "first_frame", "last_frame", "reference_image", "reference_video", "reference_audio", "file", "link":
+		default:
+			return &InvalidMediaRequestError{Message: fmt.Sprintf("unsupported media type: %s", media.Type)}
+		}
+		kind := videoMediaInputKind(media.Type)
+		if err := ValidateMediaInputURL(media.URL, kind, kind == "image" || kind == "audio", true); err != nil {
+			return &InvalidMediaRequestError{Message: fmt.Sprintf("media[%d].url: %s", i, err)}
+		}
+	}
+	return nil
+}
+
+func videoMediaInputKind(mediaType string) string {
+	switch mediaType {
+	case "first_frame", "last_frame", "reference_image":
+		return "image"
+	case "reference_video":
+		return "video"
+	case "reference_audio":
+		return "audio"
+	default:
+		return mediaType
+	}
+}
+
+// Provider restrictions are checked before submission: this gateway never
+// uploads inline material on the caller's behalf to manufacture a public URL.
+func validateVideoProviderMedia(req VideoGenerationRequest, ark bool) error {
+	for i, media := range req.Media {
+		kind := videoMediaInputKind(media.Type)
+		allowData := kind == "image" || (ark && kind == "audio")
+		if err := ValidateMediaInputURL(media.URL, kind, allowData, ark); err != nil {
+			return &InvalidMediaRequestError{Message: fmt.Sprintf("media[%d].url: %s", i, err)}
+		}
+		if !strings.HasPrefix(media.URL, "data:") {
+			continue
+		}
+		mediaType, size, err := validateMediaDataURL(media.URL)
+		if err != nil {
+			return &InvalidMediaRequestError{Message: fmt.Sprintf("media[%d].url: %s", i, err)}
+		}
+		maxBytes := int64(20 << 20)
+		if ark {
+			maxBytes = 30 << 20
+			if kind == "audio" {
+				maxBytes = 15 << 20
+			}
+		}
+		if size > maxBytes {
+			return &InvalidMediaRequestError{Message: fmt.Sprintf("media[%d].url: inline %s exceeds the provider limit of %d MiB; use a smaller input", i, kind, maxBytes>>20)}
+		}
+		validMIME := false
+		switch mediaType {
+		case "image/jpeg", "image/png", "image/bmp", "image/webp":
+			validMIME = kind == "image"
+		case "image/tiff", "image/gif", "image/heic", "image/heif":
+			validMIME = ark && kind == "image"
+		case "audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav":
+			validMIME = ark && kind == "audio"
+		}
+		if !validMIME {
+			return &InvalidMediaRequestError{Message: fmt.Sprintf("media[%d].url: unsupported inline %s MIME type %s", i, kind, mediaType)}
+		}
+	}
+	return nil
 }
 
 func buildAzureSpeechSSML(req AzureSpeechRequest) string {
@@ -70,24 +165,22 @@ func mapAzureSpeechOutputFormat(format string) string {
 }
 
 func buildDashScopeVideoRequest(req VideoGenerationRequest) ([]byte, error) {
-	input := map[string]any{
-		"prompt": req.Prompt,
+	if err := req.Validate(); err != nil {
+		return nil, err
 	}
-	mediaItems := make([]map[string]string, 0, len(req.Media))
-	for _, media := range req.Media {
-		if media.Type == "reference_image" && media.URL != "" {
-			mediaItems = append(mediaItems, map[string]string{
-				"type": media.Type,
-				"url":  media.URL,
-			})
-		}
+	if err := validateVideoProviderMedia(req, false); err != nil {
+		return nil, err
 	}
-	if len(mediaItems) > 0 {
-		input["media"] = mediaItems
+	input := map[string]any{}
+	if req.Prompt != "" {
+		input["prompt"] = req.Prompt
+	}
+	if len(req.Media) > 0 {
+		input["media"] = req.Media
 	}
 
 	parameters := map[string]any{}
-	if req.Duration > 0 {
+	if req.Duration != 0 {
 		parameters["duration"] = req.Duration
 	}
 	if req.Ratio != "" {
@@ -103,6 +196,13 @@ func buildDashScopeVideoRequest(req VideoGenerationRequest) ([]byte, error) {
 		parameters["seed"] = *req.Seed
 	}
 
+	if req.GenerateAudio != nil {
+		parameters["audio"] = *req.GenerateAudio
+	}
+	if req.PromptExtend != nil {
+		parameters["prompt_extend"] = *req.PromptExtend
+	}
+
 	body := map[string]any{
 		"model":      req.Model,
 		"input":      input,
@@ -112,17 +212,21 @@ func buildDashScopeVideoRequest(req VideoGenerationRequest) ([]byte, error) {
 }
 
 func buildArkVideoRequest(req VideoGenerationRequest) ([]byte, error) {
-	content := []map[string]any{
-		{
-			"type": "text",
-			"text": req.Prompt,
-		},
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+	if err := validateVideoProviderMedia(req, true); err != nil {
+		return nil, err
+	}
+	content := make([]map[string]any, 0, len(req.Media)+1)
+	if req.Prompt != "" {
+		content = append(content, map[string]any{"type": "text", "text": req.Prompt})
 	}
 
 	for _, media := range req.Media {
 		contentType, field, role, ok := mapArkMediaType(media)
-		if !ok || media.URL == "" {
-			continue
+		if !ok {
+			return nil, &InvalidMediaRequestError{Message: "unsupported Ark media type: " + media.Type}
 		}
 		content = append(content, map[string]any{
 			"type": contentType,
@@ -137,14 +241,14 @@ func buildArkVideoRequest(req VideoGenerationRequest) ([]byte, error) {
 		"model":   req.Model,
 		"content": content,
 	}
-	if req.Duration > 0 {
+	if req.Duration != 0 {
 		body["duration"] = req.Duration
 	}
 	if req.Ratio != "" {
 		body["ratio"] = req.Ratio
 	}
 	if req.Resolution != "" {
-		body["resolution"] = req.Resolution
+		body["resolution"] = strings.ToLower(strings.TrimSpace(req.Resolution))
 	}
 	if req.Watermark != nil {
 		body["watermark"] = *req.Watermark
@@ -154,6 +258,28 @@ func buildArkVideoRequest(req VideoGenerationRequest) ([]byte, error) {
 	}
 	if req.Seed != nil {
 		body["seed"] = *req.Seed
+	}
+
+	if req.ReturnLastFrame != nil {
+		body["return_last_frame"] = *req.ReturnLastFrame
+	}
+	if req.CameraFixed != nil {
+		body["camera_fixed"] = *req.CameraFixed
+	}
+	if req.OutputFormat != "" {
+		body["output_format"] = req.OutputFormat
+	}
+	if req.OmniReferenceTaskType != "" {
+		body["omni_reference_task_type"] = req.OmniReferenceTaskType
+	}
+	if req.CallbackURL != "" {
+		body["callback_url"] = req.CallbackURL
+	}
+	if req.ServiceTier != "" {
+		body["service_tier"] = req.ServiceTier
+	}
+	if req.ExecutionExpiresAfter != nil {
+		body["execution_expires_after"] = *req.ExecutionExpiresAfter
 	}
 
 	return json.Marshal(body)
@@ -172,8 +298,8 @@ func normalizeDashScopeResolution(resolution string) string {
 
 func mapArkMediaType(media VideoGenerationMedia) (contentType string, field string, role string, ok bool) {
 	switch media.Type {
-	case "reference_image":
-		return "image_url", "image_url", "reference_image", true
+	case "reference_image", "first_frame", "last_frame":
+		return "image_url", "image_url", media.Type, true
 	case "reference_video":
 		return "video_url", "video_url", "reference_video", true
 	case "reference_audio":

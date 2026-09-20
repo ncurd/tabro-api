@@ -8943,6 +8943,13 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 	hasAnyMapping := false
 
 	for _, acc := range accounts {
+		if DefaultMediaModels(acc.Platform) != nil {
+			hasAnyMapping = true
+			for _, model := range acc.AvailableMediaModels() {
+				modelSet[model.ID] = struct{}{}
+			}
+			continue
+		}
 		if acc.IsOpenAI() {
 			// OAuth and API-key defaults have different retirement schedules.
 			hasAnyMapping = true

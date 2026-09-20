@@ -64,6 +64,20 @@ func TestGatewayRoutesOpenAIImagesGenerationsPathIsRegistered(t *testing.T) {
 	}
 }
 
+func TestGatewayRoutesOpenAIImagesEditsRequiresAuthentication(t *testing.T) {
+	router := newGatewayRoutesTestRouter()
+	for _, path := range []string{"/v1/images/edits", "/images/edits"} {
+		t.Run(path, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"gpt-image-2","prompt":"edit","images":[{"image_url":"https://example.com/image.png"}]}`))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+			require.Equal(t, http.StatusUnauthorized, w.Code)
+			require.Contains(t, w.Body.String(), "Invalid API key")
+		})
+	}
+}
+
 func TestGatewayRoutesMediaGenerationPathsAreRegistered(t *testing.T) {
 	router := newGatewayRoutesTestRouter()
 
@@ -72,6 +86,16 @@ func TestGatewayRoutesMediaGenerationPathsAreRegistered(t *testing.T) {
 		path   string
 		body   string
 	}{
+		{method: http.MethodPost, path: "/v1/audio/transcriptions", body: `{}`},
+		{method: http.MethodPost, path: "/v1/audio/voices", body: `{}`},
+		{method: http.MethodGet, path: "/v1/audio/voices"},
+		{method: http.MethodGet, path: "/v1/audio/voices/voice_test"},
+		{method: http.MethodDelete, path: "/v1/audio/voices/voice_test"},
+		{method: http.MethodPost, path: "/audio/transcriptions", body: `{}`},
+		{method: http.MethodPost, path: "/audio/voices", body: `{}`},
+		{method: http.MethodGet, path: "/audio/voices"},
+		{method: http.MethodGet, path: "/audio/voices/voice_test"},
+		{method: http.MethodDelete, path: "/audio/voices/voice_test"},
 		{method: http.MethodPost, path: "/v1/audio/speech", body: `{"model":"tts-1","input":"hello"}`},
 		{method: http.MethodPost, path: "/v1/audio/speech/jobs", body: `{"model":"tts-1","input":"long text"}`},
 		{method: http.MethodGet, path: "/v1/audio/speech/jobs/audjob_test"},

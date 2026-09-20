@@ -1901,7 +1901,9 @@ export default {
       billingMode: {
         token: 'Token',
         perRequest: '按次',
-        image: '图片（按次）'
+        image: '图片（按次）',
+        video: '视频（按秒）',
+        audio: '音频（按用量）',
       },
       form: {
         name: '名称',
@@ -1933,7 +1935,7 @@ export default {
         noTiersYet: '暂无层级，点击添加配置按次计费价格',
         noPricingRules: '暂无定价规则，点击"添加"创建',
         perRequestPrice: '单次价格',
-        perRequestPriceRequired: '按次/图片计费模式必须设置默认价格或至少一个计费层级',
+        perRequestPriceRequired: '必须设置默认单价或至少一个计费层级',
         tierLabel: '层级',
         resolution: '分辨率',
         modelMapping: '模型映射',
@@ -1952,6 +1954,12 @@ export default {
         restrictModels: '限制模型',
         restrictModelsHint: '开启后，仅允许模型定价列表中的模型。不在列表中的模型请求将被拒绝。',
         defaultPerRequestPrice: '默认单次价格（未命中层级时使用）',
+        videoSecondPrice: '每生成秒单价',
+        audioUnitPrice: '音频单位单价',
+        videoResolutionTiers: '分辨率单价',
+        audioTiers: '音频计费层级',
+        videoBillingHint: '按上游实际生成秒数结算，乘以有效分组倍率；任务创建时锁定价格。填写 0 表示免费，留空表示未配置。',
+        audioBillingHint: '转写按输入音频秒数，合成按字符数；音色克隆请选择按次计费。填写 0 表示免费。',
         defaultImagePrice: '默认图片价格（未命中层级时使用）',
         platformConfig: '平台配置',
         webSearchEmulation: 'Web Search 模拟',
@@ -2088,6 +2096,12 @@ export default {
 
     // Accounts Management
     accounts: {
+      media: {
+        wanBaseUrlHint: 'Wan 3.0 请改为业务空间地址，例如 https://<WorkspaceId>.cn-beijing.maas.aliyuncs.com，并使用同地域 API Key；默认 DashScope 地址用于 HappyHorse。',
+        region: 'Azure 区域',
+        baseUrlHint: '填写账号所在区域的服务地址。Ark 地址包含 /api/v3，DashScope 填写域名根地址。',
+        apiKeyHint: '填写该服务商的 API Key；Azure Speech 填写订阅密钥。'
+      },
       title: '账号管理',
       description: '管理 AI 平台账号和 Cookie',
       createAccount: '添加账号',
@@ -3596,6 +3610,8 @@ export default {
       billingModeToken: '按量',
       billingModePerRequest: '按次',
       billingModeImage: '按次(图片)',
+      billingModeVideo: '视频（按秒）',
+      billingModeAudio: '音频（按用量）',
       allBillingModes: '全部计费模式',
       ipAddress: 'IP',
       clickToViewBalance: '点击查看充值记录',

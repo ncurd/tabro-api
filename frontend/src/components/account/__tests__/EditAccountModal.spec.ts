@@ -183,4 +183,38 @@ describe('EditAccountModal', () => {
       'gpt-5.4': 'gpt-5.4'
     })
   })
+
+  it.each([
+    ['dashscope', 'https://dashscope.aliyuncs.com'],
+    ['volcengine_ark', 'https://ark.cn-beijing.volces.com/api/v3']
+  ])('preserves media credentials and uses the %s default endpoint', async (platform, baseURL) => {
+    const account = buildAccount()
+    account.platform = platform
+    account.credentials = { api_key: 'media-key', model_mapping: { 'video-alias': 'ep-private' } }
+    updateAccountMock.mockReset()
+    updateAccountMock.mockResolvedValue(account)
+    const wrapper = mountModal(account)
+    await wrapper.setProps({ show: true })
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials).toMatchObject({
+      api_key: 'media-key', base_url: baseURL, model_mapping: { 'video-alias': 'ep-private' }
+    })
+  })
+
+  it('keeps Azure subscription credentials while updating its region', async () => {
+    const account = buildAccount()
+    account.platform = 'azure_speech'
+    account.credentials = { subscription_key: 'speech-key', region: 'eastus', tts_endpoint: 'https://speech.example/tts' }
+    updateAccountMock.mockReset()
+    updateAccountMock.mockResolvedValue(account)
+    const wrapper = mountModal(account)
+    await wrapper.setProps({ show: true })
+    await wrapper.get('input[placeholder="eastus"]').setValue('southeastasia')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    const credentials = updateAccountMock.mock.calls[0]?.[1]?.credentials
+    expect(credentials).toMatchObject({ subscription_key: 'speech-key', region: 'southeastasia', tts_endpoint: 'https://speech.example/tts' })
+    expect(credentials).not.toHaveProperty('api_key')
+    expect(credentials).not.toHaveProperty('base_url')
+  })
+
 })

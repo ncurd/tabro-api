@@ -24,6 +24,28 @@ func newTestBillingServiceForResolver() *BillingService {
 	return bs
 }
 
+func TestResolveMediaTiersDistinguishesConfiguredZero(t *testing.T) {
+	for _, mode := range []BillingMode{BillingModeVideo, BillingModeAudio} {
+		for _, configured := range []bool{false, true} {
+			var price *float64
+			if configured {
+				price = testPtrFloat64(0)
+			}
+			r := newResolverWithChannel(t, []ChannelModelPricing{{
+				Platform: "anthropic", Models: []string{"claude-sonnet-4"}, BillingMode: mode,
+				PerRequestPrice: price,
+				Intervals:       []PricingInterval{{TierLabel: "720P", PerRequestPrice: testPtrFloat64(0.2)}},
+			}})
+			resolved := r.Resolve(context.Background(), PricingInput{Model: "claude-sonnet-4", GroupID: groupIDPtr()})
+			require.Equal(t, mode, resolved.Mode)
+			require.Equal(t, configured, resolved.DefaultPriceConfigured)
+			require.Zero(t, resolved.DefaultPerRequestPrice)
+			require.Len(t, resolved.RequestTiers, 1)
+			require.Equal(t, 0.2, *resolved.RequestTiers[0].PerRequestPrice)
+		}
+	}
+}
+
 func TestResolve_NoGroupID(t *testing.T) {
 	bs := newTestBillingServiceForResolver()
 	r := NewModelPricingResolver(&ChannelService{}, bs)

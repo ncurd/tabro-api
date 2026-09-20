@@ -70,7 +70,7 @@
       <!-- Platform Selection - Segmented Control Style -->
       <div>
         <label class="input-label">{{ t('admin.accounts.platform') }}</label>
-        <div class="mt-2 flex rounded-lg bg-gray-100 p-1 dark:bg-dark-700" data-tour="account-form-platform">
+        <div class="mt-2 flex flex-wrap gap-1 rounded-lg bg-gray-100 p-1 dark:bg-dark-700" data-tour="account-form-platform">
           <button
             type="button"
             @click="form.platform = 'anthropic'"
@@ -147,6 +147,18 @@
             <Icon name="cloud" size="sm" />
             Antigravity
           </button>
+          <button
+            v-for="platform in mediaPlatformOptions"
+            :key="platform.value"
+            type="button"
+            @click="form.platform = platform.value"
+            :class="[
+              'flex flex-1 items-center justify-center rounded-md px-4 py-2.5 text-sm font-medium transition-all',
+              form.platform === platform.value
+                ? 'bg-white text-primary-600 shadow-sm dark:bg-dark-600 dark:text-primary-400'
+                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+            ]"
+          >{{ platform.label }}</button>
         </div>
       </div>
 
@@ -849,21 +861,20 @@
 
       <!-- API Key input (only for apikey type, excluding Antigravity which has its own fields) -->
       <div v-if="form.type === 'apikey' && form.platform !== 'antigravity'" class="space-y-4">
-        <div>
+        <div v-if="form.platform === 'azure_speech'">
+          <label class="input-label">{{ t('admin.accounts.media.region') }}</label>
+          <input v-model="mediaRegion" type="text" required class="input" placeholder="eastus" />
+        </div>
+        <div v-else>
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
             v-model="apiKeyBaseUrl"
             type="text"
             class="input"
-            :placeholder="
-              form.platform === 'openai'
-                ? 'https://api.openai.com'
-                : form.platform === 'gemini'
-                  ? 'https://generativelanguage.googleapis.com'
-                  : 'https://api.anthropic.com'
-            "
+            :placeholder="accountDefaultBaseURL(form.platform)"
           />
           <p class="input-hint">{{ baseUrlHint }}</p>
+          <p v-if="form.platform === 'dashscope'" class="input-hint">{{ t('admin.accounts.media.wanBaseUrlHint') }}</p>
         </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.apiKeyRequired') }}</label>
@@ -873,7 +884,9 @@
             required
             class="input font-mono"
             :placeholder="
-              form.platform === 'openai'
+              isMediaPlatform(form.platform)
+                ? 'API Key'
+                : form.platform === 'openai'
                 ? 'sk-proj-...'
                 : form.platform === 'gemini'
                   ? 'AIza...'
@@ -2940,6 +2953,7 @@ import {
   type OpenAIWSMode
 } from '@/utils/openaiWsMode'
 import OAuthAuthorizationFlow from './OAuthAuthorizationFlow.vue'
+import { accountDefaultBaseURL, isMediaPlatform, mediaPlatformOptions } from '@/utils/mediaPlatforms'
 
 // Type for exposed OAuthAuthorizationFlow component
 // Note: defineExpose automatically unwraps refs, so we use the unwrapped types
@@ -2966,12 +2980,14 @@ const oauthStepTitle = computed(() => {
 
 // Platform-specific hints for API Key type
 const baseUrlHint = computed(() => {
+  if (isMediaPlatform(form.platform)) return t('admin.accounts.media.baseUrlHint')
   if (form.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
   if (form.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
   return t('admin.accounts.baseUrlHint')
 })
 
 const apiKeyHint = computed(() => {
+  if (isMediaPlatform(form.platform)) return t('admin.accounts.media.apiKeyHint')
   if (form.platform === 'openai') return t('admin.accounts.openai.apiKeyHint')
   if (form.platform === 'gemini') return t('admin.accounts.gemini.apiKeyHint')
   return t('admin.accounts.apiKeyHint')
@@ -3049,6 +3065,7 @@ const accountCategory = ref<'oauth-based' | 'apikey' | 'bedrock'>('oauth-based')
 const addMethod = ref<AddMethod>('oauth') // For oauth-based: 'oauth' or 'setup-token'
 const apiKeyBaseUrl = ref('https://api.anthropic.com')
 const apiKeyValue = ref('')
+const mediaRegion = ref('eastus')
 const editQuotaLimit = ref<number | null>(null)
 const editQuotaDailyLimit = ref<number | null>(null)
 const editQuotaWeeklyLimit = ref<number | null>(null)
@@ -3279,6 +3296,7 @@ const form = reactive({
 
 // Helper to check if current type needs OAuth flow
 const isOAuthFlow = computed(() => {
+  if (isMediaPlatform(form.platform)) return false
   // Antigravity upstream 类型不需要 OAuth 流程
   if (form.platform === 'antigravity' && antigravityAccountType.value === 'upstream') {
     return false
@@ -3372,12 +3390,11 @@ watch(
   () => form.platform,
   (newPlatform) => {
     // Reset base URL based on platform
-    apiKeyBaseUrl.value =
-      (newPlatform === 'openai')
-        ? 'https://api.openai.com'
-        : newPlatform === 'gemini'
-          ? 'https://generativelanguage.googleapis.com'
-          : 'https://api.anthropic.com'
+    apiKeyBaseUrl.value = accountDefaultBaseURL(newPlatform)
+    if (isMediaPlatform(newPlatform)) {
+      accountCategory.value = 'apikey'
+      form.type = 'apikey'
+    }
     // Clear model-related settings
     allowedModels.value = []
     modelMappings.value = []
@@ -3771,6 +3788,7 @@ const resetForm = () => {
   addMethod.value = 'oauth'
   apiKeyBaseUrl.value = 'https://api.anthropic.com'
   apiKeyValue.value = ''
+  mediaRegion.value = 'eastus'
   editQuotaLimit.value = null
   editQuotaDailyLimit.value = null
   editQuotaWeeklyLimit.value = null
@@ -4063,12 +4081,7 @@ const handleSubmit = async () => {
   }
 
   // Determine default base URL based on platform
-  const defaultBaseUrl =
-    form.platform === 'openai'
-      ? 'https://api.openai.com'
-      : form.platform === 'gemini'
-        ? 'https://generativelanguage.googleapis.com'
-        : 'https://api.anthropic.com'
+  const defaultBaseUrl = accountDefaultBaseURL(form.platform)
 
   // Build credentials with optional model mapping
   const credentials: Record<string, unknown> = {
@@ -4077,6 +4090,12 @@ const handleSubmit = async () => {
   }
   if (form.platform === 'gemini') {
     credentials.tier_id = geminiTierAIStudio.value
+  }
+  if (form.platform === 'azure_speech') {
+    credentials.subscription_key = apiKeyValue.value.trim()
+    credentials.region = mediaRegion.value.trim()
+    delete credentials.api_key
+    delete credentials.base_url
   }
 
   // Add model mapping if configured（OpenAI 开启自动透传时不应用）

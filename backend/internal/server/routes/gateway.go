@@ -31,6 +31,15 @@ func RegisterGatewayRoutes(
 	// 未分组 Key 拦截中间件（按协议格式区分错误响应）
 	requireGroupAnthropic := middleware.RequireGroupAssignment(settingService, middleware.AnthropicErrorWriter)
 	requireGroupGoogle := middleware.RequireGroupAssignment(settingService, middleware.GoogleErrorWriter)
+	imagesEditsHandler := func(c *gin.Context) {
+		if platform := getGroupPlatform(c); platform == "" || platform == service.PlatformOpenAI {
+			h.OpenAIGateway.ImagesEdits(c)
+			return
+		}
+		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{
+			"type": "not_found_error", "message": "Image editing is not supported for this platform",
+		}})
+	}
 
 	// API网关（Claude API兼容）
 	gateway := r.Group("/v1")
@@ -103,6 +112,12 @@ func RegisterGatewayRoutes(
 				},
 			})
 		})
+		gateway.POST("/images/edits", imagesEditsHandler)
+		gateway.POST("/audio/transcriptions", h.MediaGeneration.AudioTranscriptions)
+		gateway.POST("/audio/voices", h.MediaGeneration.CreateClonedVoice)
+		gateway.GET("/audio/voices", h.MediaGeneration.ListClonedVoices)
+		gateway.GET("/audio/voices/:id", h.MediaGeneration.GetClonedVoice)
+		gateway.DELETE("/audio/voices/:id", h.MediaGeneration.DeleteClonedVoice)
 		gateway.POST("/audio/speech", h.MediaGeneration.AudioSpeech)
 		gateway.POST("/audio/speech/jobs", h.MediaGeneration.CreateAudioSpeechJob)
 		gateway.GET("/audio/speech/jobs/:id", h.MediaGeneration.GetAudioSpeechJob)
@@ -158,6 +173,12 @@ func RegisterGatewayRoutes(
 			},
 		})
 	})
+	r.POST("/images/edits", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), middleware.GatewayInvocationIdempotency(middleware.AnthropicErrorWriter), requireGroupAnthropic, imagesEditsHandler)
+	r.POST("/audio/transcriptions", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), middleware.GatewayInvocationIdempotency(middleware.AnthropicErrorWriter), requireGroupAnthropic, h.MediaGeneration.AudioTranscriptions)
+	r.POST("/audio/voices", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), middleware.GatewayInvocationIdempotency(middleware.AnthropicErrorWriter), requireGroupAnthropic, h.MediaGeneration.CreateClonedVoice)
+	r.GET("/audio/voices", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, h.MediaGeneration.ListClonedVoices)
+	r.GET("/audio/voices/:id", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, h.MediaGeneration.GetClonedVoice)
+	r.DELETE("/audio/voices/:id", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, h.MediaGeneration.DeleteClonedVoice)
 	r.POST("/audio/speech", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), middleware.GatewayInvocationIdempotency(middleware.AnthropicErrorWriter), requireGroupAnthropic, h.MediaGeneration.AudioSpeech)
 	r.POST("/audio/speech/jobs", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), middleware.GatewayInvocationIdempotency(middleware.AnthropicErrorWriter), requireGroupAnthropic, h.MediaGeneration.CreateAudioSpeechJob)
 	r.GET("/audio/speech/jobs/:id", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, h.MediaGeneration.GetAudioSpeechJob)

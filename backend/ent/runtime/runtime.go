@@ -591,39 +591,39 @@ func init() {
 	// mediagenerationjob.ModelValidator is a validator for the "model" field. It is called by the builders before save.
 	mediagenerationjob.ModelValidator = mediagenerationjobDescModel.Validators[0].(func(string) error)
 	// mediagenerationjobDescResultContentType is the schema descriptor for result_content_type field.
-	mediagenerationjobDescResultContentType := mediagenerationjobFields[16].Descriptor()
+	mediagenerationjobDescResultContentType := mediagenerationjobFields[18].Descriptor()
 	// mediagenerationjob.ResultContentTypeValidator is a validator for the "result_content_type" field. It is called by the builders before save.
 	mediagenerationjob.ResultContentTypeValidator = mediagenerationjobDescResultContentType.Validators[0].(func(string) error)
 	// mediagenerationjobDescAudioVoice is the schema descriptor for audio_voice field.
-	mediagenerationjobDescAudioVoice := mediagenerationjobFields[18].Descriptor()
+	mediagenerationjobDescAudioVoice := mediagenerationjobFields[20].Descriptor()
 	// mediagenerationjob.AudioVoiceValidator is a validator for the "audio_voice" field. It is called by the builders before save.
 	mediagenerationjob.AudioVoiceValidator = mediagenerationjobDescAudioVoice.Validators[0].(func(string) error)
 	// mediagenerationjobDescAudioFormat is the schema descriptor for audio_format field.
-	mediagenerationjobDescAudioFormat := mediagenerationjobFields[19].Descriptor()
+	mediagenerationjobDescAudioFormat := mediagenerationjobFields[21].Descriptor()
 	// mediagenerationjob.AudioFormatValidator is a validator for the "audio_format" field. It is called by the builders before save.
 	mediagenerationjob.AudioFormatValidator = mediagenerationjobDescAudioFormat.Validators[0].(func(string) error)
 	// mediagenerationjobDescAudioCharacterCount is the schema descriptor for audio_character_count field.
-	mediagenerationjobDescAudioCharacterCount := mediagenerationjobFields[20].Descriptor()
+	mediagenerationjobDescAudioCharacterCount := mediagenerationjobFields[22].Descriptor()
 	// mediagenerationjob.DefaultAudioCharacterCount holds the default value on creation for the audio_character_count field.
 	mediagenerationjob.DefaultAudioCharacterCount = mediagenerationjobDescAudioCharacterCount.Default.(int)
 	// mediagenerationjobDescVideoDurationSeconds is the schema descriptor for video_duration_seconds field.
-	mediagenerationjobDescVideoDurationSeconds := mediagenerationjobFields[21].Descriptor()
+	mediagenerationjobDescVideoDurationSeconds := mediagenerationjobFields[23].Descriptor()
 	// mediagenerationjob.DefaultVideoDurationSeconds holds the default value on creation for the video_duration_seconds field.
 	mediagenerationjob.DefaultVideoDurationSeconds = mediagenerationjobDescVideoDurationSeconds.Default.(int)
 	// mediagenerationjobDescVideoResolution is the schema descriptor for video_resolution field.
-	mediagenerationjobDescVideoResolution := mediagenerationjobFields[22].Descriptor()
+	mediagenerationjobDescVideoResolution := mediagenerationjobFields[24].Descriptor()
 	// mediagenerationjob.VideoResolutionValidator is a validator for the "video_resolution" field. It is called by the builders before save.
 	mediagenerationjob.VideoResolutionValidator = mediagenerationjobDescVideoResolution.Validators[0].(func(string) error)
 	// mediagenerationjobDescVideoRatio is the schema descriptor for video_ratio field.
-	mediagenerationjobDescVideoRatio := mediagenerationjobFields[23].Descriptor()
+	mediagenerationjobDescVideoRatio := mediagenerationjobFields[25].Descriptor()
 	// mediagenerationjob.VideoRatioValidator is a validator for the "video_ratio" field. It is called by the builders before save.
 	mediagenerationjob.VideoRatioValidator = mediagenerationjobDescVideoRatio.Validators[0].(func(string) error)
 	// mediagenerationjobDescVideoCount is the schema descriptor for video_count field.
-	mediagenerationjobDescVideoCount := mediagenerationjobFields[24].Descriptor()
+	mediagenerationjobDescVideoCount := mediagenerationjobFields[26].Descriptor()
 	// mediagenerationjob.DefaultVideoCount holds the default value on creation for the video_count field.
 	mediagenerationjob.DefaultVideoCount = mediagenerationjobDescVideoCount.Default.(int)
 	// mediagenerationjobDescErrorCode is the schema descriptor for error_code field.
-	mediagenerationjobDescErrorCode := mediagenerationjobFields[25].Descriptor()
+	mediagenerationjobDescErrorCode := mediagenerationjobFields[27].Descriptor()
 	// mediagenerationjob.ErrorCodeValidator is a validator for the "error_code" field. It is called by the builders before save.
 	mediagenerationjob.ErrorCodeValidator = mediagenerationjobDescErrorCode.Validators[0].(func(string) error)
 	paymentauditlogFields := schema.PaymentAuditLog{}.Fields()

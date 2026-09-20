@@ -25,6 +25,10 @@ func TestNormalizeInboundEndpoint(t *testing.T) {
 		{"/v1/messages", EndpointMessages},
 		{"/v1/chat/completions", EndpointChatCompletions},
 		{"/v1/responses", EndpointResponses},
+		{"/v1/images/generations", EndpointImagesGenerations},
+		{"/images/generations", EndpointImagesGenerations},
+		{"/v1/images/edits", EndpointImagesEdits},
+		{"/images/edits", EndpointImagesEdits},
 		{"/v1beta/models", EndpointGeminiModels},
 
 		// Prefixed paths (antigravity, openai).
@@ -73,6 +77,7 @@ func TestDeriveUpstreamEndpoint(t *testing.T) {
 		{"openai responses nested", EndpointResponses, "/openai/v1/responses/compact/detail", service.PlatformOpenAI, "/v1/responses/compact/detail"},
 		{"openai from messages", EndpointMessages, "/v1/messages", service.PlatformOpenAI, EndpointResponses},
 		{"openai from completions", EndpointChatCompletions, "/v1/chat/completions", service.PlatformOpenAI, EndpointResponses},
+		{"openai image edits", EndpointImagesEdits, "/images/edits", service.PlatformOpenAI, EndpointImagesEdits},
 
 		// Antigravity — uses inbound to pick Claude vs Gemini upstream.
 		{"antigravity claude", EndpointMessages, "/antigravity/v1/messages", service.PlatformAntigravity, EndpointMessages},

@@ -222,8 +222,15 @@ const perplexityModels = [
   'sonar', 'sonar-pro'
 ]
 
+const dashscopeModels = ['wan3.0-video', 'wan3.0-video-prime', 'happyhorse-1.0-r2v', 'qwen3-asr-flash', 'qwen3-tts-vc-2026-01-22']
+const arkModels = ['doubao-seedance-2-0-260128', 'doubao-seedance-2-5-260628']
+const azureSpeechModels = ['azure-tts']
+
 // 所有模型（去重）
 const allModelsList: string[] = [
+  ...dashscopeModels,
+  ...arkModels,
+  ...azureSpeechModels,
   ...openaiModels,
   ...claudeModels,
   ...geminiModels,
@@ -399,6 +406,9 @@ export function getModelsByPlatform(platform: string, accountType?: AccountType)
     case 'anthropic':
     case 'claude': return accountType === 'bedrock' ? bedrockClaudeModels : claudeModels
     case 'bedrock': return bedrockClaudeModels
+    case 'dashscope': return dashscopeModels
+    case 'volcengine_ark': return arkModels
+    case 'azure_speech': return azureSpeechModels
     case 'gemini': return geminiModels
     case 'antigravity': return antigravityModels
     case 'zhipu': return zhipuModels
@@ -422,6 +432,7 @@ export function getModelsByPlatform(platform: string, accountType?: AccountType)
 
 // 按平台获取预设映射
 export function getPresetMappingsByPlatform(platform: string, accountType?: AccountType) {
+  if (['dashscope', 'volcengine_ark', 'azure_speech'].includes(platform)) return []
   if (platform === 'bedrock' || accountType === 'bedrock') return bedrockPresetMappings
   if (platform === 'openai') return accountType === 'oauth'
     ? openaiPresetMappings.filter(preset => !retiredOpenAIOAuthModels.has(preset.to))

@@ -45,6 +45,8 @@ func (MediaGenerationJob) Fields() []ent.Field {
 		field.Int64("account_id"),
 		field.String("model").MaxLen(160),
 		field.JSON("request_json", json.RawMessage{}).Optional(),
+		field.JSON("billing_snapshot_json", json.RawMessage{}).Optional(),
+		field.Time("next_poll_at").Optional().Nillable(),
 		field.JSON("upstream_response_json", json.RawMessage{}).Optional(),
 		field.String("result_url").Optional().Nillable(),
 		field.String("result_content_type").MaxLen(120).Optional().Nillable(),

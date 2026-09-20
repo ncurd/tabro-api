@@ -425,6 +425,16 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 // ImagesGenerations handles OpenAI Images API endpoint.
 // POST /v1/images/generations
 func (h *OpenAIGatewayHandler) ImagesGenerations(c *gin.Context) {
+	h.handleImagesRequest(c, false)
+}
+
+// ImagesEdits accepts OpenAI JSON references and multipart image/mask uploads.
+// POST /v1/images/edits
+func (h *OpenAIGatewayHandler) ImagesEdits(c *gin.Context) {
+	h.handleImagesRequest(c, true)
+}
+
+func (h *OpenAIGatewayHandler) handleImagesRequest(c *gin.Context, edit bool) {
 	requestStart := time.Now()
 	setOpenAIClientTransportHTTP(c)
 
@@ -461,21 +471,34 @@ func (h *OpenAIGatewayHandler) ImagesGenerations(c *gin.Context) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Request body is empty")
 		return
 	}
-	reqModel := strings.TrimSpace(gjson.GetBytes(body, "model").String())
+	var editRequest *service.OpenAIImageEditRequest
+	metadataBody := body
+	if edit {
+		editRequest, err = service.ParseOpenAIImageEditRequest(body, c.GetHeader("Content-Type"))
+		if err != nil {
+			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+			return
+		}
+		metadataBody = editRequest.MetadataBody
+	} else if !gjson.ValidBytes(body) || !gjson.ParseBytes(body).IsObject() {
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Invalid JSON request body")
+		return
+	}
+	reqModel := strings.TrimSpace(gjson.GetBytes(metadataBody, "model").String())
 	if reqModel == "" {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "model is required")
 		return
 	}
-	reqStream, err := parseOpenAIImagesGenerationStreamFlag(body)
+	reqStream, err := parseOpenAIImagesGenerationStreamFlag(metadataBody)
 	if err != nil {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
-	setOpsRequestContext(c, reqModel, reqStream, body)
+	setOpsRequestContext(c, reqModel, reqStream, metadataBody)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(reqStream, false)))
 
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
-	h.forwardOpenAIImagesGenerationBody(c, body, reqModel, reqStream, requestStart, apiKey, subject, subscription, reqLog, false)
+	h.forwardOpenAIImagesGenerationBody(c, body, reqModel, reqStream, requestStart, apiKey, subject, subscription, reqLog, false, editRequest)
 }
 
 func (h *OpenAIGatewayHandler) tryHandleCodexImageGenerationBridge(
@@ -508,7 +531,7 @@ func (h *OpenAIGatewayHandler) tryHandleCodexImageGenerationBridge(
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return true
 	}
-	h.forwardOpenAIImagesGenerationBody(c, body, imageModel, imageStream, requestStart, apiKey, subject, subscription, reqLog, true)
+	h.forwardOpenAIImagesGenerationBody(c, body, imageModel, imageStream, requestStart, apiKey, subject, subscription, reqLog, true, nil)
 	return true
 }
 
@@ -523,8 +546,19 @@ func (h *OpenAIGatewayHandler) forwardOpenAIImagesGenerationBody(
 	subscription *service.UserSubscription,
 	reqLog *zap.Logger,
 	codexBridge bool,
+	editRequest *service.OpenAIImageEditRequest,
 ) {
 	streamStarted := false
+	channelMapping := service.ChannelMappingResult{MappedModel: reqModel}
+	if editRequest != nil {
+		channelMapping, _ = h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
+	}
+	if editRequest != nil && channelMapping.Mapped {
+		if err := editRequest.SetModel(channelMapping.MappedModel); err != nil {
+			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+			return
+		}
+	}
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 
 	userReleaseFunc, acquired := h.acquireResponsesUserSlot(c, subject.UserID, subject.Concurrency, reqStream, &streamStarted, reqLog)
@@ -558,6 +592,9 @@ func (h *OpenAIGatewayHandler) forwardOpenAIImagesGenerationBody(
 		}
 		account := selection.Account
 		if account.Type != service.AccountTypeAPIKey && account.Type != service.AccountTypeOAuth {
+			if selection.Acquired && selection.ReleaseFunc != nil {
+				selection.ReleaseFunc()
+			}
 			failedAccountIDs[account.ID] = struct{}{}
 			if switchCount >= maxAccountSwitches {
 				h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available compatible OpenAI accounts for image generation", streamStarted)
@@ -578,7 +615,9 @@ func (h *OpenAIGatewayHandler) forwardOpenAIImagesGenerationBody(
 		}
 		forwardStart := time.Now()
 		var result *service.OpenAIForwardResult
-		if codexBridge {
+		if editRequest != nil {
+			result, err = h.gatewayService.ForwardImagesEdits(c.Request.Context(), c, account, editRequest)
+		} else if codexBridge {
 			result, err = h.gatewayService.ForwardCodexImageGeneration(c.Request.Context(), c, account, body)
 		} else {
 			result, err = h.gatewayService.ForwardImagesGenerations(c.Request.Context(), c, account, body)
@@ -602,12 +641,23 @@ func (h *OpenAIGatewayHandler) forwardOpenAIImagesGenerationBody(
 			}
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, false, nil)
 			reqLog.Warn("openai.images_forward_failed", zap.Int64("account_id", account.ID), zap.Error(err))
+			if !c.Writer.Written() {
+				h.handleStreamingAwareError(c, http.StatusBadGateway, "upstream_error", "Image request failed", streamStarted)
+			}
 			return
 		}
 		h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, true, nil)
 		userAgent := c.GetHeader("User-Agent")
 		clientIP := ip.GetClientIP(c)
 		requestPayloadHash := service.HashUsageRequestPayload(body)
+		inboundEndpoint := GetInboundEndpoint(c)
+		upstreamEndpoint := EndpointImagesGenerations
+		if editRequest != nil {
+			upstreamEndpoint = EndpointImagesEdits
+		}
+		if account.Type == service.AccountTypeOAuth {
+			upstreamEndpoint = EndpointResponses
+		}
 		h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 			if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
 				Result:             result,
@@ -615,11 +665,12 @@ func (h *OpenAIGatewayHandler) forwardOpenAIImagesGenerationBody(
 				User:               apiKey.User,
 				Account:            account,
 				Subscription:       subscription,
-				InboundEndpoint:    GetInboundEndpoint(c),
-				UpstreamEndpoint:   "/v1/images/generations",
+				InboundEndpoint:    inboundEndpoint,
+				UpstreamEndpoint:   upstreamEndpoint,
 				UserAgent:          userAgent,
 				IPAddress:          clientIP,
 				RequestPayloadHash: requestPayloadHash,
+				ChannelUsageFields: channelMapping.ToUsageFields(reqModel, result.UpstreamModel),
 				APIKeyService:      h.apiKeyService,
 			}); err != nil {
 				reqLog.Error("openai.images_record_usage_failed", zap.Int64("account_id", account.ID), zap.Error(err))

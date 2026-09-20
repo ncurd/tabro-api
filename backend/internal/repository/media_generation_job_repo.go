@@ -52,7 +52,8 @@ func (r *mediaGenerationJobRepository) Create(ctx context.Context, job *service.
 		SetNillableExpiresAt(job.ExpiresAt).
 		SetNillableUsageRecordedAt(job.UsageRecordedAt).
 		SetNillableSubmittedAt(job.SubmittedAt).
-		SetNillableCompletedAt(job.CompletedAt)
+		SetNillableCompletedAt(job.CompletedAt).
+		SetNillableNextPollAt(job.NextPollAt)
 	if !job.CreatedAt.IsZero() {
 		create.SetCreatedAt(job.CreatedAt)
 	}
@@ -67,6 +68,9 @@ func (r *mediaGenerationJobRepository) Create(ctx context.Context, job *service.
 	}
 	if job.UpstreamRequestID != "" {
 		create.SetUpstreamRequestID(job.UpstreamRequestID)
+	}
+	if len(job.BillingSnapshotJSON) > 0 {
+		create.SetBillingSnapshotJSON(json.RawMessage(job.BillingSnapshotJSON))
 	}
 	if len(job.RequestJSON) > 0 {
 		create.SetRequestJSON(json.RawMessage(job.RequestJSON))
@@ -142,13 +146,22 @@ func (r *mediaGenerationJobRepository) UpdateFromUpstream(
 		if !ok {
 			return nil, nil
 		}
+		if mediaJobResultFrozen(job.Kind, job.Status) && !(update.Status == service.MediaJobStatusSucceeded && service.MediaJobNeedsUsageRefresh(job)) {
+			return cloneMediaGenerationJob(job), nil
+		}
 		applyMediaGenerationJobUpdate(job, update, time.Now().UTC())
 		return cloneMediaGenerationJob(job), nil
 	}
 
-	entJob, err := r.client.MediaGenerationJob.Query().
+	tx, err := r.client.Tx(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	client := tx.Client()
+	entJob, err := client.MediaGenerationJob.Query().
 		Where(dbmediagenerationjob.PublicIDEQ(publicID)).
-		Only(ctx)
+		ForUpdate().Only(ctx)
 	if dbent.IsNotFound(err) {
 		return nil, nil
 	}
@@ -156,7 +169,10 @@ func (r *mediaGenerationJobRepository) UpdateFromUpstream(
 		return nil, err
 	}
 
-	builder := r.client.MediaGenerationJob.UpdateOne(entJob).
+	if mediaJobResultFrozen(entJob.Kind, entJob.Status) && !(update.Status == service.MediaJobStatusSucceeded && service.MediaJobNeedsUsageRefresh(mediaGenerationJobFromEnt(entJob))) {
+		return mediaGenerationJobFromEnt(entJob), nil
+	}
+	builder := client.MediaGenerationJob.UpdateOne(entJob).
 		SetUpdatedAt(time.Now().UTC()).
 		SetNillableExpiresAt(update.ExpiresAt).
 		SetVideoDurationSeconds(update.VideoDurationSeconds).
@@ -164,6 +180,12 @@ func (r *mediaGenerationJobRepository) UpdateFromUpstream(
 		SetNillableCompletedAt(update.CompletedAt)
 	if update.Status != "" {
 		builder.SetStatus(update.Status)
+	}
+	if update.AudioVoice != "" {
+		builder.SetAudioVoice(update.AudioVoice)
+	}
+	if update.UpstreamTaskID != "" {
+		builder.SetUpstreamTaskID(update.UpstreamTaskID)
 	}
 	if update.UpstreamStatus != "" {
 		builder.SetUpstreamStatus(update.UpstreamStatus)
@@ -195,6 +217,9 @@ func (r *mediaGenerationJobRepository) UpdateFromUpstream(
 
 	entJob, err = builder.Save(ctx)
 	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return mediaGenerationJobFromEnt(entJob), nil
@@ -232,6 +257,12 @@ func (r *mediaGenerationJobRepository) MarkUsageRecorded(ctx context.Context, pu
 }
 
 func applyMediaGenerationJobUpdate(job *service.MediaGenerationJob, update service.MediaGenerationJobUpdate, now time.Time) {
+	if update.AudioVoice != "" {
+		job.AudioVoice = update.AudioVoice
+	}
+	if update.UpstreamTaskID != "" {
+		job.UpstreamTaskID = update.UpstreamTaskID
+	}
 	if update.Status != "" {
 		job.Status = update.Status
 	}
@@ -295,6 +326,8 @@ func mediaGenerationJobFromEnt(job *dbent.MediaGenerationJob) *service.MediaGene
 		AccountID:            job.AccountID,
 		Model:                job.Model,
 		RequestJSON:          append([]byte(nil), job.RequestJSON...),
+		BillingSnapshotJSON:  append([]byte(nil), job.BillingSnapshotJSON...),
+		NextPollAt:           timePointer(job.NextPollAt),
 		UpstreamResponseJSON: append([]byte(nil), job.UpstreamResponseJSON...),
 		ResultURL:            stringValue(job.ResultURL),
 		ResultContentType:    stringValue(job.ResultContentType),
@@ -322,6 +355,8 @@ func cloneMediaGenerationJob(job *service.MediaGenerationJob) *service.MediaGene
 	}
 	clone := *job
 	clone.RequestJSON = append([]byte(nil), job.RequestJSON...)
+	clone.BillingSnapshotJSON = append([]byte(nil), job.BillingSnapshotJSON...)
+	clone.NextPollAt = timePointer(job.NextPollAt)
 	clone.UpstreamResponseJSON = append([]byte(nil), job.UpstreamResponseJSON...)
 	clone.GroupID = int64Pointer(job.GroupID)
 	clone.ExpiresAt = timePointer(job.ExpiresAt)
@@ -352,4 +387,8 @@ func timePointer(v *time.Time) *time.Time {
 	}
 	value := *v
 	return &value
+}
+
+func mediaJobResultFrozen(kind, status string) bool {
+	return kind == service.MediaJobKindVideoGeneration && (status == service.MediaJobStatusSucceeded || status == service.MediaJobStatusFailed || status == service.MediaJobStatusCanceled)
 }

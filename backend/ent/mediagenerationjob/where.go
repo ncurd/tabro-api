@@ -129,6 +129,11 @@ func Model(v string) predicate.MediaGenerationJob {
 	return predicate.MediaGenerationJob(sql.FieldEQ(FieldModel, v))
 }
 
+// NextPollAt applies equality check predicate on the "next_poll_at" field. It's identical to NextPollAtEQ.
+func NextPollAt(v time.Time) predicate.MediaGenerationJob {
+	return predicate.MediaGenerationJob(sql.FieldEQ(FieldNextPollAt, v))
+}
+
 // ResultURL applies equality check predicate on the "result_url" field. It's identical to ResultURLEQ.
 func ResultURL(v string) predicate.MediaGenerationJob {
 	return predicate.MediaGenerationJob(sql.FieldEQ(FieldResultURL, v))
@@ -1077,6 +1082,66 @@ func RequestJSONIsNil() predicate.MediaGenerationJob {
 // RequestJSONNotNil applies the NotNil predicate on the "request_json" field.
 func RequestJSONNotNil() predicate.MediaGenerationJob {
 	return predicate.MediaGenerationJob(sql.FieldNotNull(FieldRequestJSON))
+}
+
+// BillingSnapshotJSONIsNil applies the IsNil predicate on the "billing_snapshot_json" field.
+func BillingSnapshotJSONIsNil() predicate.MediaGenerationJob {
+	return predicate.MediaGenerationJob(sql.FieldIsNull(FieldBillingSnapshotJSON))
+}
+
+// BillingSnapshotJSONNotNil applies the NotNil predicate on the "billing_snapshot_json" field.
+func BillingSnapshotJSONNotNil() predicate.MediaGenerationJob {
+	return predicate.MediaGenerationJob(sql.FieldNotNull(FieldBillingSnapshotJSON))
+}
+
+// NextPollAtEQ applies the EQ predicate on the "next_poll_at" field.
+func NextPollAtEQ(v time.Time) predicate.MediaGenerationJob {
+	return predicate.MediaGenerationJob(sql.FieldEQ(FieldNextPollAt, v))
+}
+
+// NextPollAtNEQ applies the NEQ predicate on the "next_poll_at" field.
+func NextPollAtNEQ(v time.Time) predicate.MediaGenerationJob {
+	return predicate.MediaGenerationJob(sql.FieldNEQ(FieldNextPollAt, v))
+}
+
+// NextPollAtIn applies the In predicate on the "next_poll_at" field.
+func NextPollAtIn(vs ...time.Time) predicate.MediaGenerationJob {
+	return predicate.MediaGenerationJob(sql.FieldIn(FieldNextPollAt, vs...))
+}
+
+// NextPollAtNotIn applies the NotIn predicate on the "next_poll_at" field.
+func NextPollAtNotIn(vs ...time.Time) predicate.MediaGenerationJob {
+	return predicate.MediaGenerationJob(sql.FieldNotIn(FieldNextPollAt, vs...))
+}
+
+// NextPollAtGT applies the GT predicate on the "next_poll_at" field.
+func NextPollAtGT(v time.Time) predicate.MediaGenerationJob {
+	return predicate.MediaGenerationJob(sql.FieldGT(FieldNextPollAt, v))
+}
+
+// NextPollAtGTE applies the GTE predicate on the "next_poll_at" field.
+func NextPollAtGTE(v time.Time) predicate.MediaGenerationJob {
+	return predicate.MediaGenerationJob(sql.FieldGTE(FieldNextPollAt, v))
+}
+
+// NextPollAtLT applies the LT predicate on the "next_poll_at" field.
+func NextPollAtLT(v time.Time) predicate.MediaGenerationJob {
+	return predicate.MediaGenerationJob(sql.FieldLT(FieldNextPollAt, v))
+}
+
+// NextPollAtLTE applies the LTE predicate on the "next_poll_at" field.
+func NextPollAtLTE(v time.Time) predicate.MediaGenerationJob {
+	return predicate.MediaGenerationJob(sql.FieldLTE(FieldNextPollAt, v))
+}
+
+// NextPollAtIsNil applies the IsNil predicate on the "next_poll_at" field.
+func NextPollAtIsNil() predicate.MediaGenerationJob {
+	return predicate.MediaGenerationJob(sql.FieldIsNull(FieldNextPollAt))
+}
+
+// NextPollAtNotNil applies the NotNil predicate on the "next_poll_at" field.
+func NextPollAtNotNil() predicate.MediaGenerationJob {
+	return predicate.MediaGenerationJob(sql.FieldNotNull(FieldNextPollAt))
 }
 
 // UpstreamResponseJSONIsNil applies the IsNil predicate on the "upstream_response_json" field.

@@ -1799,6 +1799,11 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		return
 	}
 
+	if service.DefaultMediaModels(account.Platform) != nil {
+		response.Success(c, account.AvailableMediaModels())
+		return
+	}
+
 	// Account-specific defaults keep ChatGPT-only retirements out of OAuth lists.
 	if account.IsOpenAI() {
 		response.Success(c, account.AvailableOpenAIModels())

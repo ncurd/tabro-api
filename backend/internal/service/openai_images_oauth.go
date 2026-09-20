@@ -28,6 +28,10 @@ type openAIImageOAuthResult struct {
 }
 
 func (s *OpenAIGatewayService) forwardImagesGenerationsOAuth(ctx context.Context, c *gin.Context, account *Account, body []byte, writeOriginal bool) ([]byte, *OpenAIForwardResult, error) {
+	return s.forwardImagesOAuth(ctx, c, account, body, writeOriginal, false)
+}
+
+func (s *OpenAIGatewayService) forwardImagesOAuth(ctx context.Context, c *gin.Context, account *Account, body []byte, writeOriginal, edit bool) ([]byte, *OpenAIForwardResult, error) {
 	startTime := time.Now()
 	model := strings.TrimSpace(gjson.GetBytes(body, "model").String())
 	if model == "" {
@@ -36,6 +40,14 @@ func (s *OpenAIGatewayService) forwardImagesGenerationsOAuth(ctx context.Context
 	responsesBody, err := buildOpenAIImagesOAuthResponsesRequest(body, model)
 	if err != nil {
 		return nil, nil, err
+	}
+	eventPrefix := "image_generation"
+	if edit {
+		responsesBody, err = addOpenAIImageEditInputs(responsesBody, body)
+		if err != nil {
+			return nil, nil, err
+		}
+		eventPrefix = "image_edit"
 	}
 	token, _, err := s.GetAccessToken(ctx, account)
 	if err != nil {
@@ -69,7 +81,7 @@ func (s *OpenAIGatewayService) forwardImagesGenerationsOAuth(ctx context.Context
 	defer func() { _ = resp.Body.Close() }()
 
 	if openAIImagesRequestWantsStream(body) && resp.StatusCode < 400 {
-		result, streamErr := s.handleImagesGenerationsOAuthStream(resp, c, body, model, startTime, writeOriginal)
+		result, streamErr := s.handleImagesOAuthStream(resp, c, body, model, startTime, writeOriginal, eventPrefix)
 		return nil, result, streamErr
 	}
 
@@ -144,17 +156,20 @@ func buildOpenAIImagesOAuthResponsesRequest(imagesBody []byte, imageModel string
 			tool, _ = sjson.SetBytes(tool, "partial_images", partialImages.Int())
 		}
 	}
-	for _, key := range []string{"size", "quality", "background", "output_format", "moderation", "style"} {
+	for _, key := range []string{"size", "quality", "background", "output_format", "moderation", "style", "input_fidelity"} {
 		if value := strings.TrimSpace(gjson.GetBytes(imagesBody, key).String()); value != "" {
 			tool, _ = sjson.SetBytes(tool, key, value)
 		}
+	}
+	if compression := gjson.GetBytes(imagesBody, "output_compression"); compression.Exists() {
+		tool, _ = sjson.SetBytes(tool, "output_compression", compression.Int())
 	}
 	req, _ = sjson.SetRawBytes(req, "tools", []byte(`[]`))
 	req, _ = sjson.SetRawBytes(req, "tools.-1", tool)
 	return req, nil
 }
 
-func (s *OpenAIGatewayService) handleImagesGenerationsOAuthStream(resp *http.Response, c *gin.Context, requestBody []byte, model string, startTime time.Time, writeOriginal bool) (*OpenAIForwardResult, error) {
+func (s *OpenAIGatewayService) handleImagesOAuthStream(resp *http.Response, c *gin.Context, requestBody []byte, model string, startTime time.Time, writeOriginal bool, eventPrefix string) (*OpenAIForwardResult, error) {
 	if c == nil {
 		return nil, errors.New("gin context is nil")
 	}
@@ -181,6 +196,7 @@ func (s *OpenAIGatewayService) handleImagesGenerationsOAuthStream(resp *http.Res
 	seenFinalImages := map[string]struct{}{}
 	imageCount := 0
 	sawTerminal := false
+	var streamErr error
 	completedEmitted := false
 	clientDisconnected := false
 	var firstTokenMs *int
@@ -215,6 +231,16 @@ func (s *OpenAIGatewayService) handleImagesGenerationsOAuthStream(resp *http.Res
 		}
 		flusher.Flush()
 	}
+	emitFailure := func(message string) {
+		if streamErr != nil {
+			return
+		}
+		message = sanitizeUpstreamErrorMessage(message)
+		streamErr = errors.New(message)
+		_ = emitPayload(map[string]any{"type": "error", "error": map[string]any{
+			"type": "upstream_error", "message": message,
+		}})
+	}
 	appendFinalImage := func(image openAIImageOAuthResult) {
 		if image.Result == "" && image.URL == "" {
 			return
@@ -246,7 +272,7 @@ func (s *OpenAIGatewayService) handleImagesGenerationsOAuthStream(resp *http.Res
 		}
 		for idx, image := range finalImages {
 			payload := map[string]any{
-				"type":          "image_generation.completed",
+				"type":          eventPrefix + ".completed",
 				"created_at":    createdAt,
 				"size":          firstNonEmpty(gjson.GetBytes(requestBody, "size").String(), "1024x1024"),
 				"quality":       firstNonEmpty(gjson.GetBytes(requestBody, "quality").String(), "auto"),
@@ -301,8 +327,14 @@ func (s *OpenAIGatewayService) handleImagesGenerationsOAuthStream(resp *http.Res
 			continue
 		}
 		if data == "[DONE]" {
-			_ = emitCompletedImages()
-			emitDone()
+			if streamErr == nil {
+				_ = emitCompletedImages()
+				if imageCount == 0 {
+					emitFailure("openai images oauth response did not contain image results")
+				} else {
+					emitDone()
+				}
+			}
 			sawTerminal = true
 			continue
 		}
@@ -314,7 +346,7 @@ func (s *OpenAIGatewayService) handleImagesGenerationsOAuthStream(resp *http.Res
 		switch eventType {
 		case "response.image_generation_call.partial_image":
 			payload := map[string]any{
-				"type":                "image_generation.partial_image",
+				"type":                eventPrefix + ".partial_image",
 				"b64_json":            firstNonEmpty(gjson.Get(data, "partial_image_b64").String(), gjson.Get(data, "b64_json").String()),
 				"created_at":          time.Now().Unix(),
 				"partial_image_index": gjson.Get(data, "partial_image_index").Int(),
@@ -344,34 +376,35 @@ func (s *OpenAIGatewayService) handleImagesGenerationsOAuthStream(resp *http.Res
 					appendFinalItem(item)
 				}
 			}
-			if err := emitCompletedImages(); err != nil {
-				return nil, err
+			if streamErr == nil {
+				if err := emitCompletedImages(); err != nil {
+					return nil, err
+				}
+				if imageCount == 0 {
+					emitFailure("openai images oauth response did not contain image results")
+				}
 			}
-		case "response.failed", "response.incomplete", "response.cancelled", "response.canceled":
+		case "response.failed", "response.incomplete", "response.cancelled", "response.canceled", "error":
 			sawTerminal = true
+			if parsedUsage, ok := extractOpenAIUsageFromJSONBytes([]byte(gjson.Get(data, "response").Raw)); ok {
+				usage = parsedUsage
+			}
+			emitFailure(firstNonEmpty(gjson.Get(data, "response.error.message").String(), gjson.Get(data, "error.message").String(), gjson.Get(data, "message").String(), "openai images oauth stream ended with "+eventType))
 		}
 	}
 	if err := scanner.Err(); err != nil && !sawTerminal {
-		return buildOpenAIImagesOAuthStreamingResult(resp, requestBody, model, usage, imageCount, firstTokenMs, startTime), err
-	}
-	if !completedEmitted {
-		if err := emitCompletedImages(); err != nil {
-			return nil, err
-		}
+		emitFailure("openai images oauth stream read error: " + err.Error())
 	}
 	if !sawTerminal {
-		return buildOpenAIImagesOAuthStreamingResult(resp, requestBody, model, usage, imageCount, firstTokenMs, startTime), errors.New("openai images oauth stream missing terminal event")
+		emitFailure("openai images oauth stream missing terminal event")
 	}
-	return buildOpenAIImagesOAuthStreamingResult(resp, requestBody, model, usage, imageCount, firstTokenMs, startTime), nil
+	return buildOpenAIImagesOAuthStreamingResult(resp, requestBody, model, usage, imageCount, firstTokenMs, startTime), streamErr
 }
 
 func buildOpenAIImagesOAuthStreamingResult(resp *http.Response, requestBody []byte, model string, usage OpenAIUsage, imageCount int, firstTokenMs *int, startTime time.Time) *OpenAIForwardResult {
 	model = strings.TrimSpace(model)
 	if model == "" {
 		model = "gpt-image-2"
-	}
-	if imageCount <= 0 {
-		imageCount = resolveOpenAIImagesCount(requestBody, nil)
 	}
 	return &OpenAIForwardResult{
 		RequestID:       strings.TrimSpace(resp.Header.Get("x-request-id")),
@@ -441,6 +474,8 @@ func collectOpenAIImagesOAuthResults(body []byte) ([]openAIImageOAuthResult, int
 		createdAt int64
 		usage     OpenAIUsage
 		seen      = map[string]struct{}{}
+		terminal  bool
+		failed    bool
 	)
 	appendResult := func(item gjson.Result) {
 		if !item.Exists() || item.Get("type").String() != "image_generation_call" {
@@ -465,7 +500,11 @@ func collectOpenAIImagesOAuthResults(body []byte) ([]openAIImageOAuthResult, int
 	lines := strings.Split(string(body), "\n")
 	for _, line := range lines {
 		data, ok := extractOpenAIStreamPayloadLine(line)
-		if !ok || data == "" || data == "[DONE]" {
+		if !ok || data == "" {
+			continue
+		}
+		if strings.TrimSpace(data) == "[DONE]" {
+			terminal = true
 			continue
 		}
 		eventType := strings.TrimSpace(gjson.Get(data, "type").String())
@@ -473,6 +512,7 @@ func collectOpenAIImagesOAuthResults(body []byte) ([]openAIImageOAuthResult, int
 		case "response.output_item.done":
 			appendResult(gjson.Get(data, "item"))
 		case "response.done", "response.completed":
+			terminal = true
 			response := gjson.Get(data, "response")
 			if response.Exists() {
 				if v := response.Get("created_at").Int(); v > 0 {
@@ -485,9 +525,11 @@ func collectOpenAIImagesOAuthResults(body []byte) ([]openAIImageOAuthResult, int
 					appendResult(item)
 				}
 			}
+		case "response.failed", "response.incomplete", "response.cancelled", "response.canceled", "error":
+			failed = true
 		}
 	}
-	return results, createdAt, usage, len(results) > 0
+	return results, createdAt, usage, terminal && !failed && len(results) > 0
 }
 
 func openAIImageOAuthMIMEType(outputFormat string) string {

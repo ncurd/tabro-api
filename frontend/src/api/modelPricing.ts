@@ -3,6 +3,15 @@ import { apiClient } from './client'
 export interface AvailableModelPricingModel {
   id: string
   pricing_available: boolean
+  billing_mode?: 'token' | 'per_request' | 'image' | 'audio' | 'video'
+  unit_price?: number | null
+  price_unit?: 'million_tokens' | 'second' | 'character' | 'image' | 'request' | 'audio_unit'
+  tiers?: Array<{
+    label: string
+    unit_price: number
+    min_tokens?: number
+    max_tokens?: number | null
+  }>
   input_price_per_million?: number
   output_price_per_million?: number
   cache_write_price_per_million?: number

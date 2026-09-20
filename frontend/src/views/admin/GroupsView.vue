@@ -2782,6 +2782,9 @@ const platformOptions = computed(() => [
   { value: "openai", label: "OpenAI" },
   { value: "gemini", label: "Gemini" },
   { value: "antigravity", label: "Antigravity" },
+  { value: "dashscope", label: "DashScope / Wan" },
+  { value: "volcengine_ark", label: "Volcengine Ark / Seedance" },
+  { value: "azure_speech", label: "Azure Speech" },
 ]);
 
 const platformFilterOptions = computed(() => [
@@ -2790,6 +2793,9 @@ const platformFilterOptions = computed(() => [
   { value: "openai", label: "OpenAI" },
   { value: "gemini", label: "Gemini" },
   { value: "antigravity", label: "Antigravity" },
+  { value: "dashscope", label: "DashScope / Wan" },
+  { value: "volcengine_ark", label: "Volcengine Ark / Seedance" },
+  { value: "azure_speech", label: "Azure Speech" },
 ]);
 
 const editStatusOptions = computed(() => [

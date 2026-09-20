@@ -39,23 +39,23 @@
     <template v-else>
       <div class="w-24">
         <label class="text-xs text-gray-400">
-          {{ mode === 'image' ? t('admin.channels.form.resolution', '分辨率') : t('admin.channels.form.tierLabel', '层级') }}
+          {{ (mode === 'image' || mode === 'video') ? t('admin.channels.form.resolution', '分辨率') : t('admin.channels.form.tierLabel', '层级') }}
         </label>
         <input :value="interval.tier_label" @input="emitField('tier_label', ($event.target as HTMLInputElement).value)"
-          type="text" class="input mt-0.5 text-xs" :placeholder="mode === 'image' ? '1K / 2K / 4K' : ''" />
+          type="text" class="input mt-0.5 text-xs" :placeholder="mode === 'video' ? '480P / 720P / 1080P' : mode === 'image' ? '1K / 2K / 4K' : ''" />
       </div>
-      <div class="w-20">
+      <div v-if="mode !== 'video' && mode !== 'audio'" class="w-20">
         <label class="text-xs text-gray-400">Min</label>
         <input :value="interval.min_tokens" @input="emitField('min_tokens', toInt(($event.target as HTMLInputElement).value))"
           type="number" min="0" class="input mt-0.5 text-xs" />
       </div>
-      <div class="w-20">
+      <div v-if="mode !== 'video' && mode !== 'audio'" class="w-20">
         <label class="text-xs text-gray-400">Max <span class="text-gray-300">(含)</span></label>
         <input :value="interval.max_tokens ?? ''" @input="emitField('max_tokens', toIntOrNull(($event.target as HTMLInputElement).value))"
           type="number" min="0" class="input mt-0.5 text-xs" :placeholder="'∞'" />
       </div>
       <div class="flex-1">
-        <label class="text-xs text-gray-400">{{ t('admin.channels.form.perRequestPrice', '单次价格') }} <span v-if="isEmpty" class="text-red-500">*</span> <span class="text-gray-300">✦</span></label>
+        <label class="text-xs text-gray-400">{{ mode === 'video' ? t('admin.channels.form.videoSecondPrice') : mode === 'audio' ? t('admin.channels.form.audioUnitPrice') : t('admin.channels.form.perRequestPrice', '单次价格') }} <span v-if="isEmpty" class="text-red-500">*</span> <span class="text-gray-300">✦</span></label>
         <input :value="interval.per_request_price" @input="emitField('per_request_price', ($event.target as HTMLInputElement).value)"
           type="number" step="any" min="0" class="input mt-0.5 text-xs" />
       </div>

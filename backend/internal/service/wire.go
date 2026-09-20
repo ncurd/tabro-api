@@ -402,7 +402,8 @@ var ProviderSet = wire.NewSet(
 	NewAdminService,
 	NewGatewayService,
 	NewOpenAIGatewayService,
-	NewMediaGenerationService,
+	NewMediaBillingService,
+	ProvideMediaGenerationService,
 	NewOAuthService,
 	NewOpenAIOAuthService,
 	NewGeminiOAuthService,
@@ -410,7 +411,7 @@ var ProviderSet = wire.NewSet(
 	NewCompositeTokenCacheInvalidator,
 	wire.Bind(new(TokenCacheInvalidator), new(*CompositeTokenCacheInvalidator)),
 	NewAntigravityOAuthService,
-	NewOAuthRefreshAPI,
+	ProvideOAuthRefreshAPI,
 	ProvideGeminiTokenProvider,
 	NewGeminiMessagesCompatService,
 	ProvideAntigravityTokenProvider,
@@ -464,6 +465,7 @@ var ProviderSet = wire.NewSet(
 	NewGroupCapacityService,
 	NewChannelService,
 	NewModelPricingResolver,
+	ProvideModelPricingPageService,
 	ProvidePaymentConfigService,
 	NewPaymentService,
 	ProvidePaymentOrderExpiryService,
@@ -486,4 +488,19 @@ func ProvidePaymentOrderExpiryService(paymentSvc *PaymentService) *PaymentOrderE
 	svc := NewPaymentOrderExpiryService(paymentSvc, 60*time.Second)
 	svc.Start()
 	return svc
+}
+
+// ProvideMediaGenerationService starts durable media task polling and settlement.
+func ProvideMediaGenerationService(accountRepo AccountRepository, jobRepo MediaGenerationJobRepository, usageRepo UsageLogRepository, httpUpstream HTTPUpstream, cfg *config.Config, billing *MediaBillingService) *MediaGenerationService {
+	svc := NewMediaGenerationService(accountRepo, jobRepo, usageRepo, httpUpstream, cfg, billing)
+	svc.Start()
+	return svc
+}
+
+func ProvideOAuthRefreshAPI(accountRepo AccountRepository, tokenCache GeminiTokenCache) *OAuthRefreshAPI {
+	return NewOAuthRefreshAPI(accountRepo, tokenCache)
+}
+
+func ProvideModelPricingPageService(apiKeyService *APIKeyService, accountRepo AccountRepository, resolver *ModelPricingResolver) *ModelPricingPageService {
+	return NewModelPricingPageService(apiKeyService, accountRepo, resolver)
 }

@@ -4378,6 +4378,13 @@ func (s *OpenAIGatewayService) forwardImagesGenerations(ctx context.Context, c *
 	if err != nil {
 		return nil, nil, err
 	}
+	return s.forwardImagesAPIKey(ctx, c, account, upstreamReq, body, writeOriginal)
+}
+
+// forwardImagesAPIKey shares response handling between native image endpoints.
+// requestBody contains JSON metadata only, including for multipart uploads.
+func (s *OpenAIGatewayService) forwardImagesAPIKey(ctx context.Context, c *gin.Context, account *Account, upstreamReq *http.Request, requestBody []byte, writeOriginal bool) ([]byte, *OpenAIForwardResult, error) {
+	body := requestBody
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
@@ -4442,6 +4449,10 @@ func (s *OpenAIGatewayService) forwardImagesGenerations(ctx context.Context, c *
 		ImageCount:      resolveOpenAIImagesCount(body, respBody),
 		ImageSize:       normalizeOpenAIImageSize(gjson.GetBytes(body, "size").String()),
 	}
+	if usage, ok := extractOpenAIUsageFromJSONBytes(respBody); ok {
+		usage.ImageOutputTokens = usage.OutputTokens
+		result.Usage = usage
+	}
 	return respBody, result, nil
 }
 
@@ -4474,6 +4485,7 @@ func (s *OpenAIGatewayService) handleImagesStreamingResponse(ctx context.Context
 	var firstTokenMs *int
 	clientDisconnected := false
 	sawTerminalEvent := false
+	var streamErr error
 	upstreamRequestID := strings.TrimSpace(resp.Header.Get("x-request-id"))
 	if _, err := fmt.Fprint(w, ":\n\n"); err != nil {
 		clientDisconnected = true
@@ -4497,8 +4509,11 @@ func (s *OpenAIGatewayService) handleImagesStreamingResponse(ctx context.Context
 			if openAIStreamEventIsTerminal(trimmedData) {
 				sawTerminalEvent = true
 			}
-			if gjson.Get(trimmedData, "type").String() == "image_generation.completed" {
+			if isOpenAIImageTerminalEventType(gjson.Get(trimmedData, "type").String()) {
 				imageCount++
+			}
+			if gjson.Get(trimmedData, "type").String() == "error" || gjson.Get(trimmedData, "error").Exists() {
+				streamErr = errors.New(firstNonEmpty(gjson.Get(trimmedData, "error.message").String(), gjson.Get(trimmedData, "message").String(), "upstream image stream failed"))
 			}
 			if firstTokenMs == nil && trimmedData != "" && trimmedData != "[DONE]" {
 				ms := int(time.Since(startTime).Milliseconds())
@@ -4516,8 +4531,11 @@ func (s *OpenAIGatewayService) handleImagesStreamingResponse(ctx context.Context
 			}
 		}
 	}
+	if streamErr != nil {
+		return buildOpenAIImagesStreamingResult(resp, requestBody, usage, imageCount, firstTokenMs, startTime), streamErr
+	}
 	if err := scanner.Err(); err != nil {
-		if sawTerminalEvent || clientDisconnected {
+		if (sawTerminalEvent || clientDisconnected) && imageCount > 0 {
 			return buildOpenAIImagesStreamingResult(resp, requestBody, usage, imageCount, firstTokenMs, startTime), nil
 		}
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
@@ -4533,6 +4551,9 @@ func (s *OpenAIGatewayService) handleImagesStreamingResponse(ctx context.Context
 	if !clientDisconnected && !sawTerminalEvent && ctx.Err() == nil {
 		return buildOpenAIImagesStreamingResult(resp, requestBody, usage, imageCount, firstTokenMs, startTime), errors.New("image stream usage incomplete: missing terminal event")
 	}
+	if imageCount == 0 {
+		return buildOpenAIImagesStreamingResult(resp, requestBody, usage, imageCount, firstTokenMs, startTime), errors.New("image stream did not contain completed images")
+	}
 	return buildOpenAIImagesStreamingResult(resp, requestBody, usage, imageCount, firstTokenMs, startTime), nil
 }
 
@@ -4540,9 +4561,6 @@ func buildOpenAIImagesStreamingResult(resp *http.Response, requestBody []byte, u
 	model := strings.TrimSpace(gjson.GetBytes(requestBody, "model").String())
 	if model == "" {
 		model = "gpt-image-2"
-	}
-	if imageCount <= 0 {
-		imageCount = resolveOpenAIImagesCount(requestBody, nil)
 	}
 	result := &OpenAIForwardResult{
 		RequestID:       strings.TrimSpace(resp.Header.Get("x-request-id")),
@@ -4568,8 +4586,9 @@ func parseOpenAIImageStreamUsageBytes(data []byte, usage *OpenAIUsage) {
 	if !isOpenAIImageTerminalEventType(eventType) {
 		return
 	}
-	usage.InputTokens = int(gjson.GetBytes(data, "usage.input_tokens").Int())
-	usage.OutputTokens = int(gjson.GetBytes(data, "usage.output_tokens").Int())
+	if parsed, ok := extractOpenAIUsageFromJSONBytes(data); ok {
+		*usage = parsed
+	}
 	usage.ImageOutputTokens = usage.OutputTokens
 }
 
@@ -4606,6 +4625,14 @@ func BuildOpenAICodexImageGenerationRequest(body []byte) ([]byte, bool, error) {
 	if !ok && !modelIsImage {
 		return nil, false, nil
 	}
+	if openAIImageBridgeNeedsResponses(body, tool) {
+		if modelIsImage {
+			return nil, true, errors.New("image references and editing context require /images/edits or a Responses mainline model with the image_generation tool")
+		}
+		// Preserve reference images, masks, and conversation state on the native
+		// Responses path; the text-only generation bridge cannot represent them.
+		return nil, false, nil
+	}
 	if !modelIsImage {
 		model = strings.TrimSpace(tool.Get("model").String())
 		if model == "" {
@@ -4638,6 +4665,39 @@ func BuildOpenAICodexImageGenerationRequest(body []byte) ([]byte, bool, error) {
 
 func buildOpenAICodexImageGenerationRequest(body []byte) ([]byte, bool, error) {
 	return BuildOpenAICodexImageGenerationRequest(body)
+}
+
+func openAIImageBridgeNeedsResponses(body []byte, tool gjson.Result) bool {
+	for _, key := range []string{"previous_response_id", "conversation", "images", "image", "mask"} {
+		if value := gjson.GetBytes(body, key); value.Exists() && value.Type != gjson.Null {
+			return true
+		}
+	}
+	if tool.Get("action").String() == "edit" || tool.Get("input_image_mask").Exists() {
+		return true
+	}
+	var containsContext func(gjson.Result) bool
+	containsContext = func(value gjson.Result) bool {
+		if value.IsObject() {
+			switch value.Get("type").String() {
+			case "message", "input_text", "":
+			default:
+				return true
+			}
+			if role := value.Get("role").String(); role != "" && role != "user" {
+				return true
+			}
+		}
+		found := false
+		if value.IsArray() || value.IsObject() {
+			value.ForEach(func(_, child gjson.Result) bool {
+				found = containsContext(child)
+				return !found
+			})
+		}
+		return found
+	}
+	return containsContext(gjson.GetBytes(body, "input"))
 }
 
 func firstOpenAIImageGenerationTool(body []byte) (gjson.Result, bool) {

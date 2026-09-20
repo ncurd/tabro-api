@@ -11,6 +11,7 @@ import (
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 )
 
 type mediaGenerationServiceAPI interface {
@@ -29,12 +30,18 @@ type mediaAccountSelector interface {
 
 type MediaGenerationHandler struct {
 	mediaService        mediaGenerationServiceAPI
+	audioService        mediaAudioServiceAPI
 	accountSelector     mediaAccountSelector
 	billingCacheService *service.BillingCacheService
+	concurrencyHelper   *ConcurrencyHelper
 }
 
-func NewMediaGenerationHandler(mediaService *service.MediaGenerationService, gatewayService *service.GatewayService, billingCacheService *service.BillingCacheService) *MediaGenerationHandler {
-	return &MediaGenerationHandler{mediaService: mediaService, accountSelector: gatewayService, billingCacheService: billingCacheService}
+func NewMediaGenerationHandler(mediaService *service.MediaGenerationService, gatewayService *service.GatewayService, billingCacheService *service.BillingCacheService, concurrencyService *service.ConcurrencyService) *MediaGenerationHandler {
+	h := &MediaGenerationHandler{mediaService: mediaService, audioService: mediaService, accountSelector: gatewayService, billingCacheService: billingCacheService}
+	if concurrencyService != nil {
+		h.concurrencyHelper = NewConcurrencyHelper(concurrencyService, SSEPingFormatNone, 0)
+	}
+	return h
 }
 
 func (h *MediaGenerationHandler) AudioSpeech(c *gin.Context) {
@@ -42,10 +49,15 @@ func (h *MediaGenerationHandler) AudioSpeech(c *gin.Context) {
 	if !ok {
 		return
 	}
-	account, ok := h.selectAccount(c, apiKey, subject, req.Model, service.PlatformAzureSpeech)
+	if strings.HasPrefix(req.Voice, "voice_") || strings.HasPrefix(req.Model, "qwen3-tts-vc") {
+		h.clonedAudioSpeech(c, body, apiKey, subject)
+		return
+	}
+	account, release, ok := h.selectAccount(c, apiKey, subject, req.Model, service.PlatformAzureSpeech)
 	if !ok {
 		return
 	}
+	defer release()
 	if h.mediaService == nil {
 		mediaError(c, http.StatusServiceUnavailable, "api_error", "Media generation service is not configured")
 		return
@@ -71,15 +83,16 @@ func (h *MediaGenerationHandler) CreateAudioSpeechJob(c *gin.Context) {
 	if !ok {
 		return
 	}
-	account, ok := h.selectAccount(c, apiKey, subject, req.Model, service.PlatformAzureSpeech)
+	account, release, ok := h.selectAccount(c, apiKey, subject, req.Model, service.PlatformAzureSpeech)
 	if !ok {
 		return
 	}
+	defer release()
 	if h.mediaService == nil {
 		mediaError(c, http.StatusServiceUnavailable, "api_error", "Media generation service is not configured")
 		return
 	}
-	job, err := h.mediaService.CreateAudioSpeechJob(c.Request.Context(), mediaMeta(apiKey, subject, body), account, req)
+	job, err := h.mediaService.CreateAudioSpeechJob(c.Request.Context(), mediaMeta(c, apiKey, subject, body), account, req)
 	if err != nil {
 		h.writeMediaServiceError(c, err)
 		return
@@ -97,15 +110,16 @@ func (h *MediaGenerationHandler) CreateVideoGeneration(c *gin.Context) {
 		return
 	}
 	expectedPlatform := expectedVideoPlatform(req.Model)
-	account, ok := h.selectAccount(c, apiKey, subject, req.Model, expectedPlatform)
+	account, release, ok := h.selectAccount(c, apiKey, subject, req.Model, expectedPlatform)
 	if !ok {
 		return
 	}
+	defer release()
 	if h.mediaService == nil {
 		mediaError(c, http.StatusServiceUnavailable, "api_error", "Media generation service is not configured")
 		return
 	}
-	job, err := h.mediaService.CreateVideoJob(c.Request.Context(), mediaMeta(apiKey, subject, body), account, req)
+	job, err := h.mediaService.CreateVideoJob(c.Request.Context(), mediaMeta(c, apiKey, subject, body), account, req)
 	if err != nil {
 		h.writeMediaServiceError(c, err)
 		return
@@ -131,19 +145,31 @@ func (h *MediaGenerationHandler) getMediaJob(c *gin.Context, kind string) {
 		h.writeMediaServiceError(c, err)
 		return
 	}
-	if job == nil || job.Kind != kind || (job.APIKeyID != apiKey.ID && job.UserID != subject.UserID) {
+	if job == nil || job.Kind != kind || (job.APIKeyID != apiKey.ID || job.UserID != subject.UserID || !sameMediaGroup(job.GroupID, apiKey.GroupID)) {
 		mediaError(c, http.StatusNotFound, "not_found_error", "Media generation job not found")
 		return
 	}
-	account, err := h.mediaService.GetAccountByID(c.Request.Context(), job.AccountID)
-	if err != nil {
-		h.writeMediaServiceError(c, err)
-		return
+	var account *service.Account
+	completedVideo := kind == service.MediaJobKindVideoGeneration && (job.Status == service.MediaJobStatusSucceeded || job.Status == service.MediaJobStatusFailed || job.Status == service.MediaJobStatusCanceled)
+	if !completedVideo {
+		account, err = h.mediaService.GetAccountByID(c.Request.Context(), job.AccountID)
+		if err != nil {
+			h.writeMediaServiceError(c, err)
+			return
+		}
 	}
+	publicID := job.PublicID
 	if kind == service.MediaJobKindAudioSpeech {
 		job, err = h.mediaService.RefreshAudioSpeechJob(c.Request.Context(), job, account)
 	} else {
 		job, err = h.mediaService.RefreshVideoJob(c.Request.Context(), job, account)
+	}
+	// Completed provider results remain usable while durable settlement retries.
+	if err != nil && kind == service.MediaJobKindVideoGeneration && (errors.Is(err, service.ErrMediaBillingUnavailable) || errors.Is(err, service.ErrMediaUsageIncomplete)) {
+		persisted, readErr := h.mediaService.GetJobByPublicID(c.Request.Context(), publicID)
+		if readErr == nil && persisted != nil && persisted.Status == service.MediaJobStatusSucceeded {
+			job, err = persisted, nil
+		}
 	}
 	if err != nil {
 		h.writeMediaServiceError(c, err)
@@ -187,12 +213,8 @@ func (h *MediaGenerationHandler) parseVideoRequest(c *gin.Context) ([]byte, serv
 	}
 	req.Model = strings.TrimSpace(req.Model)
 	req.Prompt = strings.TrimSpace(req.Prompt)
-	if req.Model == "" {
-		mediaError(c, http.StatusBadRequest, "invalid_request_error", "model is required")
-		return nil, req, nil, middleware2.AuthSubject{}, false
-	}
-	if req.Prompt == "" {
-		mediaError(c, http.StatusBadRequest, "invalid_request_error", "prompt is required")
+	if err := req.Validate(); err != nil {
+		mediaError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, req, nil, middleware2.AuthSubject{}, false
 	}
 	return body, req, apiKey, subject, true
@@ -229,35 +251,105 @@ func mediaAuthContext(c *gin.Context) (*service.APIKey, middleware2.AuthSubject,
 	return apiKey, subject, true
 }
 
-func (h *MediaGenerationHandler) selectAccount(c *gin.Context, apiKey *service.APIKey, subject middleware2.AuthSubject, model string, expectedPlatform string) (*service.Account, bool) {
+func (h *MediaGenerationHandler) selectAccount(c *gin.Context, apiKey *service.APIKey, subject middleware2.AuthSubject, model string, expectedPlatform string) (*service.Account, func(), bool) {
+	ctx := c.Request.Context()
+	var userRelease, accountRelease func()
+	release := func() {
+		if accountRelease != nil {
+			accountRelease()
+		}
+		if userRelease != nil {
+			userRelease()
+		}
+	}
+	selected := false
+	defer func() {
+		if !selected {
+			release()
+		}
+	}()
 	if h.accountSelector == nil {
 		mediaError(c, http.StatusServiceUnavailable, "api_error", "Account scheduler is not configured")
-		return nil, false
+		return nil, nil, false
 	}
-	selection, err := h.accountSelector.SelectAccountWithLoadAwareness(c.Request.Context(), apiKey.GroupID, "", model, nil, "", subject.UserID)
+	if h.concurrencyHelper != nil {
+		var acquired bool
+		var err error
+		userRelease, acquired, err = h.concurrencyHelper.TryAcquireUserSlot(ctx, subject.UserID, subject.Concurrency)
+		if err != nil || !acquired {
+			mediaError(c, http.StatusTooManyRequests, "rate_limit_error", "User concurrency limit reached")
+			return nil, nil, false
+		}
+		userRelease = wrapReleaseOnDone(ctx, userRelease)
+	}
+	if !h.checkBillingEligibility(c, apiKey) {
+		return nil, nil, false
+	}
+	selection, err := h.accountSelector.SelectAccountWithLoadAwareness(ctx, apiKey.GroupID, "", model, nil, "", subject.UserID)
+	if selection != nil && selection.Acquired {
+		accountRelease = wrapReleaseOnDone(ctx, selection.ReleaseFunc)
+	}
 	if err != nil || selection == nil || selection.Account == nil {
 		mediaError(c, http.StatusServiceUnavailable, "api_error", "No available account for media generation")
-		return nil, false
+		return nil, nil, false
 	}
 	account := selection.Account
 	if expectedPlatform != "" && account.Platform != expectedPlatform {
-		if selection.Acquired && selection.ReleaseFunc != nil {
-			selection.ReleaseFunc()
-		}
 		mediaError(c, http.StatusBadRequest, "invalid_request_error", "selected account platform does not support requested media model")
-		return nil, false
+		return nil, nil, false
 	}
-	return account, true
+	if !selection.Acquired {
+		if selection.WaitPlan == nil || h.concurrencyHelper == nil {
+			mediaError(c, http.StatusTooManyRequests, "rate_limit_error", "Account concurrency limit reached")
+			return nil, nil, false
+		}
+		canWait, waitErr := h.concurrencyHelper.IncrementAccountWaitCount(ctx, account.ID, selection.WaitPlan.MaxWaiting)
+		if waitErr != nil || !canWait {
+			mediaError(c, http.StatusTooManyRequests, "rate_limit_error", "Account wait queue is full")
+			return nil, nil, false
+		}
+		streamStarted := false
+		accountRelease, err = h.concurrencyHelper.AcquireAccountSlotWithWaitTimeout(c, account.ID, selection.WaitPlan.MaxConcurrency, selection.WaitPlan.Timeout, false, &streamStarted)
+		h.concurrencyHelper.DecrementAccountWaitCount(ctx, account.ID)
+		if err != nil {
+			mediaError(c, http.StatusTooManyRequests, "rate_limit_error", "Timed out waiting for an account slot")
+			return nil, nil, false
+		}
+		accountRelease = wrapReleaseOnDone(ctx, accountRelease)
+		if !h.checkBillingEligibility(c, apiKey) {
+			return nil, nil, false
+		}
+	}
+	selected = true
+	return account, release, true
 }
 
-func mediaMeta(apiKey *service.APIKey, subject middleware2.AuthSubject, body []byte) service.MediaRequestMeta {
-	return service.MediaRequestMeta{UserID: subject.UserID, APIKeyID: apiKey.ID, GroupID: apiKey.GroupID, RequestJSON: append([]byte(nil), body...)}
+func (h *MediaGenerationHandler) checkBillingEligibility(c *gin.Context, apiKey *service.APIKey) bool {
+	if h.billingCacheService == nil {
+		return true
+	}
+	subscription, _ := middleware2.GetSubscriptionFromContext(c)
+	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription); err != nil {
+		status, code, message := billingErrorDetails(err)
+		mediaError(c, status, code, message)
+		return false
+	}
+	return true
+}
+
+func mediaMeta(c *gin.Context, apiKey *service.APIKey, subject middleware2.AuthSubject, body []byte) service.MediaRequestMeta {
+	subscription, _ := middleware2.GetSubscriptionFromContext(c)
+	return service.MediaRequestMeta{UserID: subject.UserID, APIKeyID: apiKey.ID, GroupID: apiKey.GroupID, APIKey: apiKey, Subscription: subscription, RequestJSON: append([]byte(nil), body...)}
+}
+
+func sameMediaGroup(a, b *int64) bool {
+	return (a == nil && b == nil) || (a != nil && b != nil && *a == *b)
 }
 
 func expectedVideoPlatform(model string) string {
 	model = strings.ToLower(strings.TrimSpace(model))
 	switch {
-	case strings.Contains(model, "happyhorse"):
+	case strings.Contains(model, "happyhorse"), strings.HasPrefix(model, "wan"):
 		return service.PlatformDashScope
 	case strings.Contains(model, "seedance"):
 		return service.PlatformVolcengineArk
@@ -285,9 +377,39 @@ func mediaJobResponse(job *service.MediaGenerationJob) gin.H {
 		"created_at":       job.CreatedAt.Unix(),
 		"upstream_task_id": job.UpstreamTaskID,
 	}
+	if job.Kind == service.MediaJobKindVideoGeneration {
+		billingStatus := "unpriced"
+		if len(job.BillingSnapshotJSON) > 0 {
+			billingStatus = "not_due"
+			if job.Status == service.MediaJobStatusSucceeded {
+				billingStatus = "pending"
+				if job.UsageRecordedAt != nil {
+					billingStatus = "settled"
+				}
+			}
+		}
+		resp["billing_status"] = billingStatus
+	}
 	if job.ResultURL != "" {
 		resp["url"] = job.ResultURL
 	}
+	duration := float64(job.VideoDurationSeconds)
+	if actual, ok := job.GeneratedVideoDurationSeconds(); ok {
+		duration = actual
+	}
+	if duration > 0 {
+		resp["duration"] = duration
+	}
+	if job.VideoResolution != "" {
+		resp["resolution"] = job.VideoResolution
+	}
+	if job.VideoRatio != "" {
+		resp["ratio"] = job.VideoRatio
+	}
+	if lastFrame := gjson.GetBytes(job.UpstreamResponseJSON, "content.last_frame_url").String(); lastFrame != "" {
+		resp["last_frame_url"] = lastFrame
+	}
+
 	if job.ErrorCode != "" || job.ErrorMessage != "" {
 		resp["error"] = gin.H{"code": job.ErrorCode, "message": job.ErrorMessage}
 	}
@@ -298,6 +420,22 @@ func mediaJobResponse(job *service.MediaGenerationJob) gin.H {
 }
 
 func (h *MediaGenerationHandler) writeMediaServiceError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, service.ErrMediaPricingNotConfigured):
+		mediaError(c, http.StatusBadRequest, "pricing_not_configured", err.Error())
+		return
+	case errors.Is(err, service.ErrMediaBillingUnavailable):
+		mediaError(c, http.StatusServiceUnavailable, "api_error", "Media billing is temporarily unavailable")
+		return
+	case errors.Is(err, service.ErrClonedVoiceNotFound):
+		mediaError(c, http.StatusNotFound, "not_found_error", "Cloned voice not found")
+		return
+	}
+	var invalidRequest *service.InvalidMediaRequestError
+	if errors.As(err, &invalidRequest) {
+		mediaError(c, http.StatusBadRequest, "invalid_request_error", invalidRequest.Error())
+		return
+	}
 	var failoverErr *service.UpstreamFailoverError
 	if errors.As(err, &failoverErr) {
 		status := failoverErr.StatusCode
