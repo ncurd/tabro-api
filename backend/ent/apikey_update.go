@@ -148,6 +148,20 @@ func (_u *APIKeyUpdate) SetNillableOidcManaged(v *bool) *APIKeyUpdate {
 	return _u
 }
 
+// SetAuthBillingOnly sets the "auth_billing_only" field.
+func (_u *APIKeyUpdate) SetAuthBillingOnly(v bool) *APIKeyUpdate {
+	_u.mutation.SetAuthBillingOnly(v)
+	return _u
+}
+
+// SetNillableAuthBillingOnly sets the "auth_billing_only" field if the given value is not nil.
+func (_u *APIKeyUpdate) SetNillableAuthBillingOnly(v *bool) *APIKeyUpdate {
+	if v != nil {
+		_u.SetAuthBillingOnly(*v)
+	}
+	return _u
+}
+
 // SetOidcIssuer sets the "oidc_issuer" field.
 func (_u *APIKeyUpdate) SetOidcIssuer(v string) *APIKeyUpdate {
 	_u.mutation.SetOidcIssuer(v)
@@ -663,6 +677,9 @@ func (_u *APIKeyUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if value, ok := _u.mutation.OidcManaged(); ok {
 		_spec.SetField(apikey.FieldOidcManaged, field.TypeBool, value)
 	}
+	if value, ok := _u.mutation.AuthBillingOnly(); ok {
+		_spec.SetField(apikey.FieldAuthBillingOnly, field.TypeBool, value)
+	}
 	if value, ok := _u.mutation.OidcIssuer(); ok {
 		_spec.SetField(apikey.FieldOidcIssuer, field.TypeString, value)
 	}
@@ -1010,6 +1027,20 @@ func (_u *APIKeyUpdateOne) SetOidcManaged(v bool) *APIKeyUpdateOne {
 func (_u *APIKeyUpdateOne) SetNillableOidcManaged(v *bool) *APIKeyUpdateOne {
 	if v != nil {
 		_u.SetOidcManaged(*v)
+	}
+	return _u
+}
+
+// SetAuthBillingOnly sets the "auth_billing_only" field.
+func (_u *APIKeyUpdateOne) SetAuthBillingOnly(v bool) *APIKeyUpdateOne {
+	_u.mutation.SetAuthBillingOnly(v)
+	return _u
+}
+
+// SetNillableAuthBillingOnly sets the "auth_billing_only" field if the given value is not nil.
+func (_u *APIKeyUpdateOne) SetNillableAuthBillingOnly(v *bool) *APIKeyUpdateOne {
+	if v != nil {
+		_u.SetAuthBillingOnly(*v)
 	}
 	return _u
 }
@@ -1558,6 +1589,9 @@ func (_u *APIKeyUpdateOne) sqlSave(ctx context.Context) (_node *APIKey, err erro
 	}
 	if value, ok := _u.mutation.OidcManaged(); ok {
 		_spec.SetField(apikey.FieldOidcManaged, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.AuthBillingOnly(); ok {
+		_spec.SetField(apikey.FieldAuthBillingOnly, field.TypeBool, value)
 	}
 	if value, ok := _u.mutation.OidcIssuer(); ok {
 		_spec.SetField(apikey.FieldOidcIssuer, field.TypeString, value)

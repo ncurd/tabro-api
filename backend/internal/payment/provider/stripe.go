@@ -194,10 +194,12 @@ func (s *Stripe) queryCheckoutSession(ctx context.Context, tradeNo string) (*pay
 	}
 
 	return &payment.QueryOrderResponse{
-		TradeNo:  session.ID,
-		Status:   status,
-		Amount:   payment.MinorUnitsToDecimal(session.AmountTotal),
-		Currency: strings.ToUpper(string(session.Currency)),
+		TradeNo:               session.ID,
+		ConfirmedUnpaidClosed: session.Status == stripe.CheckoutSessionStatusExpired && session.PaymentStatus == stripe.CheckoutSessionPaymentStatusUnpaid,
+		Status:                status,
+		Amount:                payment.MinorUnitsToDecimal(session.AmountTotal),
+		ExactAmount:           payment.MinorUnitsToExactDecimal(session.AmountTotal),
+		Currency:              strings.ToUpper(string(session.Currency)),
 	}, nil
 }
 
@@ -208,10 +210,12 @@ func (s *Stripe) queryPaymentIntent(ctx context.Context, tradeNo string) (*payme
 	}
 
 	return &payment.QueryOrderResponse{
-		TradeNo:  pi.ID,
-		Status:   mapStripePaymentIntentStatus(pi.Status),
-		Amount:   payment.MinorUnitsToDecimal(pi.Amount),
-		Currency: strings.ToUpper(string(pi.Currency)),
+		TradeNo:               pi.ID,
+		ConfirmedUnpaidClosed: pi.Status == stripe.PaymentIntentStatusCanceled && pi.AmountReceived == 0,
+		Status:                mapStripePaymentIntentStatus(pi.Status),
+		Amount:                payment.MinorUnitsToDecimal(pi.Amount),
+		ExactAmount:           payment.MinorUnitsToExactDecimal(pi.Amount),
+		Currency:              strings.ToUpper(string(pi.Currency)),
 	}, nil
 }
 
@@ -281,12 +285,13 @@ func stripeCheckoutSessionNotification(session *stripe.CheckoutSession, status s
 	}
 
 	return &payment.PaymentNotification{
-		TradeNo:  session.ID,
-		OrderID:  orderID,
-		Amount:   payment.MinorUnitsToDecimal(session.AmountTotal),
-		Currency: strings.ToUpper(string(session.Currency)),
-		Status:   status,
-		RawData:  rawBody,
+		TradeNo:     session.ID,
+		OrderID:     orderID,
+		Amount:      payment.MinorUnitsToDecimal(session.AmountTotal),
+		ExactAmount: payment.MinorUnitsToExactDecimal(session.AmountTotal),
+		Currency:    strings.ToUpper(string(session.Currency)),
+		Status:      status,
+		RawData:     rawBody,
 	}
 }
 
@@ -296,12 +301,13 @@ func parseStripePaymentIntent(event *stripe.Event, status string, rawBody string
 		return nil, fmt.Errorf("stripe parse payment_intent: %w", err)
 	}
 	return &payment.PaymentNotification{
-		TradeNo:  pi.ID,
-		OrderID:  pi.Metadata["orderId"],
-		Amount:   payment.MinorUnitsToDecimal(pi.Amount),
-		Currency: strings.ToUpper(string(pi.Currency)),
-		Status:   status,
-		RawData:  rawBody,
+		TradeNo:     pi.ID,
+		OrderID:     pi.Metadata["orderId"],
+		Amount:      payment.MinorUnitsToDecimal(pi.Amount),
+		ExactAmount: payment.MinorUnitsToExactDecimal(pi.Amount),
+		Currency:    strings.ToUpper(string(pi.Currency)),
+		Status:      status,
+		RawData:     rawBody,
 	}, nil
 }
 
@@ -324,6 +330,10 @@ func (s *Stripe) Refund(ctx context.Context, req payment.RefundRequest) (*paymen
 		Amount:        stripe.Int64(amountInCents),
 		Reason:        stripe.String(string(stripe.RefundReasonRequestedByCustomer)),
 	}
+	if req.RefundID != "" {
+		params.SetIdempotencyKey(req.RefundID)
+		params.AddMetadata("billing_refund_intent", req.RefundID)
+	}
 
 	refund, err := s.sc.V1Refunds.Create(ctx, params)
 	if err != nil {
@@ -339,6 +349,27 @@ func (s *Stripe) Refund(ctx context.Context, req payment.RefundRequest) (*paymen
 		RefundID: refund.ID,
 		Status:   refundStatus,
 	}, nil
+}
+
+func (s *Stripe) CanonicalPaymentReference(ctx context.Context, reference string) (string, error) {
+	s.ensureInit()
+	return s.resolveRefundPaymentIntent(ctx, reference)
+}
+
+func (s *Stripe) QueryRefund(ctx context.Context, reference string) (*payment.RefundResponse, error) {
+	s.ensureInit()
+	r, err := s.sc.V1Refunds.Retrieve(ctx, reference, nil)
+	if err != nil {
+		return nil, err
+	}
+	status := payment.ProviderStatusPending
+	if r.Status == stripe.RefundStatusSucceeded {
+		status = payment.ProviderStatusSuccess
+	}
+	if r.Status == stripe.RefundStatusFailed || r.Status == stripe.RefundStatusCanceled {
+		status = payment.ProviderStatusFailed
+	}
+	return &payment.RefundResponse{RefundID: r.ID, Status: status}, nil
 }
 
 func (s *Stripe) resolveRefundPaymentIntent(ctx context.Context, tradeNo string) (string, error) {
@@ -433,3 +464,42 @@ var (
 	_ payment.Provider           = (*Stripe)(nil)
 	_ payment.CancelableProvider = (*Stripe)(nil)
 )
+
+// Recover by immutable intent metadata, without replaying a PSP mutation after
+// its idempotency retention window. No match remains unresolved, never failed.
+func (s *Stripe) QueryRefundRequest(ctx context.Context, request payment.RefundRequest) (*payment.RefundResponse, error) {
+	s.ensureInit()
+	intent, err := s.resolveRefundPaymentIntent(ctx, request.TradeNo)
+	if err != nil {
+		return nil, err
+	}
+	amount, err := payment.YuanToFen(request.Amount)
+	if err != nil {
+		return nil, err
+	}
+	count := 0
+	for refund, err := range s.sc.V1Refunds.List(ctx, &stripe.RefundListParams{PaymentIntent: stripe.String(intent)}).All(ctx) {
+		if err != nil {
+			return nil, err
+		}
+		count++
+		if count > 1000 {
+			return nil, fmt.Errorf("stripe refund reconciliation requires operator reference")
+		}
+		if refund.Metadata["billing_refund_intent"] != request.RefundID {
+			continue
+		}
+		if refund.Amount != amount || refund.PaymentIntent == nil || refund.PaymentIntent.ID != intent {
+			return nil, fmt.Errorf("stripe refund query mismatch")
+		}
+		status := payment.ProviderStatusPending
+		if refund.Status == stripe.RefundStatusSucceeded {
+			status = payment.ProviderStatusSuccess
+		}
+		if refund.Status == stripe.RefundStatusFailed || refund.Status == stripe.RefundStatusCanceled {
+			status = payment.ProviderStatusFailed
+		}
+		return &payment.RefundResponse{RefundID: refund.ID, Status: status}, nil
+	}
+	return nil, fmt.Errorf("stripe refund outcome unresolved")
+}

@@ -94,6 +94,7 @@ type APIKeyMutation struct {
 	name               *string
 	status             *string
 	oidc_managed       *bool
+	auth_billing_only  *bool
 	oidc_issuer        *string
 	oidc_subject       *string
 	last_used_at       *time.Time
@@ -580,6 +581,42 @@ func (m *APIKeyMutation) OldOidcManaged(ctx context.Context) (v bool, err error)
 // ResetOidcManaged resets all changes to the "oidc_managed" field.
 func (m *APIKeyMutation) ResetOidcManaged() {
 	m.oidc_managed = nil
+}
+
+// SetAuthBillingOnly sets the "auth_billing_only" field.
+func (m *APIKeyMutation) SetAuthBillingOnly(b bool) {
+	m.auth_billing_only = &b
+}
+
+// AuthBillingOnly returns the value of the "auth_billing_only" field in the mutation.
+func (m *APIKeyMutation) AuthBillingOnly() (r bool, exists bool) {
+	v := m.auth_billing_only
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAuthBillingOnly returns the old "auth_billing_only" field's value of the APIKey entity.
+// If the APIKey object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *APIKeyMutation) OldAuthBillingOnly(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAuthBillingOnly is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAuthBillingOnly requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAuthBillingOnly: %w", err)
+	}
+	return oldValue.AuthBillingOnly, nil
+}
+
+// ResetAuthBillingOnly resets all changes to the "auth_billing_only" field.
+func (m *APIKeyMutation) ResetAuthBillingOnly() {
+	m.auth_billing_only = nil
 }
 
 // SetOidcIssuer sets the "oidc_issuer" field.
@@ -1645,7 +1682,7 @@ func (m *APIKeyMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *APIKeyMutation) Fields() []string {
-	fields := make([]string, 0, 26)
+	fields := make([]string, 0, 27)
 	if m.created_at != nil {
 		fields = append(fields, apikey.FieldCreatedAt)
 	}
@@ -1672,6 +1709,9 @@ func (m *APIKeyMutation) Fields() []string {
 	}
 	if m.oidc_managed != nil {
 		fields = append(fields, apikey.FieldOidcManaged)
+	}
+	if m.auth_billing_only != nil {
+		fields = append(fields, apikey.FieldAuthBillingOnly)
 	}
 	if m.oidc_issuer != nil {
 		fields = append(fields, apikey.FieldOidcIssuer)
@@ -1750,6 +1790,8 @@ func (m *APIKeyMutation) Field(name string) (ent.Value, bool) {
 		return m.Status()
 	case apikey.FieldOidcManaged:
 		return m.OidcManaged()
+	case apikey.FieldAuthBillingOnly:
+		return m.AuthBillingOnly()
 	case apikey.FieldOidcIssuer:
 		return m.OidcIssuer()
 	case apikey.FieldOidcSubject:
@@ -1811,6 +1853,8 @@ func (m *APIKeyMutation) OldField(ctx context.Context, name string) (ent.Value, 
 		return m.OldStatus(ctx)
 	case apikey.FieldOidcManaged:
 		return m.OldOidcManaged(ctx)
+	case apikey.FieldAuthBillingOnly:
+		return m.OldAuthBillingOnly(ctx)
 	case apikey.FieldOidcIssuer:
 		return m.OldOidcIssuer(ctx)
 	case apikey.FieldOidcSubject:
@@ -1916,6 +1960,13 @@ func (m *APIKeyMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetOidcManaged(v)
+		return nil
+	case apikey.FieldAuthBillingOnly:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAuthBillingOnly(v)
 		return nil
 	case apikey.FieldOidcIssuer:
 		v, ok := value.(string)
@@ -2279,6 +2330,9 @@ func (m *APIKeyMutation) ResetField(name string) error {
 		return nil
 	case apikey.FieldOidcManaged:
 		m.ResetOidcManaged()
+		return nil
+	case apikey.FieldAuthBillingOnly:
+		m.ResetAuthBillingOnly()
 		return nil
 	case apikey.FieldOidcIssuer:
 		m.ResetOidcIssuer()
@@ -31603,6 +31657,7 @@ type UserMutation struct {
 	concurrency                   *int
 	addconcurrency                *int
 	status                        *string
+	api_only                      *bool
 	token_version                 *int64
 	addtoken_version              *int64
 	username                      *string
@@ -32126,6 +32181,42 @@ func (m *UserMutation) OldStatus(ctx context.Context) (v string, err error) {
 // ResetStatus resets all changes to the "status" field.
 func (m *UserMutation) ResetStatus() {
 	m.status = nil
+}
+
+// SetAPIOnly sets the "api_only" field.
+func (m *UserMutation) SetAPIOnly(b bool) {
+	m.api_only = &b
+}
+
+// APIOnly returns the value of the "api_only" field in the mutation.
+func (m *UserMutation) APIOnly() (r bool, exists bool) {
+	v := m.api_only
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAPIOnly returns the old "api_only" field's value of the User entity.
+// If the User object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserMutation) OldAPIOnly(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAPIOnly is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAPIOnly requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAPIOnly: %w", err)
+	}
+	return oldValue.APIOnly, nil
+}
+
+// ResetAPIOnly resets all changes to the "api_only" field.
+func (m *UserMutation) ResetAPIOnly() {
+	m.api_only = nil
 }
 
 // SetTokenVersion sets the "token_version" field.
@@ -33198,7 +33289,7 @@ func (m *UserMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *UserMutation) Fields() []string {
-	fields := make([]string, 0, 20)
+	fields := make([]string, 0, 21)
 	if m.created_at != nil {
 		fields = append(fields, user.FieldCreatedAt)
 	}
@@ -33225,6 +33316,9 @@ func (m *UserMutation) Fields() []string {
 	}
 	if m.status != nil {
 		fields = append(fields, user.FieldStatus)
+	}
+	if m.api_only != nil {
+		fields = append(fields, user.FieldAPIOnly)
 	}
 	if m.token_version != nil {
 		fields = append(fields, user.FieldTokenVersion)
@@ -33285,6 +33379,8 @@ func (m *UserMutation) Field(name string) (ent.Value, bool) {
 		return m.Concurrency()
 	case user.FieldStatus:
 		return m.Status()
+	case user.FieldAPIOnly:
+		return m.APIOnly()
 	case user.FieldTokenVersion:
 		return m.TokenVersion()
 	case user.FieldUsername:
@@ -33334,6 +33430,8 @@ func (m *UserMutation) OldField(ctx context.Context, name string) (ent.Value, er
 		return m.OldConcurrency(ctx)
 	case user.FieldStatus:
 		return m.OldStatus(ctx)
+	case user.FieldAPIOnly:
+		return m.OldAPIOnly(ctx)
 	case user.FieldTokenVersion:
 		return m.OldTokenVersion(ctx)
 	case user.FieldUsername:
@@ -33427,6 +33525,13 @@ func (m *UserMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetStatus(v)
+		return nil
+	case user.FieldAPIOnly:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAPIOnly(v)
 		return nil
 	case user.FieldTokenVersion:
 		v, ok := value.(int64)
@@ -33670,6 +33775,9 @@ func (m *UserMutation) ResetField(name string) error {
 		return nil
 	case user.FieldStatus:
 		m.ResetStatus()
+		return nil
+	case user.FieldAPIOnly:
+		m.ResetAPIOnly()
 		return nil
 	case user.FieldTokenVersion:
 		m.ResetTokenVersion()

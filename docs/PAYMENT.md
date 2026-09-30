@@ -113,6 +113,7 @@ Direct integration with Alipay Open Platform. Supports PC page pay and H5 mobile
 | Parameter | Description | Required |
 |-----------|-------------|----------|
 | **AppID** | Alipay application AppID | Yes |
+| **Alipay Seller ID** | User ID of the receiving Alipay account; must match `seller_id` in payment notifications | Yes |
 | **Private Key** | RSA2 application private key | Yes |
 | **Alipay Public Key** | Alipay public key | Yes |
 
@@ -127,8 +128,8 @@ Direct integration with WeChat Pay APIv3. Supports Native QR code and H5 payment
 | **Merchant API Private Key** | Merchant API private key (PEM format) | Yes |
 | **APIv3 Key** | 32-byte APIv3 key | Yes |
 | **WeChat Pay Public Key** | WeChat Pay public key (PEM format) | Yes |
-| **WeChat Pay Public Key ID** | WeChat Pay public key ID | No |
-| **Certificate Serial Number** | Merchant certificate serial number | No |
+| **WeChat Pay Public Key ID** | WeChat Pay public key ID | Yes |
+| **Certificate Serial Number** | Merchant certificate serial number | Yes |
 
 ### Stripe
 

@@ -20,6 +20,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	bc "github.com/Wei-Shaw/sub2api/internal/billingcenter"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -2049,9 +2050,9 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		if maxOutputTokens, hasMaxOutputTokens := reqBody["max_output_tokens"]; hasMaxOutputTokens {
 			switch account.Platform {
 			case PlatformOpenAI:
-				// For OpenAI API Key, remove max_output_tokens (not supported)
-				// For OpenAI OAuth (Responses API), keep it (supported)
-				if account.Type == AccountTypeAPIKey {
+				// Central Responses requests must preserve the executable output limit.
+				// OAuth has already stripped it and reserved the full model cap.
+				if account.Type == AccountTypeAPIKey && !bc.IsCentral(ctx) {
 					delete(reqBody, "max_output_tokens")
 					bodyModified = true
 					markPatchDelete("max_output_tokens")
@@ -2705,6 +2706,9 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	body []byte,
 	token string,
 ) (*http.Request, error) {
+	if err := s.validateCentralOutputBound(ctx, account, body); err != nil {
+		return nil, err
+	}
 	targetURL := openaiPlatformAPIURL
 	switch account.Type {
 	case AccountTypeOAuth:
@@ -3202,6 +3206,9 @@ func writeOpenAIPassthroughResponseHeaders(dst http.Header, src http.Header, fil
 }
 
 func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Context, account *Account, body []byte, token string, isStream bool, promptCacheKey string, isCodexCLI bool) (*http.Request, error) {
+	if err := s.validateCentralOutputBound(ctx, account, body); err != nil {
+		return nil, err
+	}
 	// Determine target URL based on account type
 	var targetURL string
 	switch account.Type {
@@ -4361,6 +4368,9 @@ func (s *OpenAIGatewayService) ForwardCodexImageGeneration(ctx context.Context, 
 }
 
 func (s *OpenAIGatewayService) forwardImagesGenerations(ctx context.Context, c *gin.Context, account *Account, body []byte, writeOriginal bool) ([]byte, *OpenAIForwardResult, error) {
+	if err := ValidateBillingImageRequest(ctx, body); err != nil {
+		return nil, nil, err
+	}
 	if account == nil {
 		return nil, nil, errors.New("account is nil")
 	}
@@ -4448,6 +4458,9 @@ func (s *OpenAIGatewayService) forwardImagesAPIKey(ctx context.Context, c *gin.C
 		Duration:        time.Since(upstreamStart),
 		ImageCount:      resolveOpenAIImagesCount(body, respBody),
 		ImageSize:       normalizeOpenAIImageSize(gjson.GetBytes(body, "size").String()),
+	}
+	if bc.IsCentral(ctx) {
+		result.ImageCount = len(gjson.GetBytes(respBody, "data").Array())
 	}
 	if usage, ok := extractOpenAIUsageFromJSONBytes(respBody); ok {
 		usage.ImageOutputTokens = usage.OutputTokens
@@ -5044,7 +5057,13 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	if result.ServiceTier != nil {
 		serviceTier = strings.TrimSpace(*result.ServiceTier)
 	}
-	if result.ImageCount > 0 {
+	if e := bc.ExecutionFromContext(ctx); e != nil && e.Mode == "central" && e.Quote.Request.MaximumUsage[gatewayCreditMeter] != "" {
+		frozen := &ForwardResult{Usage: ClaudeUsage{InputTokens: actualInputTokens,
+			OutputTokens: result.Usage.OutputTokens, CacheReadInputTokens: result.Usage.CacheReadInputTokens,
+			CacheCreationInputTokens: result.Usage.CacheCreationInputTokens,
+			ImageOutputTokens:        result.Usage.ImageOutputTokens, Speed: serviceTier}, ImageCount: result.ImageCount, ImageSize: result.ImageSize}
+		cost, billingModel, multiplier, err = (&GatewayService{billingService: s.billingService, resolver: s.resolver}).frozenGatewayCreditCost(ctx, e, frozen, &recordUsageOpts{})
+	} else if result.ImageCount > 0 {
 		var groupConfig *ImagePriceConfig
 		if apiKey.Group != nil {
 			groupConfig = &ImagePriceConfig{
@@ -5070,7 +5089,10 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		cost, err = s.billingService.CalculateCostWithServiceTier(billingModel, tokens, multiplier, serviceTier)
 	}
 	if err != nil {
-		cost = &CostBreakdown{ActualCost: 0}
+		if bc.IsCentral(ctx) {
+			return fmt.Errorf("%w: gateway price calculation failed: %v", bc.ErrState, err)
+		}
+		cost = &CostBreakdown{ActualCost: 0, PricingFailed: true}
 	}
 
 	// Determine billing type

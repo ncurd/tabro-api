@@ -91,6 +91,7 @@ type RelayOptions struct {
 	FirstMessageType     coderws.MessageType
 	OnPrepareTurn        func(turn int, msgType coderws.MessageType, payload []byte) (RelayPreparedTurn, error)
 	OnBeforeTurn         func(turn int) error
+	OnBeforeWrite        func(turn int) error
 	OnUsageParseFailure  func(eventType string, usageRaw string)
 	OnTurnComplete       func(turn RelayTurnResult)
 	OnTrace              func(event RelayTraceEvent)
@@ -331,6 +332,12 @@ func Relay(
 		return result, &RelayExit{Turn: 1, Stage: "session_expired", Err: err}
 	}
 	state.markTurnStarted(1, firstPrepared, startAt)
+	if options.OnBeforeWrite != nil {
+		if err := options.OnBeforeWrite(1); err != nil {
+			state.markTurnAborted(1)
+			return result, &RelayExit{Turn: 1, Stage: "before_write", Err: err}
+		}
+	}
 	if err := writeUpstream(firstMessageType, firstClientMessage); err != nil {
 		state.markTurnAborted(1)
 		result.Duration = nowFn().Sub(startAt)
@@ -385,6 +392,12 @@ func Relay(
 				return &relayTurnWriteError{turn: turn, stage: "session_expired", err: err}
 			}
 			state.markTurnStarted(turn, prepared, nowFn())
+			if options.OnBeforeWrite != nil {
+				if err := options.OnBeforeWrite(turn); err != nil {
+					state.markTurnAborted(turn)
+					return &relayTurnWriteError{turn: turn, stage: "before_write", err: err}
+				}
+			}
 			if err := writeUpstream(msgType, prepared.Payload); err != nil {
 				state.markTurnAborted(turn)
 				stage := "write_upstream"
@@ -834,7 +847,7 @@ func prepareRelayTurn(
 
 func relayDirectionFromStage(stage string) string {
 	switch stage {
-	case "read_client", "write_upstream", "prepare_turn", "before_turn", "active_turn_limit":
+	case "read_client", "write_upstream", "prepare_turn", "before_turn", "before_write", "active_turn_limit":
 		return "client_to_upstream"
 	case "read_upstream", "write_client", "drain_terminal":
 		return "upstream_to_client"
@@ -1327,7 +1340,7 @@ func shouldDrainActiveTurns(exit relayExitSignal) bool {
 		return true
 	}
 	switch exit.stage {
-	case "write_upstream", "write_client", "prepare_turn", "before_turn", "active_turn_limit", "session_expired":
+	case "write_upstream", "write_client", "prepare_turn", "before_turn", "before_write", "active_turn_limit", "session_expired":
 		return true
 	default:
 		return false
@@ -1335,7 +1348,7 @@ func shouldDrainActiveTurns(exit relayExitSignal) bool {
 }
 
 func isRejectedTurnExit(exit relayExitSignal) bool {
-	return exit.stage == "prepare_turn" || exit.stage == "before_turn" || exit.stage == "active_turn_limit" || exit.stage == "session_expired"
+	return exit.stage == "prepare_turn" || exit.stage == "before_turn" || exit.stage == "before_write" || exit.stage == "active_turn_limit" || exit.stage == "session_expired"
 }
 
 func isClientDisconnectExit(exit relayExitSignal) bool {
@@ -1369,7 +1382,7 @@ func waitRelayDrainExit(
 			case "write_client":
 				// Downstream writes are disabled after the first failure. Keep
 				// reading upstream until every provider turn is terminal.
-			case "read_client", "write_upstream", "prepare_turn", "before_turn", "active_turn_limit", "session_expired":
+			case "read_client", "write_upstream", "prepare_turn", "before_turn", "before_write", "active_turn_limit", "session_expired":
 				// These are client-side exits. The upstream reader remains active
 				// until every accepted turn reaches a terminal event.
 			default:

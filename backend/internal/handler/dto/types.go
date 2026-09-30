@@ -14,6 +14,7 @@ type User struct {
 	Balance       float64   `json:"balance"`
 	Concurrency   int       `json:"concurrency"`
 	Status        string    `json:"status"`
+	APIOnly       bool      `json:"api_only"`
 	AllowedGroups []int64   `json:"allowed_groups"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`

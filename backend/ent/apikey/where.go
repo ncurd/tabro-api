@@ -100,6 +100,11 @@ func OidcManaged(v bool) predicate.APIKey {
 	return predicate.APIKey(sql.FieldEQ(FieldOidcManaged, v))
 }
 
+// AuthBillingOnly applies equality check predicate on the "auth_billing_only" field. It's identical to AuthBillingOnlyEQ.
+func AuthBillingOnly(v bool) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldAuthBillingOnly, v))
+}
+
 // OidcIssuer applies equality check predicate on the "oidc_issuer" field. It's identical to OidcIssuerEQ.
 func OidcIssuer(v string) predicate.APIKey {
 	return predicate.APIKey(sql.FieldEQ(FieldOidcIssuer, v))
@@ -558,6 +563,16 @@ func OidcManagedEQ(v bool) predicate.APIKey {
 // OidcManagedNEQ applies the NEQ predicate on the "oidc_managed" field.
 func OidcManagedNEQ(v bool) predicate.APIKey {
 	return predicate.APIKey(sql.FieldNEQ(FieldOidcManaged, v))
+}
+
+// AuthBillingOnlyEQ applies the EQ predicate on the "auth_billing_only" field.
+func AuthBillingOnlyEQ(v bool) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldAuthBillingOnly, v))
+}
+
+// AuthBillingOnlyNEQ applies the NEQ predicate on the "auth_billing_only" field.
+func AuthBillingOnlyNEQ(v bool) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNEQ(FieldAuthBillingOnly, v))
 }
 
 // OidcIssuerEQ applies the EQ predicate on the "oidc_issuer" field.

@@ -61,6 +61,22 @@ func looksLikeGatewayJWT(value string) bool {
 	return strings.Count(strings.TrimSpace(value), ".") == 2
 }
 
+// gatewayKeyStatusPermitsInitialAuth keeps the automatic Auth billing key
+// unusable by older gateways and by every non-Auth credential path. Disabled
+// still means revoked, including for an Auth-billed identity.
+func gatewayKeyStatusPermitsInitialAuth(key *service.APIKey, principal *service.GatewayOIDCPrincipal) bool {
+	if key == nil {
+		return false
+	}
+	if key.AuthBillingOnly {
+		return key.Status == service.StatusAPIKeyAuthBillingOnly && principal != nil && principal.AuthBilled
+	}
+	if key.IsActive() || key.Status == service.StatusAPIKeyExpired || key.Status == service.StatusAPIKeyQuotaExhausted {
+		return true
+	}
+	return false
+}
+
 func gatewayRequiredScopeChallenge(cfg *config.Config) string {
 	if cfg == nil {
 		return "llm.invoke"

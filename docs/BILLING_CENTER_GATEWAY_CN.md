@@ -1,0 +1,90 @@
+# Go 网关中心计费实施说明
+
+本文件说明已实现的网关接入。总体资金切换流程见 [主集成方案](BILLING_CENTER_INTEGRATION_CN.md)，Auth 的资金与账户规则见 `tabro-auth/docs/UNIFIED_BILLING_PLAN_CN.md`。
+
+## 启用与资金权威
+
+`billing_center.enabled` 启用 Auth 计费连接器。旧有本地用户是否已经迁移到中心，仍由数据库 route 决定；启用连接器不会自动搬钱或建立邮箱映射。配置关闭时，已经迁移的账户仍拒绝收费请求，不能转回本地余额。`draining`、`frozen`、`fenced` 拒绝新收费工作。
+
+### 外部 OIDC Bearer 自动接入
+
+同时启用 `gateway.resource_server.enabled`、`gateway.resource_server.auto_provision` 和 `billing_center.enabled` 后，所有有效的外部 OIDC Bearer 调用采用中心计费。网关按已验签的 `(iss, sub)` 首次自动建立 API-only 本地用户和隐藏路由 Key；管理员无需为每个用户手动配置绑定。部署时须已有带活跃上游账号的公开标准分组；否则首访失败且不会留下半建档身份。自动生成的 Key 持久标记 `auth_billing_only=true`，状态也为 `auth_billing_only`，以便旧版网关拒绝它；本地身份仅用于路由、权限和用量外键，不成为客户资金权威。不同 `sub` 不通过邮箱合并。已存在的显式绑定仍可使用：个人显式 `central` route 必须与 Auth 返回的付款账户及 epoch 一致；无中心 workspace route 时，显式非 `central` 个人 route 会拒绝 Bearer。已登记中心 workspace 的团队资金独立于该用户个人旧资金，仍需 Auth Quote 验证实际 payer 和成员资格。
+
+本模式中的付款账户由 Auth Quote 根据 subject proof 的用户、租户、应用和实时成员权限选择。网关不采信 Token 或 Header 自报的 payer；Quote 返回的 `billing_account_id`、`owner_epoch` 被用于同一 operation 的 Reserve，随后 Dispatch 和 Settle 由 Auth 执行资金约束。Auth 没有计费账户、资金/团队预算不足、成员失权或 Auth 不可用时，请求 fail closed。关闭 `auto_provision` 或 `billing_center.enabled` 后，已标记 `auth_billing_only` 的 Key 仍不能回退本地余额。普通 API Key 的原有迁移隔离继续生效。
+
+自动接入不等于旧资金迁移。已有本地余额、充值、套餐及未结消费要按 [主集成方案](BILLING_CENTER_INTEGRATION_CN.md) 的冻结、导入、对账和 epoch 流程迁移；不能通过打开自动开关使旧账户变成中心账户。Auth 侧须预先存在相应个人或团队计费账户及可用资金，统一积分产品可在该账户首次可信 Quote 时补齐，账户本身不会由网关凭 Token 创建。
+
+- `119_billing_center_account_routes.sql`：旧个人账户资金权威，固定 actor、issuer、tenant、account、owner epoch。
+- `121_billing_center_workspace_routes.sql`：显式 workspace issuer/tenant → 中心 account/epoch。已验证成员仍是 actor，多团队使用不同付款账户。
+- `122_billing_center_credential_bindings.sql`：每个本地 API Key 对应独立的中心 binding ID/version；不保存原始 Key。中心核实登记身份及总额/滚动窗口限额。
+- 自动模式的 Auth Bearer 以短暂 subject proof 由 Auth 解析 payer，无需为每个用户创建上述旧资金 route 或旧 Key credential binding；这些表仍保护已有迁移账户与普通 API Key。
+- 请求来源 app 来自已验证 principal；已登记旧 Key 固定为 `legacy-api-key`，不接受调用者自报 actor 或 payer。
+
+发布时须应用 `118` 至 `126` 的全部迁移，不能只创建账户映射表；`126` 为运维恢复 worker 所需的管理员决定回执和 outbox 状态扩展。
+
+客户端凭据权限为 `billing.reserve billing.dispatch billing.extend billing.settle billing.release billing.read`。用户 subject proof 仅随 Quote/Reserve/Extend 发送，不能持久化到 operation、job、outbox 或日志。恢复结算只用服务身份与冻结 reservation。
+
+## 真实请求链路
+
+HTTP 文本、Gemini 原生、WebSocket Responses、图片生成/编辑（JSON/multipart）、视频、Qwen ASR/克隆/TTS、Azure 同步/批量语音已接入。文本目录未知且无法验证输入/输出上限的模型拒绝中心执行；不能使用模糊价格匹配推测能力。
+
+文本输入按已验证的模型完整输入上限预占，OpenAI/Codex 输出按模型完整输出上限预占；其他文本请求使用实际可执行的输出限额。预占可能高于本次实际消费，结算只收取真实用量并释放余量，部署预算需容纳这一执行上界。
+
+1. 网关按已验证的分组、渠道模型映射、用户倍率和现有价目计算积分最大额，冻结价格快照。自动模式下，Quote 由 Auth 的 subject proof 确认真实用户/租户并选择付款账户、owner epoch、资金来源与 `gateway:credits` 技术价格版本；中心不计算模型或媒体价格。
+2. 本地 operation intent 持久化后 Reserve；超时查询原 operation，内容冲突拒绝。
+3. 本地 CAS 获得一次执行权，再确认中心 Dispatch，最后才调用供应商。HTTP 重定向和隐式 POST 重试不能再次发起收费工作。
+4. 真实用量、供应商额度效果、证据账本和 Settle outbox 在一个本地事务中保存。中心模式不改用户旧余额、套餐 used 或客户 Key 金额计数。
+5. Worker 用数据库租约投递同一不可变事件。中心提交、本地确认丢失可重放；已投递事件的 expected_version 不随查询到的新版本变化。
+
+WebSocket 每次 `response.create` 都有独立 operation。执行许可在每次实际 frame write 前检查，包括内部恢复尝试。后续轮次被拒绝时，已经发出的轮次仍继续读取到结束或对账超时，以保存能获得的实际用量。
+
+异步媒体在提交前保存任务身份、冻结报价和责任快照。视频任务/批量语音由数据库租约轮询；Azure 的上游任务 ID 在 PUT 前保存，响应丢失后仍可查原任务。任务完成后 `usage_recorded_at` 表示本地用量/事件已提交，中心资金状态另见 `billing_center_operations`，不能把它等同为中心已扣款。
+
+上游调用后崩溃、缺 usage、失败但可能产生费用等状态保留为待核对，不盲目重发供应商，也不根据 HTTP 失败自动释放资金。尚未 Dispatch 的请求才可自动排队 Release。
+
+## 产品与用量契约
+
+中心模式向 Auth 发送唯一 `product_key=gateway:credits`、`service_tier=default` 和 `credit_amount`（通用积分）。网关保留下面各业务 meter 的请求上界与真实用量作证据，并把实际积分金额作为唯一结算 meter。所有金额和数量均为十进制字符串；最大额和实际额都向上取到 10 位小数，显式免费价走零金额预留/结算，缺价或无上界则拒绝执行。管理员调整价目只影响下一请求；当前请求、流式轮次和异步媒体作业使用冻结快照。
+
+下表中的产品和 meter 是网关内部的业务身份与用量证据；中心资金路由只需上述通用积分产品。
+
+| 工作 | product_key | service_tier / meters |
+|---|---|---|
+| 文本 / Gemini | `ai:<model>` | default/priority/flex/anthropic_fast；input/output、cache read/write TTL、image output、request/image count |
+| 视频 | `ai:<model>` | 大写分辨率如 `720P`；`video_seconds`、`request_count` |
+| ASR | `ai:<model>` | default；`audio_seconds`、`request_count` |
+| TTS | `ai:<model>` | default；`audio_characters`、`request_count` |
+| 声音克隆登记 | `ai:qwen-voice-enrollment` | default；`request_count` |
+| 图片生成/编辑 | `ai:<model>:images` | 小写 `<size>:<quality>`，省略项为 `auto`；`image_count`、`request_count` |
+
+图片按请求张数预留，按冻结的渠道单价或分组/目录图片单价结算。编辑请求的内容指纹包含原始上传字节，而账单快照不保存文件。渠道档位、分组尺寸价格和目录图片价格都未配置时拒绝执行；显式配置为 0 的单价才表示免费。
+
+缓存计量互斥：使用 5m/1h 明细时不再重复计入 aggregate cache writes；图像输出从总 output 中剔除后单独计量。媒体实际时长保留十进制精度，不用用户请求的 duration 代替上游真实值。
+
+目前以下情况仍需专门计量契约，中心路径会明确拒绝，shadow 不改变原请求：Responses `/compact`、后台 Responses、未单独计量的 hosted tools、无法验证上限的未知模型/自动视频规格、无法在预留前确定价格的上游模型定价，以及 Gemini 生成图片。不能把这些拒绝解释为已完整支持。文本中的图片输入可按模型完整输入上限预占；文件、视频及专用音频 token 输入尚需补充对应可验证上限与计价。已登记的旧 API Key 还必须在 Auth 审核其绑定产品包含 `gateway:credits`，否则中心明确拒绝，不能绕过绑定限制。
+
+## Shadow 与运维
+
+Shadow 调 Quote/Estimate、不预占也不扣中心资金，本地原计费继续执行。报价失败记录 `quote_failed`，实际用量不足记录 `usage_incomplete`，估价失败记录 `estimate_failed` 并重试；不能把失败记录成价差零。
+
+关注：`billing_center_operations` 的 `dispatching`/`reconciliation_required`，`billing_center_outbox` 的 `blocked`/过期租约，媒体 pending jobs，shadow 失败表及尚无 central estimate 的 observation。禁止通过删除去重记录、改付款账户或重放供应商来“修复”不确定操作。
+
+管理员在 Auth 对异常消费作出 `verified_usage` 或 `waive` 决定后，网关 worker 只读查询对应 reconciliation。它核对冻结 actor、tenant、producer/app、payer、balance、allocation、price、unit、product、冻结 period IDs 和 owner epoch，并要求已解决 case、管理员身份和有效 SHA256 决定指纹。迁移 `126` 在本地事务中保存 case/决定完整快照，将原 outbox 标记 `superseded` 并更新最终 operation；原事件 ID、payload 和指纹保持不变。显式免单不会伪装成旧 Settle 已成功投递，尚未得到有效决定的异常工作继续保留。
+
+## 仅内部运维部署
+
+```yaml
+deployment:
+  internal_only: true
+  account_center_url: https://auth.example.com/Identity/Account/Manage/Billing
+```
+
+默认 `false` 保持旧部署兼容。启用后，服务端关闭用户注册、用户 Key/钱包/套餐/兑换和本地支付自助 API，以及旧后台资金变更；返回 `410 ACCOUNT_CENTER_REQUIRED` 和账户中心地址。用户控制台跳转 Auth，不转发原 query/token。已有用户 JWT 也不能继续访问自助资金入口。
+
+管理员本地登录、OIDC 管理员登录、供应商账户/配额/渠道运维、管理员自身密码/TOTP、支付提供商配置、PSP 验签 webhook 及模型网关保留。强制后台模式禁止普通用户登录，不能从数据库 settings 开关重新打开注册。管理员历史资金查询仍可审计，实际资金变更在中心执行。
+
+该模式不代替账户资金迁移/epoch fencing。用户曾经的订单、媒体责任须先按主方案处理；保留 PSP webhook 是为了正确接收已登记支付回执，而不是允许旧账户重新入账。
+
+## 验证入口
+
+Go 定向单元/race 测试覆盖 client/token、一次性 dispatch、WS 多轮、media 恢复、精确 meters、模式隔离和内部部署路由。真实 PostgreSQL 用 `billing_integration` tag；连接必须指向显式隔离测试库 `billing_center_test`，测试只创建/删除自己的 schema。另 `billing_auth_integration` tag 读取短期 HTTP fixture 描述文件，联测真实 OpenIddict client_credentials + Kestrel Billing HTTP，fixture 凭据不进入仓库。

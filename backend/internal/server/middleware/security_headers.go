@@ -19,7 +19,12 @@ const (
 	// CloudflareInsightsDomain is the domain for Cloudflare Web Analytics
 	CloudflareInsightsDomain = "https://static.cloudflareinsights.com"
 	// StripeDomain is the domain for Stripe.js SDK
-	StripeDomain = "https://*.stripe.com"
+	StripeDomain           = "https://*.stripe.com"
+	StripeJSDomain         = "https://js.stripe.com"
+	StripeJSWildcardDomain = "https://*.js.stripe.com"
+	StripeHooksDomain      = "https://hooks.stripe.com"
+	StripeAPIDomain        = "https://api.stripe.com"
+	GoogleMapsDomain       = "https://maps.googleapis.com"
 )
 
 // GenerateNonce generates a cryptographically secure random nonce.
@@ -113,10 +118,16 @@ func enhanceCSPPolicy(policy string) string {
 		policy = addToDirective(policy, "script-src", CloudflareInsightsDomain)
 	}
 
-	// Add Stripe.js domain to script-src and frame-src if not present
-	if !strings.Contains(policy, "stripe.com") {
-		policy = addToDirective(policy, "script-src", StripeDomain)
-		policy = addToDirective(policy, "frame-src", StripeDomain)
+	// Each directive is independent: a script origin does not permit its iframe.
+	// https://docs.stripe.com/security/guide#content-security-policy
+	for _, required := range []struct{ directive, origin string }{
+		{"script-src", StripeJSDomain}, {"script-src", StripeJSWildcardDomain}, {"script-src", GoogleMapsDomain},
+		{"frame-src", StripeJSDomain}, {"frame-src", StripeJSWildcardDomain}, {"frame-src", StripeHooksDomain},
+		{"connect-src", StripeAPIDomain}, {"connect-src", GoogleMapsDomain},
+	} {
+		if !directiveContainsValue(policy, required.directive, required.origin) {
+			policy = addToDirective(policy, required.directive, required.origin)
+		}
 	}
 
 	return policy
@@ -159,16 +170,16 @@ func addToDirective(policy, directive, value string) string {
 }
 
 func directiveContainsValue(policy, directive, value string) bool {
-	directivePrefix := directive + " "
-	idx := strings.Index(policy, directivePrefix)
-	if idx == -1 {
-		return false
+	for _, section := range strings.Split(policy, ";") {
+		fields := strings.Fields(section)
+		if len(fields) == 0 || fields[0] != directive {
+			continue
+		}
+		for _, token := range fields[1:] {
+			if token == value {
+				return true
+			}
+		}
 	}
-
-	endIdx := strings.Index(policy[idx:], ";")
-	if endIdx == -1 {
-		return strings.Contains(policy[idx:], value)
-	}
-
-	return strings.Contains(policy[idx:idx+endIdx], value)
+	return false
 }

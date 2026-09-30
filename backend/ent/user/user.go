@@ -33,6 +33,8 @@ const (
 	FieldConcurrency = "concurrency"
 	// FieldStatus holds the string denoting the status field in the database.
 	FieldStatus = "status"
+	// FieldAPIOnly holds the string denoting the api_only field in the database.
+	FieldAPIOnly = "api_only"
 	// FieldTokenVersion holds the string denoting the token_version field in the database.
 	FieldTokenVersion = "token_version"
 	// FieldUsername holds the string denoting the username field in the database.
@@ -168,6 +170,7 @@ var Columns = []string{
 	FieldBalance,
 	FieldConcurrency,
 	FieldStatus,
+	FieldAPIOnly,
 	FieldTokenVersion,
 	FieldUsername,
 	FieldNotes,
@@ -227,6 +230,8 @@ var (
 	DefaultStatus string
 	// StatusValidator is a validator for the "status" field. It is called by the builders before save.
 	StatusValidator func(string) error
+	// DefaultAPIOnly holds the default value on creation for the "api_only" field.
+	DefaultAPIOnly bool
 	// DefaultTokenVersion holds the default value on creation for the "token_version" field.
 	DefaultTokenVersion int64
 	// DefaultUsername holds the default value on creation for the "username" field.
@@ -298,6 +303,11 @@ func ByConcurrency(opts ...sql.OrderTermOption) OrderOption {
 // ByStatus orders the results by the status field.
 func ByStatus(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldStatus, opts...).ToFunc()
+}
+
+// ByAPIOnly orders the results by the api_only field.
+func ByAPIOnly(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAPIOnly, opts...).ToFunc()
 }
 
 // ByTokenVersion orders the results by the token_version field.

@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"errors"
 	"fmt"
+	bc "github.com/Wei-Shaw/sub2api/internal/billingcenter"
 	"io"
 	"log/slog"
 	"net"
@@ -140,7 +141,11 @@ func (s *httpUpstreamService) Do(req *http.Request, proxyURL string, accountID i
 	}
 
 	// 执行请求
-	resp, err := entry.client.Do(req)
+	if err := beforeBillableSupplierRequest(req); err != nil {
+		atomic.AddInt64(&entry.inFlight, -1)
+		return nil, err
+	}
+	resp, err := doBillingAwareUpstream(entry.client, req)
 	if err != nil {
 		// 请求失败，立即减少计数
 		atomic.AddInt64(&entry.inFlight, -1)
@@ -190,7 +195,11 @@ func (s *httpUpstreamService) DoWithTLS(req *http.Request, proxyURL string, acco
 		return nil, err
 	}
 
-	resp, err := entry.client.Do(req)
+	if err := beforeBillableSupplierRequest(req); err != nil {
+		atomic.AddInt64(&entry.inFlight, -1)
+		return nil, err
+	}
+	resp, err := doBillingAwareUpstream(entry.client, req)
 	if err != nil {
 		atomic.AddInt64(&entry.inFlight, -1)
 		atomic.StoreInt64(&entry.lastUsed, time.Now().UnixNano())
@@ -955,4 +964,31 @@ func (d *decompressedBody) Close() error {
 		_ = rc.Close()
 	}
 	return d.closer.Close()
+}
+
+// Prevent redirects and transport retries from becoming a second billable
+// supplier attempt behind the coordinator's one-shot dispatch permission.
+func doBillingAwareUpstream(client *http.Client, req *http.Request) (*http.Response, error) {
+	if !bc.IsCentral(req.Context()) {
+		return client.Do(req)
+	}
+	isolated := *client
+	isolated.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	cloned := req.Clone(req.Context())
+	cloned.GetBody = nil
+	cloned.Header.Del("Idempotency-Key")
+	cloned.Header.Del("X-Idempotency-Key")
+	return isolated.Do(cloned)
+}
+
+// Provider task polling and catalogue reads cannot start billable work and do
+// not consume the operation's single dispatch permit.
+func beforeBillableSupplierRequest(req *http.Request) error {
+	if req.Method == http.MethodGet || req.Method == http.MethodHead {
+		return nil
+	}
+	if req.Method == http.MethodPost && (strings.HasSuffix(req.URL.Path, "/messages/count_tokens") || strings.HasSuffix(req.URL.Path, ":countTokens")) {
+		return nil
+	}
+	return bc.BeforeSupplierRequest(req.Context())
 }

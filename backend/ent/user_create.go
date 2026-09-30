@@ -141,6 +141,20 @@ func (_c *UserCreate) SetNillableStatus(v *string) *UserCreate {
 	return _c
 }
 
+// SetAPIOnly sets the "api_only" field.
+func (_c *UserCreate) SetAPIOnly(v bool) *UserCreate {
+	_c.mutation.SetAPIOnly(v)
+	return _c
+}
+
+// SetNillableAPIOnly sets the "api_only" field if the given value is not nil.
+func (_c *UserCreate) SetNillableAPIOnly(v *bool) *UserCreate {
+	if v != nil {
+		_c.SetAPIOnly(*v)
+	}
+	return _c
+}
+
 // SetTokenVersion sets the "token_version" field.
 func (_c *UserCreate) SetTokenVersion(v int64) *UserCreate {
 	_c.mutation.SetTokenVersion(v)
@@ -512,6 +526,10 @@ func (_c *UserCreate) defaults() error {
 		v := user.DefaultStatus
 		_c.mutation.SetStatus(v)
 	}
+	if _, ok := _c.mutation.APIOnly(); !ok {
+		v := user.DefaultAPIOnly
+		_c.mutation.SetAPIOnly(v)
+	}
 	if _, ok := _c.mutation.TokenVersion(); !ok {
 		v := user.DefaultTokenVersion
 		_c.mutation.SetTokenVersion(v)
@@ -592,6 +610,9 @@ func (_c *UserCreate) check() error {
 		if err := user.StatusValidator(v); err != nil {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "User.status": %w`, err)}
 		}
+	}
+	if _, ok := _c.mutation.APIOnly(); !ok {
+		return &ValidationError{Name: "api_only", err: errors.New(`ent: missing required field "User.api_only"`)}
 	}
 	if _, ok := _c.mutation.TokenVersion(); !ok {
 		return &ValidationError{Name: "token_version", err: errors.New(`ent: missing required field "User.token_version"`)}
@@ -684,6 +705,10 @@ func (_c *UserCreate) createSpec() (*User, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Status(); ok {
 		_spec.SetField(user.FieldStatus, field.TypeString, value)
 		_node.Status = value
+	}
+	if value, ok := _c.mutation.APIOnly(); ok {
+		_spec.SetField(user.FieldAPIOnly, field.TypeBool, value)
+		_node.APIOnly = value
 	}
 	if value, ok := _c.mutation.TokenVersion(); ok {
 		_spec.SetField(user.FieldTokenVersion, field.TypeInt64, value)
@@ -1059,6 +1084,18 @@ func (u *UserUpsert) UpdateStatus() *UserUpsert {
 	return u
 }
 
+// SetAPIOnly sets the "api_only" field.
+func (u *UserUpsert) SetAPIOnly(v bool) *UserUpsert {
+	u.Set(user.FieldAPIOnly, v)
+	return u
+}
+
+// UpdateAPIOnly sets the "api_only" field to the value that was provided on create.
+func (u *UserUpsert) UpdateAPIOnly() *UserUpsert {
+	u.SetExcluded(user.FieldAPIOnly)
+	return u
+}
+
 // SetTokenVersion sets the "token_version" field.
 func (u *UserUpsert) SetTokenVersion(v int64) *UserUpsert {
 	u.Set(user.FieldTokenVersion, v)
@@ -1402,6 +1439,20 @@ func (u *UserUpsertOne) SetStatus(v string) *UserUpsertOne {
 func (u *UserUpsertOne) UpdateStatus() *UserUpsertOne {
 	return u.Update(func(s *UserUpsert) {
 		s.UpdateStatus()
+	})
+}
+
+// SetAPIOnly sets the "api_only" field.
+func (u *UserUpsertOne) SetAPIOnly(v bool) *UserUpsertOne {
+	return u.Update(func(s *UserUpsert) {
+		s.SetAPIOnly(v)
+	})
+}
+
+// UpdateAPIOnly sets the "api_only" field to the value that was provided on create.
+func (u *UserUpsertOne) UpdateAPIOnly() *UserUpsertOne {
+	return u.Update(func(s *UserUpsert) {
+		s.UpdateAPIOnly()
 	})
 }
 
@@ -1942,6 +1993,20 @@ func (u *UserUpsertBulk) SetStatus(v string) *UserUpsertBulk {
 func (u *UserUpsertBulk) UpdateStatus() *UserUpsertBulk {
 	return u.Update(func(s *UserUpsert) {
 		s.UpdateStatus()
+	})
+}
+
+// SetAPIOnly sets the "api_only" field.
+func (u *UserUpsertBulk) SetAPIOnly(v bool) *UserUpsertBulk {
+	return u.Update(func(s *UserUpsert) {
+		s.SetAPIOnly(v)
+	})
+}
+
+// UpdateAPIOnly sets the "api_only" field to the value that was provided on create.
+func (u *UserUpsertBulk) UpdateAPIOnly() *UserUpsertBulk {
+	return u.Update(func(s *UserUpsert) {
+		s.UpdateAPIOnly()
 	})
 }
 

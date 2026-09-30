@@ -94,7 +94,7 @@ func TestGatewayModelsCatalog_OAuthPreservesOpenAIMetadata(t *testing.T) {
 	require.NotContains(t, byID, "gpt-5.4")
 	require.NotContains(t, byID, "gpt-5.4-mini")
 	for _, model := range openai.DefaultModels {
-		if model.ID == "gpt-5.6-luna" || model.ID == "gpt-image-2.5-sunburst" {
+		if model.ID == "gpt-6-sol" || model.ID == "gpt-6-luna" || model.ID == "gpt-5.6-luna" || model.ID == "gpt-image-2.5-sunburst" {
 			require.Equal(t, model, byID[model.ID])
 		}
 	}

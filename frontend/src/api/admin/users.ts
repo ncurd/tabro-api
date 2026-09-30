@@ -76,7 +76,10 @@ export async function getById(id: number): Promise<AdminUser> {
  */
 export async function create(userData: {
   email: string
-  password: string
+  password?: string
+  api_only?: boolean
+  username?: string
+  notes?: string
   balance?: number
   concurrency?: number
   allowed_groups?: number[] | null

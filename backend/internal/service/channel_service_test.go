@@ -2279,13 +2279,13 @@ func TestValidatePricingBillingMode(t *testing.T) {
 			name:    "per_request no price no intervals - invalid",
 			pricing: []ChannelModelPricing{{BillingMode: BillingModePerRequest}},
 			wantErr: true,
-			errMsg:  "per-request price or intervals required",
+			errMsg:  "unit price or tiers required for per_request/image/video/audio billing mode",
 		},
 		{
 			name:    "image no price no intervals - invalid",
 			pricing: []ChannelModelPricing{{BillingMode: BillingModeImage}},
 			wantErr: true,
-			errMsg:  "per-request price or intervals required",
+			errMsg:  "unit price or tiers required for per_request/image/video/audio billing mode",
 		},
 		{
 			name:    "empty list - valid",
@@ -2298,7 +2298,7 @@ func TestValidatePricingBillingMode(t *testing.T) {
 				InputPrice:  testPtrFloat64(-0.01),
 			}},
 			wantErr: true,
-			errMsg:  "input_price must be >= 0",
+			errMsg:  "input_price must be finite and >= 0",
 		},
 		{
 			name: "interval with no price fields - invalid",

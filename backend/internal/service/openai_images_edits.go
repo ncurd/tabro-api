@@ -358,6 +358,9 @@ func (s *OpenAIGatewayService) ForwardImagesEdits(ctx context.Context, c *gin.Co
 	if err := mapped.SetModel(account.GetMappedModel(request.Model)); err != nil {
 		return nil, err
 	}
+	if err := ValidateBillingImageRequest(ctx, mapped.MetadataBody); err != nil {
+		return nil, err
+	}
 	var result *OpenAIForwardResult
 	var err error
 	setOpsUpstreamRequestBody(c, mapped.MetadataBody)

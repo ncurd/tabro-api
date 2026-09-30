@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/payment"
+	"github.com/wechatpay-apiv3/wechatpay-go/services/payments"
 )
 
 func TestMapWxState(t *testing.T) {
@@ -253,6 +254,36 @@ func TestNewWxpay(t *testing.T) {
 			}
 			if got.instanceID != "test-instance" {
 				t.Errorf("instanceID = %q, want %q", got.instanceID, "test-instance")
+			}
+		})
+	}
+}
+
+func TestWxpayTransactionMerchantIdentity(t *testing.T) {
+	w := &Wxpay{config: map[string]string{"appId": "app-1", "mchId": "merchant-1"}}
+	stringPtr := func(s string) *string { return &s }
+	amount := func(currency string, total int64) *payments.TransactionAmount {
+		return &payments.TransactionAmount{Currency: stringPtr(currency), Total: &total}
+	}
+	for _, tc := range []struct {
+		name, appID, merchantID string
+		amount                  *payments.TransactionAmount
+		valid                   bool
+	}{
+		{"matching merchant", "app-1", "merchant-1", amount("CNY", 100), true},
+		{"wrong app", "app-2", "merchant-1", amount("CNY", 100), false},
+		{"missing app", "", "merchant-1", amount("CNY", 100), false},
+		{"wrong merchant", "app-1", "merchant-2", amount("CNY", 100), false},
+		{"wrong currency", "app-1", "merchant-1", amount("USD", 100), false},
+		{"missing amount", "app-1", "merchant-1", nil, false},
+		{"zero amount", "app-1", "merchant-1", amount("CNY", 0), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := w.validateTransactionMerchant(&payments.Transaction{
+				Appid: stringPtr(tc.appID), Mchid: stringPtr(tc.merchantID), Amount: tc.amount,
+			})
+			if (err == nil) != tc.valid {
+				t.Fatalf("validateTransactionMerchant error = %v", err)
 			}
 		})
 	}

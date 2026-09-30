@@ -52,6 +52,9 @@ func (User) Fields() []ent.Field {
 		field.String("status").
 			MaxLen(20).
 			Default(domain.StatusActive),
+		field.Bool("api_only").
+			Default(false).
+			Comment("Disallow gateway web login without disabling direct model API access"),
 		field.Int64("token_version").
 			Default(0).
 			Comment("Incremented to revoke previously issued user access tokens"),

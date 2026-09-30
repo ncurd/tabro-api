@@ -32,6 +32,9 @@ func (s *OpenAIGatewayService) forwardImagesGenerationsOAuth(ctx context.Context
 }
 
 func (s *OpenAIGatewayService) forwardImagesOAuth(ctx context.Context, c *gin.Context, account *Account, body []byte, writeOriginal, edit bool) ([]byte, *OpenAIForwardResult, error) {
+	if err := ValidateBillingImageRequest(ctx, body); err != nil {
+		return nil, nil, err
+	}
 	startTime := time.Now()
 	model := strings.TrimSpace(gjson.GetBytes(body, "model").String())
 	if model == "" {

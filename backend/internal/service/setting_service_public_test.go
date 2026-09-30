@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -76,4 +77,25 @@ func TestSettingService_GetPublicSettings_ExposesTablePreferences(t *testing.T) 
 	require.NoError(t, err)
 	require.Equal(t, 50, settings.TableDefaultPageSize)
 	require.Equal(t, []int{20, 50, 100}, settings.TablePageSizeOptions)
+}
+
+func TestSettingServiceInternalOnlyCannotBeDisabledByDatabasePublicSettings(t *testing.T) {
+	repo := &settingPublicRepoStub{values: map[string]string{SettingKeyRegistrationEnabled: "true", SettingKeyBackendModeEnabled: "false", SettingKeyPasswordResetEnabled: "true", SettingKeyPurchaseSubscriptionEnabled: "true"}}
+	svc := NewSettingService(repo, &config.Config{Deployment: config.DeploymentConfig{InternalOnly: true, AccountCenterURL: "https://auth.example/account"}})
+	require.True(t, svc.IsBackendModeEnabled(context.Background()))
+	require.False(t, svc.IsRegistrationEnabled(context.Background()))
+	settings, err := svc.GetPublicSettings(context.Background())
+	require.NoError(t, err)
+	require.True(t, settings.InternalOnly)
+	require.True(t, settings.BackendModeEnabled)
+	require.False(t, settings.RegistrationEnabled)
+	require.False(t, settings.PasswordResetEnabled)
+	require.False(t, settings.PurchaseSubscriptionEnabled)
+	require.Equal(t, "https://auth.example/account", settings.AccountCenterURL)
+	injected, err := svc.GetPublicSettingsForInjection(context.Background())
+	require.NoError(t, err)
+	body, err := json.Marshal(injected)
+	require.NoError(t, err)
+	require.Contains(t, string(body), `"internal_only":true`)
+	require.Contains(t, string(body), `"account_center_url":"https://auth.example/account"`)
 }

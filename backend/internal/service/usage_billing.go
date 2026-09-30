@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	bc "github.com/Wei-Shaw/sub2api/internal/billingcenter"
 	"strings"
 )
 
@@ -14,7 +15,12 @@ var ErrUsageBillingRequestConflict = errors.New("usage billing request fingerpri
 
 // UsageBillingCommand describes one billable request that must be applied at most once.
 type UsageBillingCommand struct {
-	RequestID string
+	// CentralEvent is committed atomically with provider effects and evidence.
+	CentralEvent *bc.Event
+	// ExactUsage carries validated non-token meters for durable media settlement.
+	ExactUsage            map[string]bc.Decimal
+	ShadowUsageIncomplete bool
+	RequestID             string
 	// UpstreamRequestID is the provider-assigned request identifier used for
 	// reconciliation. RequestID remains the stable gateway billing/dedup key.
 	UpstreamRequestID  string
@@ -109,6 +115,15 @@ func buildUsageBillingFingerprint(c *UsageBillingCommand) string {
 	)
 	if payloadHash := strings.TrimSpace(c.RequestPayloadHash); payloadHash != "" {
 		raw += "|" + payloadHash
+	}
+	if c.CentralEvent != nil {
+		eventHash := sha256.Sum256(c.CentralEvent.Body)
+		raw += "|central|" + c.CentralEvent.ProducerClientID + "|" + c.CentralEvent.OriginAppID + "|" + c.CentralEvent.OperationID + "|" + c.CentralEvent.ID + "|" + hex.EncodeToString(eventHash[:])
+	}
+	if c.ExactUsage != nil {
+		if hash, err := bc.Fingerprint(c.ExactUsage); err == nil {
+			raw += "|meters|" + hash
+		}
 	}
 	sum := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(sum[:])

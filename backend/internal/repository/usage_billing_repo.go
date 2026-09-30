@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"encoding/json"
 	"errors"
+	bc "github.com/Wei-Shaw/sub2api/internal/billingcenter"
 	"net"
 	"strings"
 	"time"
@@ -87,6 +89,19 @@ func (r *usageBillingRepository) applyOnce(ctx context.Context, cmd *service.Usa
 		return &service.UsageBillingApplyResult{Applied: false}, nil
 	}
 
+	if cmd.CentralEvent != nil {
+		if cmd.BalanceCost != 0 || cmd.SubscriptionCost != 0 || cmd.APIKeyQuotaCost != 0 || cmd.APIKeyRateLimitCost != 0 {
+			return nil, bc.ErrConflict
+		}
+		center := NewBillingCenterRepository(r.db, cmd.CentralEvent.ProducerClientID)
+		inserted, enqueueErr := center.EnqueueTx(ctx, tx, *cmd.CentralEvent)
+		if enqueueErr != nil {
+			return nil, enqueueErr
+		}
+		if !inserted {
+			return &service.UsageBillingApplyResult{Applied: false}, nil
+		}
+	}
 	result := &service.UsageBillingApplyResult{Applied: true}
 	if err := r.applyUsageBillingEffects(ctx, tx, cmd, result); err != nil {
 		return nil, err
@@ -95,6 +110,18 @@ func (r *usageBillingRepository) applyOnce(ctx context.Context, cmd *service.Usa
 		return nil, err
 	}
 
+	if execution := bc.ExecutionFromContext(ctx); execution != nil && execution.Mode == "shadow" {
+		usage, usageErr := service.BillingCenterUsageForProduct(cmd, execution.ProductKey)
+		encoded, encodeErr := json.Marshal(usage)
+		if cmd.ShadowUsageIncomplete || usageErr != nil || encodeErr != nil {
+			_, auditErr := tx.ExecContext(ctx, `INSERT INTO billing_center_shadow_failures(producer_client_id,origin_app_id,operation_id,local_user_id,request_payload_hash,stage) VALUES($1,$2,$3,$4,$5,'usage_incomplete') ON CONFLICT DO NOTHING`, execution.Key.ProducerClientID, execution.Key.OriginAppID, execution.Key.OperationID, cmd.UserID, execution.RequestPayloadHash)
+			if auditErr != nil {
+				return nil, auditErr
+			}
+		} else if _, updateErr := tx.ExecContext(ctx, `UPDATE billing_center_shadow_observations SET usage=$4,local_actual_cost=$5,updated_at=NOW() WHERE producer_client_id=$1 AND origin_app_id=$2 AND operation_id=$3 AND request_payload_hash=$6`, execution.Key.ProducerClientID, execution.Key.OriginAppID, execution.Key.OperationID, string(encoded), cmd.ActualCost, execution.RequestPayloadHash); updateErr != nil {
+			return nil, updateErr
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}

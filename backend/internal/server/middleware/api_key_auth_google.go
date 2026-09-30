@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 
+	bc "github.com/Wei-Shaw/sub2api/internal/billingcenter"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
@@ -85,9 +86,7 @@ func gatewayAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, sub
 		// (always enforced) and billing policy (skipped only in simple mode).
 		// Expired/quota-exhausted states are handled below with their proper
 		// 403/429 semantics instead of being flattened into "disabled".
-		if !apiKey.IsActive() &&
-			apiKey.Status != service.StatusAPIKeyExpired &&
-			apiKey.Status != service.StatusAPIKeyQuotaExhausted {
+		if !gatewayKeyStatusPermitsInitialAuth(apiKey, oidcPrincipal) {
 			abortWithGoogleError(c, 401, "API key is disabled")
 			return
 		}
@@ -112,8 +111,16 @@ func gatewayAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, sub
 			return
 		}
 
+		finishBilling, billingErr := prepareGatewayBilling(c, apiKeyService, apiKey, oidcPrincipal, apiKeyString)
+		if billingErr != nil {
+			status, _, message := gatewayBillingError(billingErr)
+			abortWithGoogleError(c, status, message)
+			return
+		}
+		defer finishBilling()
+
 		// 简易模式：跳过余额和订阅检查
-		if cfg.RunMode == config.RunModeSimple {
+		if cfg.RunMode == config.RunModeSimple || bc.IsCentral(c.Request.Context()) {
 			c.Set(string(ContextKeyAPIKey), apiKey)
 			c.Set(string(ContextKeyUser), AuthSubject{
 				UserID:      apiKey.User.ID,

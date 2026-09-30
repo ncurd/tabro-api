@@ -100,6 +100,11 @@ func Status(v string) predicate.User {
 	return predicate.User(sql.FieldEQ(FieldStatus, v))
 }
 
+// APIOnly applies equality check predicate on the "api_only" field. It's identical to APIOnlyEQ.
+func APIOnly(v bool) predicate.User {
+	return predicate.User(sql.FieldEQ(FieldAPIOnly, v))
+}
+
 // TokenVersion applies equality check predicate on the "token_version" field. It's identical to TokenVersionEQ.
 func TokenVersion(v int64) predicate.User {
 	return predicate.User(sql.FieldEQ(FieldTokenVersion, v))
@@ -623,6 +628,16 @@ func StatusEqualFold(v string) predicate.User {
 // StatusContainsFold applies the ContainsFold predicate on the "status" field.
 func StatusContainsFold(v string) predicate.User {
 	return predicate.User(sql.FieldContainsFold(FieldStatus, v))
+}
+
+// APIOnlyEQ applies the EQ predicate on the "api_only" field.
+func APIOnlyEQ(v bool) predicate.User {
+	return predicate.User(sql.FieldEQ(FieldAPIOnly, v))
+}
+
+// APIOnlyNEQ applies the NEQ predicate on the "api_only" field.
+func APIOnlyNEQ(v bool) predicate.User {
+	return predicate.User(sql.FieldNEQ(FieldAPIOnly, v))
 }
 
 // TokenVersionEQ applies the EQ predicate on the "token_version" field.

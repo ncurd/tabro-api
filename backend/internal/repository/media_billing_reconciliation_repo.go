@@ -21,7 +21,8 @@ func (r *mediaGenerationJobRepository) ClaimMediaReconciliation(ctx context.Cont
 		defer r.mu.Unlock()
 		jobs := make([]*service.MediaGenerationJob, 0)
 		for _, j := range r.memory {
-			if len(j.BillingSnapshotJSON) == 0 || j.UsageRecordedAt != nil || (j.NextPollAt != nil && j.NextPollAt.After(now)) || (j.Status != service.MediaJobStatusSucceeded && !(j.Kind == "voice_clone" && j.Status == service.MediaJobStatusCanceled && j.AudioVoice != "") && (j.Kind != service.MediaJobKindVideoGeneration || j.UpstreamTaskID == "" || j.Status == service.MediaJobStatusFailed || j.Status == service.MediaJobStatusCanceled)) {
+			pollable := j.Kind == service.MediaJobKindVideoGeneration || (j.Kind == service.MediaJobKindAudioSpeech && j.Provider == service.MediaProviderAzureSpeech)
+			if len(j.BillingSnapshotJSON) == 0 || j.UsageRecordedAt != nil || (j.NextPollAt != nil && j.NextPollAt.After(now)) || (j.Status != service.MediaJobStatusSucceeded && !(j.Kind == "voice_clone" && j.Status == service.MediaJobStatusCanceled && j.AudioVoice != "") && (!pollable || j.UpstreamTaskID == "" || j.Status == service.MediaJobStatusFailed || j.Status == service.MediaJobStatusCanceled)) {
 				continue
 			}
 			jobs = append(jobs, j)
@@ -57,6 +58,7 @@ func (r *mediaGenerationJobRepository) ClaimMediaReconciliation(ctx context.Cont
 			dbmediagenerationjob.StatusEQ(service.MediaJobStatusSucceeded),
 			dbmediagenerationjob.And(dbmediagenerationjob.KindEQ("voice_clone"), dbmediagenerationjob.StatusEQ(service.MediaJobStatusCanceled), dbmediagenerationjob.AudioVoiceNotNil(), dbmediagenerationjob.AudioVoiceNEQ("")),
 			dbmediagenerationjob.And(dbmediagenerationjob.KindEQ(service.MediaJobKindVideoGeneration), dbmediagenerationjob.UpstreamTaskIDNotNil(), dbmediagenerationjob.UpstreamTaskIDNEQ(""), dbmediagenerationjob.StatusIn(service.MediaJobStatusQueued, service.MediaJobStatusRunning, service.MediaJobStatusUnknown)),
+			dbmediagenerationjob.And(dbmediagenerationjob.KindEQ(service.MediaJobKindAudioSpeech), dbmediagenerationjob.ProviderEQ(service.MediaProviderAzureSpeech), dbmediagenerationjob.UpstreamTaskIDNotNil(), dbmediagenerationjob.UpstreamTaskIDNEQ(""), dbmediagenerationjob.StatusIn(service.MediaJobStatusQueued, service.MediaJobStatusRunning, service.MediaJobStatusUnknown)),
 		),
 	).Order(dbmediagenerationjob.ByNextPollAt(sql.OrderNullsFirst())).Limit(limit).ForUpdate(sql.WithLockAction(sql.SkipLocked)).All(ctx)
 	if err != nil {

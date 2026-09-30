@@ -114,3 +114,33 @@ func TestAdminService_UpdateUserPasswordIncrementsTokenVersion(t *testing.T) {
 	require.Len(t, repo.updated, 1)
 	require.Equal(t, int64(8), repo.updated[0].TokenVersion)
 }
+
+func TestAdminService_UpdateUserAPIOnlyRevokesExistingWebTokens(t *testing.T) {
+	baseRepo := &userRepoStub{user: &User{ID: 9, Role: RoleUser, Status: StatusActive, TokenVersion: 3}}
+	repo := &balanceUserRepoStub{userRepoStub: baseRepo}
+	invalidator := &authCacheInvalidatorStub{}
+	svc := &adminServiceImpl{userRepo: repo, authCacheInvalidator: invalidator}
+	apiOnly := true
+
+	updated, err := svc.UpdateUser(context.Background(), 9, &UpdateUserInput{APIOnly: &apiOnly})
+	require.NoError(t, err)
+	require.True(t, updated.APIOnly)
+	require.Equal(t, int64(4), updated.TokenVersion)
+	require.Equal(t, []int64{9}, invalidator.userIDs)
+
+	apiOnly = false
+	updated, err = svc.UpdateUser(context.Background(), 9, &UpdateUserInput{APIOnly: &apiOnly})
+	require.NoError(t, err)
+	require.False(t, updated.APIOnly)
+	require.Equal(t, int64(5), updated.TokenVersion)
+}
+
+func TestAdminService_UpdateUserCannotMakeAdminAPIOnly(t *testing.T) {
+	repo := &balanceUserRepoStub{userRepoStub: &userRepoStub{user: &User{ID: 1, Role: RoleAdmin, Status: StatusActive}}}
+	svc := &adminServiceImpl{userRepo: repo}
+	apiOnly := true
+
+	_, err := svc.UpdateUser(context.Background(), 1, &UpdateUserInput{APIOnly: &apiOnly})
+	require.Error(t, err)
+	require.Empty(t, repo.updated)
+}

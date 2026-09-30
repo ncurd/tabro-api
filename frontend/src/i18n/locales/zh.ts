@@ -368,6 +368,8 @@ export default {
   // Auth
   auth: {
     welcomeBack: '欢迎回来',
+    internalOperationsOnly: '此控制台仅供内部运维使用。账户与账单请前往',
+    accountCenter: '账户中心',
     signInToAccount: '登录您的账户以继续',
     signIn: '登录',
     signingIn: '登录中...',
@@ -1392,6 +1394,21 @@ export default {
       disabled: '禁用',
       email: '邮箱',
       password: '密码',
+      apiOnly: '仅使用 API',
+      apiOnlyBadge: '仅 API',
+      apiOnlyHint: '用户保持启用，可调用模型 API，但不能登录网关控制台。创建时无需设置密码。',
+      passwordRequiredForConsole: '允许登录控制台时请设置密码',
+      provisionOIDCIdentity: '手动绑定 Auth 身份（兼容旧模式）',
+      provisionOIDCIdentityHint: '开启自动接入时，Auth 用户首次调用 API 即自动建档并由 Auth 扣费，无需逐个绑定。此处仅供旧模式或显式迁移使用。',
+      provisionOIDCIdentityAction: '绑定身份',
+      provisioningOIDCIdentity: '绑定中...',
+      oidcIdentityProvisioned: 'Auth 身份已绑定到用户计费密钥',
+      oidcIdentityProvisionFailed: '绑定 Auth 身份失败',
+      oidcGatewayKeyPresent: '已有内部 OIDC 计费密钥 #{id}。重复绑定相同身份安全；不同身份会被拒绝。',
+      oidcIssuer: '签发方 (iss)',
+      oidcIssuerPlaceholder: 'https://auth.example.com',
+      oidcSubject: '用户标识 (sub)',
+      oidcSubjectPlaceholder: 'Auth 中稳定的用户标识',
       username: '用户名',
       notes: '备注',
       enterEmail: '请输入邮箱',
@@ -4799,6 +4816,7 @@ export default {
         callbackBaseUrl: '回调基础地址',
         field_privateKey: '私钥',
         field_publicKey: '公钥',
+        field_sellerId: '支付宝收款方用户 ID',
         field_mchId: '商户号',
         field_apiV3Key: 'API v3 密钥',
         field_publicKeyId: '公钥 ID',
@@ -5302,8 +5320,8 @@ export default {
     openInNewTab: '新窗口打开',
     notEnabledTitle: '该功能未开启',
     notEnabledDesc: '管理员暂未开启充值/订阅入口，请联系管理员。',
-    notConfiguredTitle: '充值/订阅链接未配置',
-    notConfiguredDesc: '管理员已开启入口，但尚未配置充值/订阅链接，请联系管理员。'
+    notConfiguredTitle: '充值已迁至用户中心',
+    notConfiguredDesc: '管理员尚未配置用户中心地址。请联系管理员，通过用户中心的「充值与套餐」页面购买。'
   },
 
   // Custom Page (iframe embed)

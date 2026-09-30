@@ -78,6 +78,7 @@ export const PROVIDER_CONFIG_FIELDS: Record<string, ConfigFieldDef[]> = {
   ],
   alipay: [
     { key: 'appId', label: 'App ID', sensitive: false },
+    { key: 'sellerId', label: '', sensitive: false },
     { key: 'privateKey', label: '', sensitive: true },
     { key: 'publicKey', label: '', sensitive: true },
   ],
@@ -87,8 +88,8 @@ export const PROVIDER_CONFIG_FIELDS: Record<string, ConfigFieldDef[]> = {
     { key: 'privateKey', label: '', sensitive: true },
     { key: 'apiV3Key', label: '', sensitive: true },
     { key: 'publicKey', label: '', sensitive: true },
-    { key: 'publicKeyId', label: '', sensitive: false, optional: true },
-    { key: 'certSerial', label: '', sensitive: false, optional: true },
+    { key: 'publicKeyId', label: '', sensitive: false },
+    { key: 'certSerial', label: '', sensitive: false },
   ],
   stripe: [
     { key: 'secretKey', label: '', sensitive: true },

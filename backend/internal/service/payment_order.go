@@ -20,6 +20,13 @@ import (
 // --- Order Creation ---
 
 func (s *PaymentService) CreateOrder(ctx context.Context, req CreateOrderRequest) (*CreateOrderResponse, error) {
+	mode, authorityErr := s.legacyPaymentAuthority(ctx, req.UserID)
+	if authorityErr != nil {
+		return nil, authorityErr
+	}
+	if mode != "local" && mode != "shadow" {
+		return nil, centralPaymentFrozenError(mode)
+	}
 	if req.OrderType == "" {
 		req.OrderType = payment.OrderTypeBalance
 	}

@@ -130,3 +130,34 @@ func TestNewAlipay(t *testing.T) {
 		})
 	}
 }
+
+func TestAlipayNotificationMerchantIdentity(t *testing.T) {
+	provider, err := NewAlipay("merchant", map[string]string{
+		"appId": "app-1", "privateKey": "unused", "sellerId": "seller-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, appID, sellerID string
+		valid                 bool
+	}{
+		{"matching merchant", "app-1", "seller-1", true},
+		{"wrong app", "app-2", "seller-1", false},
+		{"missing app", "", "seller-1", false},
+		{"wrong seller", "app-1", "seller-2", false},
+		{"missing seller", "app-1", "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := provider.validateNotificationMerchant(tc.appID, tc.sellerID)
+			if (err == nil) != tc.valid {
+				t.Fatalf("validateNotificationMerchant(%q, %q) error = %v", tc.appID, tc.sellerID, err)
+			}
+		})
+	}
+	// Legacy config has no seller ID. The signed app ID must still match.
+	delete(provider.config, "sellerId")
+	if err := provider.validateNotificationMerchant("app-1", "seller-1"); err != nil {
+		t.Fatal(err)
+	}
+}

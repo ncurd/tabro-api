@@ -10,6 +10,8 @@ import { useAdminSettingsStore } from '@/stores/adminSettings'
 import { useNavigationLoadingState } from '@/composables/useNavigationLoading'
 import { useRoutePrefetch } from '@/composables/useRoutePrefetch'
 import { resolveDocumentTitle } from './title'
+import { accountCenterDestination } from './internalOnly'
+import { adminPaymentConfigurationDestination, paymentPurchaseDestination } from './paymentMigration'
 
 /**
  * Route definitions with lazy loading
@@ -229,14 +231,13 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/purchase',
     name: 'PurchaseSubscription',
-    component: () => import('@/views/user/PaymentView.vue'),
+    component: () => import('@/views/user/PaymentMovedView.vue'),
     meta: {
       requiresAuth: true,
       requiresAdmin: false,
       title: 'Purchase Subscription',
       titleKey: 'nav.buySubscription',
-      descriptionKey: 'purchase.description',
-      requiresPayment: true
+      descriptionKey: 'purchase.description'
     }
   },
   {
@@ -247,8 +248,17 @@ const routes: RouteRecordRaw[] = [
       requiresAuth: true,
       requiresAdmin: false,
       title: 'My Orders',
-      titleKey: 'nav.myOrders',
-      requiresPayment: true
+      titleKey: 'nav.myOrders'
+    }
+  },
+  {
+    path: '/payment',
+    name: 'PaymentMoved',
+    component: () => import('@/views/user/PaymentMovedView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      titleKey: 'purchase.title'
     }
   },
   {
@@ -478,13 +488,12 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/admin/orders/plans',
     name: 'AdminPaymentPlans',
-    component: () => import('@/views/admin/orders/AdminPaymentPlansView.vue'),
+    component: () => import('@/views/admin/orders/AdminPaymentMovedView.vue'),
     meta: {
       requiresAuth: true,
       requiresAdmin: true,
       title: 'Subscription Plans',
-      titleKey: 'nav.paymentPlans',
-      requiresPayment: true
+      titleKey: 'nav.paymentPlans'
     }
   },
 
@@ -546,6 +555,16 @@ router.beforeEach((to, _from, next) => {
 
   // Set page title
   const appStore = useAppStore()
+  const purchaseDestination = paymentPurchaseDestination(to.path, appStore.cachedPublicSettings)
+  const adminPaymentDestination = adminPaymentConfigurationDestination(
+    to.path, appStore.cachedPublicSettings, to.query.tab)
+  const accountCenter = purchaseDestination ?? adminPaymentDestination
+    ?? accountCenterDestination(to.path, appStore.cachedPublicSettings, authStore.isAdmin)
+  if (accountCenter) {
+    window.location.replace(accountCenter)
+    next(false)
+    return
+  }
   // For custom pages, use menu item label as document title
   if (to.name === 'CustomPage') {
     const id = to.params.id as string

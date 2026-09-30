@@ -382,7 +382,7 @@ func extractAnthropicTextFromBlocks(blocks []AnthropicContentBlock) string {
 // OpenAI Responses API effort levels.
 //
 // Both APIs default to "high". Legacy models map Anthropic's "max" to
-// OpenAI's "xhigh". GPT-6 Astra and GPT-5.6 preserve xhigh and max as
+// OpenAI's "xhigh". GPT-6 and GPT-5.6 preserve xhigh and max as
 // separate supported levels.
 //
 //	low    → low
@@ -405,7 +405,8 @@ func mapAnthropicEffortToResponsesForModel(effort, model string) string {
 
 func supportsIndependentOpenAIXHighAndMax(model string) bool {
 	model = strings.ToLower(strings.TrimSpace(model))
-	return strings.Contains(model, "gpt-6-astra") || strings.Contains(model, "gpt-5.6")
+	return strings.Contains(model, "gpt-6-astra") || strings.Contains(model, "gpt-6-sol") ||
+		strings.Contains(model, "gpt-6-luna") || strings.Contains(model, "gpt-5.6")
 }
 
 // convertAnthropicToolsToResponses maps Anthropic tool definitions to

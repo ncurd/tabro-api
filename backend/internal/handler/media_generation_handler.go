@@ -15,7 +15,7 @@ import (
 )
 
 type mediaGenerationServiceAPI interface {
-	ForwardAzureSpeech(context.Context, *service.Account, service.AzureSpeechRequest) (*service.MediaSyncAudioResult, []byte, http.Header, error)
+	ForwardAzureSpeech(context.Context, *service.Account, service.AzureSpeechRequest, ...service.MediaRequestMeta) (*service.MediaSyncAudioResult, []byte, http.Header, error)
 	CreateAudioSpeechJob(context.Context, service.MediaRequestMeta, *service.Account, service.AzureSpeechRequest) (*service.MediaGenerationJob, error)
 	RefreshAudioSpeechJob(context.Context, *service.MediaGenerationJob, *service.Account) (*service.MediaGenerationJob, error)
 	CreateVideoJob(context.Context, service.MediaRequestMeta, *service.Account, service.VideoGenerationRequest) (*service.MediaGenerationJob, error)
@@ -62,8 +62,7 @@ func (h *MediaGenerationHandler) AudioSpeech(c *gin.Context) {
 		mediaError(c, http.StatusServiceUnavailable, "api_error", "Media generation service is not configured")
 		return
 	}
-	_ = body
-	result, audio, headers, err := h.mediaService.ForwardAzureSpeech(c.Request.Context(), account, req)
+	result, audio, headers, err := h.mediaService.ForwardAzureSpeech(c.Request.Context(), account, req, mediaMeta(c, apiKey, subject, body))
 	if err != nil {
 		h.writeMediaServiceError(c, err)
 		return

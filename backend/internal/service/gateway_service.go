@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	bc "github.com/Wei-Shaw/sub2api/internal/billingcenter"
 	"io"
 	"log/slog"
 	mathrand "math/rand"
@@ -4875,6 +4876,9 @@ func (s *GatewayService) buildUpstreamRequestAnthropicAPIKeyPassthrough(
 	body []byte,
 	token string,
 ) (*http.Request, error) {
+	if err := s.validateCentralAnthropicBound(ctx, body, ""); err != nil {
+		return nil, err
+	}
 	targetURL := claudeAPIURL
 	baseURL := account.GetBaseURL()
 	if baseURL != "" {
@@ -5544,6 +5548,9 @@ func (s *GatewayService) buildUpstreamRequestBedrock(
 	stream bool,
 	signer *BedrockSigner,
 ) (*http.Request, error) {
+	if err := s.validateCentralAnthropicBound(ctx, body, modelID); err != nil {
+		return nil, err
+	}
 	targetURL := BuildBedrockURL(region, modelID, stream)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(body))
@@ -5571,6 +5578,9 @@ func (s *GatewayService) buildUpstreamRequestBedrockAPIKey(
 	stream bool,
 	apiKey string,
 ) (*http.Request, error) {
+	if err := s.validateCentralAnthropicBound(ctx, body, modelID); err != nil {
+		return nil, err
+	}
 	targetURL := BuildBedrockURL(region, modelID, stream)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(body))
@@ -5613,6 +5623,9 @@ func (s *GatewayService) handleBedrockNonStreamingResponse(
 }
 
 func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Context, account *Account, body []byte, token, tokenType, modelID string, reqStream bool, mimicClaudeCode bool) (*http.Request, error) {
+	if err := s.validateCentralAnthropicBound(ctx, body, modelID); err != nil {
+		return nil, err
+	}
 	// 确定目标URL
 	targetURL := claudeAPIURL
 	if account.Type == AccountTypeAPIKey {
@@ -7597,6 +7610,14 @@ func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog
 	}
 
 	cmd := buildUsageBillingCommand(requestID, usageLog, p)
+	if bc.IsCentral(ctx) {
+		if repo == nil || cmd == nil {
+			return false, bc.ErrState
+		}
+		if err := attachCentralUsage(ctx, cmd); err != nil {
+			return false, err
+		}
+	}
 	if cmd == nil || cmd.RequestID == "" || repo == nil {
 		postUsageBilling(ctx, p, deps)
 		return true, nil
@@ -7621,6 +7642,11 @@ func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog
 		}
 	}
 
+	if bc.IsCentral(ctx) {
+		deps.deferredService.ScheduleLastUsedUpdate(p.Account.ID)
+		go notifyAccountQuota(p, deps, result)
+		return true, nil
+	}
 	finalizePostUsageBilling(p, deps, result)
 	return true, nil
 }
@@ -7938,8 +7964,21 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 		requestedModel = input.OriginalModel
 	}
 
-	// 计算费用
-	cost := s.calculateRecordUsageCost(ctx, result, apiKey, billingModel, multiplier, opts)
+	// The central generic credit reservation owns a request-scoped price
+	// snapshot. A live admin price or mapping edit applies to the next request.
+	var cost *CostBreakdown
+	if e := bc.ExecutionFromContext(ctx); e != nil && e.Mode == "central" && e.Quote.Request.MaximumUsage[gatewayCreditMeter] != "" {
+		var priceErr error
+		cost, billingModel, multiplier, priceErr = s.frozenGatewayCreditCost(ctx, e, result, opts)
+		if priceErr != nil {
+			return fmt.Errorf("%w: frozen gateway price calculation failed: %v", bc.ErrState, priceErr)
+		}
+	} else {
+		cost = s.calculateRecordUsageCost(ctx, result, apiKey, billingModel, multiplier, opts)
+	}
+	if bc.IsCentral(ctx) && (cost == nil || cost.PricingFailed) {
+		return fmt.Errorf("%w: gateway price calculation failed", bc.ErrState)
+	}
 
 	// 判断计费方式：订阅模式 vs 余额模式
 	isSubscriptionBilling := subscription != nil && apiKey.Group != nil && apiKey.Group.IsSubscriptionType()
@@ -8058,7 +8097,7 @@ func (s *GatewayService) calculateImageCost(
 		})
 		if err != nil {
 			logger.LegacyPrintf("service.gateway", "Calculate image token cost failed: %v", err)
-			return &CostBreakdown{ActualCost: 0}
+			return &CostBreakdown{ActualCost: 0, PricingFailed: true}
 		}
 		return cost
 	}
@@ -8126,7 +8165,7 @@ func (s *GatewayService) calculateTokenCost(
 	}
 	if err != nil {
 		logger.LegacyPrintf("service.gateway", "Calculate cost failed: %v", err)
-		return &CostBreakdown{ActualCost: 0}
+		return &CostBreakdown{ActualCost: 0, PricingFailed: true}
 	}
 	return cost
 }

@@ -1,8 +1,11 @@
 package routes
 
 import (
+	"net/http"
+
 	"github.com/Wei-Shaw/sub2api/internal/handler"
 	"github.com/Wei-Shaw/sub2api/internal/handler/admin"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -87,18 +90,25 @@ func RegisterPaymentRoutes(
 		plans := adminGroup.Group("/plans")
 		{
 			plans.GET("", adminPaymentHandler.ListPlans)
-			plans.POST("", adminPaymentHandler.CreatePlan)
-			plans.PUT("/:id", adminPaymentHandler.UpdatePlan)
-			plans.DELETE("/:id", adminPaymentHandler.DeletePlan)
+			plans.POST("", paymentConfigurationMoved)
+			plans.PUT("/:id", paymentConfigurationMoved)
+			plans.DELETE("/:id", paymentConfigurationMoved)
 		}
 
 		// Provider Instances
 		providers := adminGroup.Group("/providers")
 		{
 			providers.GET("", adminPaymentHandler.ListProviders)
-			providers.POST("", adminPaymentHandler.CreateProvider)
+			providers.POST("", paymentConfigurationMoved)
 			providers.PUT("/:id", adminPaymentHandler.UpdateProvider)
-			providers.DELETE("/:id", adminPaymentHandler.DeleteProvider)
+			providers.DELETE("/:id", paymentConfigurationMoved)
 		}
 	}
+}
+
+func paymentConfigurationMoved(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	response.ErrorWithDetails(c, http.StatusGone,
+		"New payment products and merchants are configured in the Auth account center.",
+		"ACCOUNT_CENTER_REQUIRED", nil)
 }

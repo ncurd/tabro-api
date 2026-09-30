@@ -12,6 +12,7 @@ import (
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/paymentauditlog"
 	"github.com/Wei-Shaw/sub2api/ent/paymentorder"
+	bc "github.com/Wei-Shaw/sub2api/internal/billingcenter"
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 )
@@ -19,6 +20,15 @@ import (
 // --- Payment Notification & Fulfillment ---
 
 func (s *PaymentService) HandlePaymentNotification(ctx context.Context, n *payment.PaymentNotification, pk string) error {
+	if n == nil {
+		return nil
+	}
+	if strings.HasPrefix(n.OrderID, "tbc_") {
+		if s.centerPayments == nil {
+			return bc.ErrState
+		}
+		return s.centerPayments.Notify(ctx, n, pk)
+	}
 	if n.Status != payment.NotificationStatusSuccess {
 		return nil
 	}
@@ -40,6 +50,16 @@ func (s *PaymentService) confirmPayment(ctx context.Context, oid int64, tradeNo 
 	if err != nil {
 		slog.Error("order not found", "orderID", oid)
 		return nil
+	}
+	mode, authorityErr := s.legacyPaymentAuthority(ctx, o.UserID)
+	if authorityErr != nil {
+		return authorityErr
+	}
+	if mode != "local" && mode != "shadow" && mode != "draining" {
+		if o.Status == OrderStatusCompleted || o.Status == OrderStatusPartiallyRefunded || o.Status == OrderStatusRefunded {
+			return nil
+		}
+		return centralPaymentFrozenError(mode)
 	}
 	// Skip amount check when paid=0 (e.g. QueryOrder doesn't return amount).
 	// Also skip if paid is NaN/Inf (malformed provider data).

@@ -161,6 +161,20 @@ func (_u *UserUpdate) SetNillableStatus(v *string) *UserUpdate {
 	return _u
 }
 
+// SetAPIOnly sets the "api_only" field.
+func (_u *UserUpdate) SetAPIOnly(v bool) *UserUpdate {
+	_u.mutation.SetAPIOnly(v)
+	return _u
+}
+
+// SetNillableAPIOnly sets the "api_only" field if the given value is not nil.
+func (_u *UserUpdate) SetNillableAPIOnly(v *bool) *UserUpdate {
+	if v != nil {
+		_u.SetAPIOnly(*v)
+	}
+	return _u
+}
+
 // SetTokenVersion sets the "token_version" field.
 func (_u *UserUpdate) SetTokenVersion(v int64) *UserUpdate {
 	_u.mutation.ResetTokenVersion()
@@ -836,6 +850,9 @@ func (_u *UserUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if value, ok := _u.mutation.Status(); ok {
 		_spec.SetField(user.FieldStatus, field.TypeString, value)
 	}
+	if value, ok := _u.mutation.APIOnly(); ok {
+		_spec.SetField(user.FieldAPIOnly, field.TypeBool, value)
+	}
 	if value, ok := _u.mutation.TokenVersion(); ok {
 		_spec.SetField(user.FieldTokenVersion, field.TypeInt64, value)
 	}
@@ -1489,6 +1506,20 @@ func (_u *UserUpdateOne) SetStatus(v string) *UserUpdateOne {
 func (_u *UserUpdateOne) SetNillableStatus(v *string) *UserUpdateOne {
 	if v != nil {
 		_u.SetStatus(*v)
+	}
+	return _u
+}
+
+// SetAPIOnly sets the "api_only" field.
+func (_u *UserUpdateOne) SetAPIOnly(v bool) *UserUpdateOne {
+	_u.mutation.SetAPIOnly(v)
+	return _u
+}
+
+// SetNillableAPIOnly sets the "api_only" field if the given value is not nil.
+func (_u *UserUpdateOne) SetNillableAPIOnly(v *bool) *UserUpdateOne {
+	if v != nil {
+		_u.SetAPIOnly(*v)
 	}
 	return _u
 }
@@ -2197,6 +2228,9 @@ func (_u *UserUpdateOne) sqlSave(ctx context.Context) (_node *User, err error) {
 	}
 	if value, ok := _u.mutation.Status(); ok {
 		_spec.SetField(user.FieldStatus, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.APIOnly(); ok {
+		_spec.SetField(user.FieldAPIOnly, field.TypeBool, value)
 	}
 	if value, ok := _u.mutation.TokenVersion(); ok {
 		_spec.SetField(user.FieldTokenVersion, field.TypeInt64, value)

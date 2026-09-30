@@ -55,6 +55,7 @@ func TestDefaultBedrockModelMapping_ContainsLatestClaudeModels(t *testing.T) {
 	want := map[string]string{
 		"claude-fable-5-1": "anthropic.claude-fable-5-1",
 		"claude-opus-5":    "anthropic.claude-opus-5",
+		"claude-opus-5-5":  "anthropic.claude-opus-5-5",
 	}
 	for model, expected := range want {
 		got, ok := DefaultBedrockModelMapping[model]

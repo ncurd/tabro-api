@@ -6,6 +6,20 @@ import (
 )
 
 var codexModelMap = map[string]string{
+	"gpt-6-sol":                  "gpt-6-sol",
+	"gpt-6-sol-none":             "gpt-6-sol",
+	"gpt-6-sol-low":              "gpt-6-sol",
+	"gpt-6-sol-medium":           "gpt-6-sol",
+	"gpt-6-sol-high":             "gpt-6-sol",
+	"gpt-6-sol-xhigh":            "gpt-6-sol",
+	"gpt-6-sol-max":              "gpt-6-sol",
+	"gpt-6-luna":                 "gpt-6-luna",
+	"gpt-6-luna-none":            "gpt-6-luna",
+	"gpt-6-luna-low":             "gpt-6-luna",
+	"gpt-6-luna-medium":          "gpt-6-luna",
+	"gpt-6-luna-high":            "gpt-6-luna",
+	"gpt-6-luna-xhigh":           "gpt-6-luna",
+	"gpt-6-luna-max":             "gpt-6-luna",
 	"gpt-6-astra":                "gpt-6-astra",
 	"gpt-6-astra-low":            "gpt-6-astra",
 	"gpt-6-astra-medium":         "gpt-6-astra",
@@ -278,6 +292,12 @@ func normalizeCodexModel(model string) string {
 
 	normalized := strings.ToLower(modelID)
 
+	if strings.Contains(normalized, "gpt-6-sol") || strings.Contains(normalized, "gpt 6 sol") {
+		return "gpt-6-sol"
+	}
+	if strings.Contains(normalized, "gpt-6-luna") || strings.Contains(normalized, "gpt 6 luna") {
+		return "gpt-6-luna"
+	}
 	if strings.Contains(normalized, "gpt-6-astra") || strings.Contains(normalized, "gpt 6 astra") {
 		return "gpt-6-astra"
 	}

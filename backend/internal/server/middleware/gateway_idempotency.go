@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	bc "github.com/Wei-Shaw/sub2api/internal/billingcenter"
 	"io"
 	"net/http"
 	"strconv"
@@ -41,6 +42,13 @@ func GatewayInvocationIdempotency(writeError GatewayErrorWriter) gin.HandlerFunc
 		writeError = AnthropicErrorWriter
 	}
 	return func(c *gin.Context) {
+		// Central operations have a permanent scoped identity and a durable CAS
+		// dispatch guard; the expiring legacy invocation generation must not
+		// replace that operation's settlement/evidence identity.
+		if bc.IsCentral(c.Request.Context()) {
+			c.Next()
+			return
+		}
 		if c.Request == nil || c.Request.Method != http.MethodPost {
 			c.Next()
 			return

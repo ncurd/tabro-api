@@ -1,6 +1,11 @@
 <template>
   <AuthLayout>
-    <div class="space-y-6">
+    <div v-if="oidcOnlyEnabled" class="space-y-6 text-center">
+      <h2 class="text-2xl font-bold text-gray-900 dark:text-white">{{ t('auth.oidcOnlyTitle') }}</h2>
+      <p class="text-sm text-gray-600 dark:text-gray-300">{{ t('auth.oidcOnlyMessage') }}</p>
+      <router-link to="/login" class="btn btn-primary inline-flex">{{ t('auth.backToLogin') }}</router-link>
+    </div>
+    <div v-else class="space-y-6">
       <!-- Title -->
       <div class="text-center">
         <h2 class="text-2xl font-bold text-gray-900 dark:text-white">
@@ -208,7 +213,7 @@
     </div>
 
     <!-- Footer -->
-    <template #footer>
+    <template v-if="!oidcOnlyEnabled" #footer>
       <p class="text-gray-500 dark:text-dark-400">
         {{ t('auth.rememberedPassword') }}
         <router-link
@@ -237,6 +242,7 @@ const { t } = useI18n()
 
 const route = useRoute()
 const appStore = useAppStore()
+const oidcOnlyEnabled = computed(() => appStore.cachedPublicSettings?.oidc_only_enabled ?? false)
 
 // ==================== State ====================
 
@@ -303,6 +309,8 @@ function validateForm(): boolean {
 // ==================== Form Handlers ====================
 
 async function handleSubmit(): Promise<void> {
+  if (oidcOnlyEnabled.value) return
+
   errorMessage.value = ''
 
   if (!validateForm()) {

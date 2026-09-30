@@ -10,12 +10,12 @@ import (
 )
 
 // NewJWTAuthMiddleware 创建 JWT 认证中间件
-func NewJWTAuthMiddleware(authService *service.AuthService, userService *service.UserService) JWTAuthMiddleware {
-	return JWTAuthMiddleware(jwtAuth(authService, userService))
+func NewJWTAuthMiddleware(authService *service.AuthService, userService *service.UserService, settingService *service.SettingService) JWTAuthMiddleware {
+	return JWTAuthMiddleware(jwtAuth(authService, userService, settingService))
 }
 
 // jwtAuth JWT认证中间件实现
-func jwtAuth(authService *service.AuthService, userService *service.UserService) gin.HandlerFunc {
+func jwtAuth(authService *service.AuthService, userService *service.UserService, settingService *service.SettingService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 从Authorization header中提取token
 		authHeader := c.GetHeader("Authorization")
@@ -47,6 +47,10 @@ func jwtAuth(authService *service.AuthService, userService *service.UserService)
 			AbortWithError(c, 401, "INVALID_TOKEN", "Invalid token")
 			return
 		}
+		if settingService != nil && settingService.IsOIDCOnlyEnabled(c.Request.Context()) && claims.AuthMethod != service.AuthMethodOIDC {
+			AbortWithError(c, 401, "OIDC_ONLY_LOGIN_REQUIRED", "OIDC login is required")
+			return
+		}
 
 		// 从数据库获取最新的用户信息
 		user, err := userService.GetByID(c.Request.Context(), claims.UserID)
@@ -58,6 +62,10 @@ func jwtAuth(authService *service.AuthService, userService *service.UserService)
 		// 检查用户状态
 		if !user.IsActive() {
 			AbortWithError(c, 401, "USER_INACTIVE", "User account is not active")
+			return
+		}
+		if user.APIOnly {
+			AbortWithError(c, 401, "INVALID_TOKEN", "Invalid token")
 			return
 		}
 

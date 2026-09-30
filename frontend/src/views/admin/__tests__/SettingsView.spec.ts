@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 
 import SettingsView from '../SettingsView.vue'
+import Toggle from '@/components/common/Toggle.vue'
 
 const { localeRef, setLocaleMock, showErrorMock, showSuccessMock } = vi.hoisted(() => ({
   localeRef: { value: 'en' },
@@ -59,6 +60,10 @@ vi.mock('@/i18n', () => ({
     { code: 'de', name: 'Deutsch', flag: '🇩🇪' }
   ],
   setLocale: setLocaleMock
+}))
+
+vi.mock('vue-router', () => ({
+  useRoute: () => ({ query: {} })
 }))
 
 vi.mock('@/api', () => ({
@@ -131,6 +136,9 @@ describe('admin SettingsView', () => {
       smtp_security: 'tls',
       smtp_use_tls: true
     })
+    settingsApi.updateSettings.mockReset()
+    settingsApi.updateWebSearchEmulationConfig.mockReset()
+    settingsApi.updateWebSearchEmulationConfig.mockResolvedValue(undefined)
     settingsApi.getAdminApiKey.mockReset()
     settingsApi.getAdminApiKey.mockResolvedValue({
       exists: false,
@@ -188,6 +196,7 @@ describe('admin SettingsView', () => {
           GroupBadge: simpleStub,
           GroupOptionItem: simpleStub,
           Toggle: true,
+          RouterLink: simpleStub,
           ProxySelector: simpleStub,
           ImageUpload: simpleStub,
           BackupSettings: simpleStub
@@ -203,8 +212,52 @@ describe('admin SettingsView', () => {
     expect(setLocaleMock).toHaveBeenCalledWith('zh-CN')
   })
 
-  it('uses the Chinese payment docs link for zh-CN locale', async () => {
-    localeRef.value = 'zh-CN'
+  it('disables OIDC-only mode until OIDC is configured and enabled', async () => {
+    const wrapper = mount(SettingsView, {
+      global: {
+        stubs: {
+          AppLayout: appLayoutStub,
+          Icon: true,
+          Select: simpleStub,
+          ConfirmDialog: simpleStub,
+          PaymentProviderList: simpleStub,
+          PaymentProviderDialog: simpleStub,
+          GroupBadge: simpleStub,
+          GroupOptionItem: simpleStub,
+          Toggle,
+          RouterLink: simpleStub,
+          ProxySelector: simpleStub,
+          ImageUpload: simpleStub,
+          BackupSettings: simpleStub
+        }
+      }
+    })
+
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="oidc-only-toggle"]').attributes('disabled')).toBeDefined()
+  })
+
+  it('only allows OIDC-only mode after enabled OIDC settings have been saved', async () => {
+    const savedSettings = {
+      backend_mode_enabled: false,
+      default_subscriptions: [],
+      registration_email_suffix_whitelist: [],
+      payment_enabled: true,
+      table_page_size_options: [10, 20, 50, 100],
+      smtp_security: 'tls',
+      smtp_use_tls: true,
+      oidc_connect_enabled: true,
+      oidc_only_enabled: false,
+      oidc_connect_client_id: 'client-1',
+      oidc_connect_client_secret_configured: true,
+      oidc_connect_issuer_url: 'https://identity.example.test',
+      oidc_connect_redirect_url: 'https://app.example.test/api/v1/auth/oauth/oidc/callback',
+      oidc_connect_frontend_redirect_url: '/auth/oidc/callback',
+      oidc_connect_token_auth_method: 'client_secret_post'
+    }
+    settingsApi.getSettings.mockResolvedValue(savedSettings)
+    settingsApi.updateSettings.mockImplementation(async (payload) => ({ ...savedSettings, ...payload }))
 
     const wrapper = mount(SettingsView, {
       global: {
@@ -217,17 +270,32 @@ describe('admin SettingsView', () => {
           PaymentProviderDialog: simpleStub,
           GroupBadge: simpleStub,
           GroupOptionItem: simpleStub,
-          Toggle: true,
+          Toggle,
           ProxySelector: simpleStub,
           ImageUpload: simpleStub,
-          BackupSettings: simpleStub
+          BackupSettings: simpleStub,
+          RouterLink: simpleStub
         }
       }
     })
-
     await flushPromises()
 
-    expect(wrapper.get('[data-testid="payment-config-guide-link"]').attributes('href')).toContain('PAYMENT_CN.md')
-    expect(wrapper.get('[data-testid="payment-provider-guide-link"]').attributes('href')).toContain('PAYMENT_CN.md')
+    const toggle = wrapper.get('[data-testid="oidc-only-toggle"]')
+    expect(toggle.attributes('disabled')).toBeUndefined()
+    await toggle.trigger('click')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(settingsApi.updateSettings).toHaveBeenCalledWith(expect.objectContaining({ oidc_only_enabled: true }))
+
+    settingsApi.updateSettings.mockRejectedValueOnce({
+      status: 403,
+      code: 403,
+      reason: 'OIDC_ADMIN_SESSION_REQUIRED',
+      message: 'Sign in through OIDC'
+    })
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(showErrorMock).toHaveBeenCalledWith('admin.settings.oidc.onlyAdminSessionRequired')
   })
 })

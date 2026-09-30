@@ -2,12 +2,13 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -108,6 +109,7 @@ type AdminService interface {
 type CreateUserInput struct {
 	Email         string
 	Password      string
+	APIOnly       bool
 	Username      string
 	Notes         string
 	Balance       float64
@@ -118,6 +120,7 @@ type CreateUserInput struct {
 type UpdateUserInput struct {
 	Email         string
 	Password      string
+	APIOnly       *bool
 	Username      *string
 	Notes         *string
 	Balance       *float64 // 使用指针区分"未提供"和"设置为0"
@@ -550,6 +553,18 @@ func (s *adminServiceImpl) GetUser(ctx context.Context, id int64) (*User, error)
 }
 
 func (s *adminServiceImpl) CreateUser(ctx context.Context, input *CreateUserInput) (*User, error) {
+	password := input.Password
+	if input.APIOnly {
+		// API-only users have no gateway password. Keep the required hash column
+		// populated with an unreturned random secret, even if one was supplied.
+		secret := make([]byte, 32)
+		if _, err := rand.Read(secret); err != nil {
+			return nil, err
+		}
+		password = base64.RawURLEncoding.EncodeToString(secret)
+	} else if len(password) < 6 {
+		return nil, errors.New("password must contain at least 6 characters")
+	}
 	user := &User{
 		Email:         input.Email,
 		Username:      input.Username,
@@ -558,9 +573,10 @@ func (s *adminServiceImpl) CreateUser(ctx context.Context, input *CreateUserInpu
 		Balance:       input.Balance,
 		Concurrency:   input.Concurrency,
 		Status:        StatusActive,
+		APIOnly:       input.APIOnly,
 		AllowedGroups: input.AllowedGroups,
 	}
-	if err := user.SetPassword(input.Password); err != nil {
+	if err := user.SetPassword(password); err != nil {
 		return nil, err
 	}
 	if err := s.userRepo.Create(ctx, user); err != nil {
@@ -597,10 +613,14 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 	if user.Role == "admin" && input.Status == "disabled" {
 		return nil, errors.New("cannot disable admin user")
 	}
+	if user.IsAdmin() && input.APIOnly != nil && *input.APIOnly {
+		return nil, errors.New("cannot make admin user API-only")
+	}
 
 	oldConcurrency := user.Concurrency
 	oldStatus := user.Status
 	oldRole := user.Role
+	oldAPIOnly := user.APIOnly
 
 	if input.Email != "" {
 		user.Email = input.Email
@@ -621,6 +641,12 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 
 	if input.Status != "" {
 		user.Status = input.Status
+	}
+	if input.APIOnly != nil && user.APIOnly != *input.APIOnly {
+		user.APIOnly = *input.APIOnly
+		// Existing web access and refresh tokens must never become valid again
+		// when the flag is toggled back.
+		user.TokenVersion++
 	}
 
 	if input.Concurrency != nil {
@@ -643,7 +669,7 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 	}
 
 	if s.authCacheInvalidator != nil {
-		if user.Concurrency != oldConcurrency || user.Status != oldStatus || user.Role != oldRole {
+		if user.Concurrency != oldConcurrency || user.Status != oldStatus || user.Role != oldRole || user.APIOnly != oldAPIOnly {
 			s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, user.ID)
 		}
 	}
@@ -1405,14 +1431,13 @@ func (s *adminServiceImpl) AdminUpdateAPIKeyGroupID(ctx context.Context, keyID i
 // onto the selected billing/routing key. The binding is immutable and globally
 // unique among active keys; it cannot be inferred from email or request headers.
 func (s *adminServiceImpl) AdminBindAPIKeyOIDCIdentity(ctx context.Context, keyID int64, issuer, subject string) (*APIKey, error) {
-	issuer = strings.TrimSpace(issuer)
-	subject = strings.TrimSpace(subject)
-	if keyID <= 0 || issuer == "" || subject == "" || len(issuer) > 512 || len(subject) > 512 {
+	if keyID <= 0 {
 		return nil, infraerrors.BadRequest("INVALID_OIDC_IDENTITY", "issuer and subject are required and must be at most 512 characters")
 	}
-	parsedIssuer, err := url.Parse(issuer)
-	if err != nil || parsedIssuer == nil || parsedIssuer.Hostname() == "" || (parsedIssuer.Scheme != "https" && parsedIssuer.Scheme != "http") || parsedIssuer.User != nil || parsedIssuer.RawQuery != "" || parsedIssuer.ForceQuery || parsedIssuer.Fragment != "" {
-		return nil, infraerrors.BadRequest("INVALID_OIDC_ISSUER", "issuer must be an absolute HTTP(S) URL without userinfo, query, or fragment")
+	var err error
+	issuer, subject, err = normalizeOIDCGatewayIdentity(issuer, subject)
+	if err != nil {
+		return nil, err
 	}
 	apiKey, err := s.apiKeyRepo.GetByID(ctx, keyID)
 	if err != nil {

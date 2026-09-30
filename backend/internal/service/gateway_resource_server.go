@@ -44,6 +44,9 @@ type GatewayOIDCPrincipal struct {
 	ExpiresAt  time.Time
 	Scopes     []string
 	ActorChain []string
+	// AuthBilled is set only by resource-server authentication for an
+	// auto-provisioning deployment. It is not read from token claims.
+	AuthBilled bool
 }
 
 type gatewayOIDCDiscovery struct {
@@ -76,9 +79,10 @@ type gatewayOIDCSigningKey struct {
 // GatewayResourceServer validates external access tokens intended only for the
 // LLM gateway. It never validates locally issued Tabro session/access tokens.
 type GatewayResourceServer struct {
-	cfg           config.GatewayResourceServerConfig
-	apiKeyService *APIKeyService
-	httpClient    *http.Client
+	cfg                  config.GatewayResourceServerConfig
+	apiKeyService        *APIKeyService
+	billingCenterEnabled bool
+	httpClient           *http.Client
 
 	mu        sync.RWMutex
 	keys      map[string]gatewayOIDCSigningKey
@@ -93,10 +97,14 @@ type GatewayResourceServer struct {
 
 func NewGatewayResourceServer(cfg *config.Config, apiKeyService *APIKeyService) *GatewayResourceServer {
 	rsCfg := config.GatewayResourceServerConfig{}
+	billingCenterEnabled := false
 	if cfg != nil {
 		rsCfg = cfg.Gateway.ResourceServer
+		billingCenterEnabled = cfg.BillingCenter.Enabled
 	}
-	return newGatewayResourceServerWithClient(rsCfg, apiKeyService, &http.Client{Timeout: 10 * time.Second})
+	server := newGatewayResourceServerWithClient(rsCfg, apiKeyService, &http.Client{Timeout: 10 * time.Second})
+	server.billingCenterEnabled = billingCenterEnabled
+	return server
 }
 
 func newGatewayResourceServerWithClient(cfg config.GatewayResourceServerConfig, apiKeyService *APIKeyService, client *http.Client) *GatewayResourceServer {
@@ -141,8 +149,9 @@ func (s *GatewayResourceServer) Enabled() bool {
 	return s != nil && s.cfg.Enabled
 }
 
-// Authenticate verifies the bearer token and resolves its stable (iss, sub)
-// identity to an explicitly bound internal billing/routing key.
+// Authenticate verifies the bearer token before resolving or provisioning its
+// stable (iss, sub) identity. The local key is a routing/usage record; Auth is
+// the billing authority whenever automatic provisioning is enabled.
 func (s *GatewayResourceServer) Authenticate(ctx context.Context, rawToken string) (*APIKey, *GatewayOIDCPrincipal, error) {
 	principal, err := s.Verify(ctx, rawToken)
 	if err != nil {
@@ -151,13 +160,36 @@ func (s *GatewayResourceServer) Authenticate(ctx context.Context, rawToken strin
 	if s.apiKeyService == nil {
 		return nil, nil, ErrGatewayOIDCUnavailable
 	}
+	if s.cfg.AutoProvision && !s.billingCenterEnabled {
+		return nil, nil, ErrGatewayOIDCUnavailable
+	}
 	apiKey, err := s.apiKeyService.GetOIDCGatewayKeyByIdentity(ctx, principal.Issuer, principal.Subject)
 	if err != nil {
 		if errors.Is(err, ErrAPIKeyNotFound) {
-			return nil, nil, ErrGatewayOIDCIdentityNotBound
+			if !s.cfg.AutoProvision {
+				return nil, nil, ErrGatewayOIDCIdentityNotBound
+			}
+			apiKey, err = s.apiKeyService.AutoProvisionOIDCGatewayIdentity(ctx, principal.Issuer, principal.Subject)
+			if err != nil {
+				if errors.Is(err, ErrGatewayOIDCTokenInvalid) {
+					return nil, nil, ErrGatewayOIDCTokenInvalid
+				}
+				if errors.Is(err, ErrGatewayOIDCIdentityNotBound) {
+					return nil, nil, ErrGatewayOIDCIdentityNotBound
+				}
+				return nil, nil, fmt.Errorf("%w: provision billing identity", ErrGatewayOIDCUnavailable)
+			}
+		} else {
+			return nil, nil, fmt.Errorf("%w: resolve billing identity", ErrGatewayOIDCUnavailable)
 		}
-		return nil, nil, fmt.Errorf("%w: resolve billing identity", ErrGatewayOIDCUnavailable)
 	}
+	if apiKey == nil {
+		return nil, nil, ErrGatewayOIDCUnavailable
+	}
+	if apiKey.AuthBillingOnly && (!s.cfg.AutoProvision || !s.billingCenterEnabled) {
+		return nil, nil, ErrGatewayOIDCUnavailable
+	}
+	principal.AuthBilled = s.cfg.AutoProvision || apiKey.AuthBillingOnly
 	return apiKey, principal, nil
 }
 

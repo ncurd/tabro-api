@@ -18,7 +18,7 @@ import (
 func setupAPIKeyHandler(adminSvc service.AdminService) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	h := NewAdminAPIKeyHandler(adminSvc)
+	h := NewAdminAPIKeyHandler(adminSvc, nil)
 	router.PUT("/api/v1/admin/api-keys/:id", h.UpdateGroup)
 	router.PUT("/api/v1/admin/api-keys/:id/oidc-identity", h.BindOIDCIdentity)
 	return router

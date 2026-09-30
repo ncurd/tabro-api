@@ -33,7 +33,7 @@ const (
 
 // DefaultCSPPolicy is the default Content-Security-Policy with nonce support
 // __CSP_NONCE__ will be replaced with actual nonce at request time by the SecurityHeaders middleware
-const DefaultCSPPolicy = "default-src 'self'; script-src 'self' __CSP_NONCE__ https://challenges.cloudflare.com https://static.cloudflareinsights.com https://*.stripe.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https:; frame-src https://challenges.cloudflare.com https://*.stripe.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+const DefaultCSPPolicy = "default-src 'self'; script-src 'self' __CSP_NONCE__ https://challenges.cloudflare.com https://static.cloudflareinsights.com https://*.stripe.com https://js.stripe.com https://*.js.stripe.com https://maps.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https: https://api.stripe.com https://maps.googleapis.com; frame-src https://challenges.cloudflare.com https://*.stripe.com https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 
 // UMQ（用户消息队列）模式常量
 const (
@@ -58,6 +58,8 @@ const (
 )
 
 type Config struct {
+	Deployment              DeploymentConfig              `mapstructure:"deployment"`
+	BillingCenter           BillingCenterConfig           `mapstructure:"billing_center"`
 	Server                  ServerConfig                  `mapstructure:"server"`
 	Log                     LogConfig                     `mapstructure:"log"`
 	CORS                    CORSConfig                    `mapstructure:"cors"`
@@ -446,6 +448,7 @@ type GatewayConfig struct {
 // fields keep human-edited allowlists and scopes concise.
 type GatewayResourceServerConfig struct {
 	Enabled             bool   `mapstructure:"enabled"`
+	AutoProvision       bool   `mapstructure:"auto_provision"`
 	IssuerURL           string `mapstructure:"issuer_url"`
 	DiscoveryURL        string `mapstructure:"discovery_url"`
 	JWKSURL             string `mapstructure:"jwks_url"`
@@ -1255,6 +1258,20 @@ func setDefaults() {
 	viper.SetDefault("security.proxy_fallback.allow_direct_on_error", false)
 
 	// Billing
+	viper.SetDefault("deployment.internal_only", false)
+	viper.SetDefault("deployment.account_center_url", "")
+	viper.SetDefault("billing_center.enabled", false)
+	viper.SetDefault("billing_center.base_url", "")
+	viper.SetDefault("billing_center.token_url", "")
+	viper.SetDefault("billing_center.producer_client_id", "")
+	viper.SetDefault("billing_center.client_secret", "")
+	viper.SetDefault("billing_center.timeout_seconds", 15)
+	viper.SetDefault("billing_center.insecure_local", false)
+	viper.SetDefault("billing_center.payments.enabled", false)
+	viper.SetDefault("billing_center.payments.producer_client_id", "")
+	viper.SetDefault("billing_center.payments.client_secret", "")
+	viper.SetDefault("billing_center.payments.callback_base_url", "")
+	viper.SetDefault("billing_center.payments.account_center_base_url", "")
 	viper.SetDefault("billing.circuit_breaker.enabled", true)
 	viper.SetDefault("billing.circuit_breaker.failure_threshold", 5)
 	viper.SetDefault("billing.circuit_breaker.reset_timeout_seconds", 30)
@@ -1430,6 +1447,7 @@ func setDefaults() {
 
 	// Gateway
 	viper.SetDefault("gateway.resource_server.enabled", false)
+	viper.SetDefault("gateway.resource_server.auto_provision", false)
 	viper.SetDefault("gateway.resource_server.issuer_url", "")
 	viper.SetDefault("gateway.resource_server.discovery_url", "")
 	viper.SetDefault("gateway.resource_server.jwks_url", "")
@@ -1586,6 +1604,15 @@ func setDefaults() {
 }
 
 func (c *Config) Validate() error {
+	if err := c.Deployment.Validate(); err != nil {
+		return err
+	}
+	if c.BillingCenter.Enabled && c.RunMode == RunModeSimple {
+		return fmt.Errorf("billing_center requires standard run mode")
+	}
+	if err := c.BillingCenter.Validate(); err != nil {
+		return err
+	}
 	jwtSecret := strings.TrimSpace(c.JWT.Secret)
 	if jwtSecret == "" {
 		return fmt.Errorf("jwt.secret is required")
@@ -2016,6 +2043,23 @@ func (c *Config) Validate() error {
 	}
 	if c.Idempotency.CleanupBatchSize <= 0 {
 		return fmt.Errorf("idempotency.cleanup_batch_size must be positive")
+	}
+	if c.Gateway.ResourceServer.AutoProvision {
+		if !c.Gateway.ResourceServer.Enabled {
+			return fmt.Errorf("gateway.resource_server.auto_provision requires resource_server.enabled=true")
+		}
+		if !c.BillingCenter.Enabled {
+			return fmt.Errorf("gateway.resource_server.auto_provision requires billing_center.enabled=true")
+		}
+		if !c.Gateway.ResourceServer.RequireTenant {
+			return fmt.Errorf("gateway.resource_server.auto_provision requires require_tenant=true")
+		}
+		if !c.Gateway.ResourceServer.TokenExchange.RequireActor {
+			return fmt.Errorf("gateway.resource_server.auto_provision requires token_exchange.require_actor=true")
+		}
+		if c.Gateway.ResourceServer.TokenExchange.MaxDelegationDepth != 1 {
+			return fmt.Errorf("gateway.resource_server.auto_provision requires token_exchange.max_delegation_depth=1")
+		}
 	}
 	if c.Gateway.ResourceServer.Enabled {
 		rs := c.Gateway.ResourceServer

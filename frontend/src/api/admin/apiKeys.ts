@@ -13,6 +13,24 @@ export interface UpdateApiKeyGroupResult {
   granted_group_name?: string
 }
 
+export interface ProvisionOIDCGatewayIdentityResult {
+  api_key: ApiKey
+  issuer: string
+  subject: string
+}
+
+/** Provision an internal billing key and bind one verified IdP identity to a user. */
+export async function provisionOIDCGatewayIdentity(
+  userId: number,
+  identity: { issuer: string; subject: string }
+): Promise<ProvisionOIDCGatewayIdentityResult> {
+  const { data } = await apiClient.put<ProvisionOIDCGatewayIdentityResult>(
+    `/admin/users/${userId}/oidc-gateway-identity`,
+    identity
+  )
+  return data
+}
+
 /**
  * Update an API key's group binding
  * @param id - API Key ID
@@ -27,7 +45,8 @@ export async function updateApiKeyGroup(id: number, groupId: number | null): Pro
 }
 
 export const apiKeysAPI = {
-  updateApiKeyGroup
+  updateApiKeyGroup,
+  provisionOIDCGatewayIdentity
 }
 
 export default apiKeysAPI

@@ -58,6 +58,7 @@ func SetupRouter(
 	r.Use(middleware2.RequestLogger())
 	r.Use(middleware2.Logger())
 	r.Use(middleware2.CORS(cfg.CORS))
+	r.Use(middleware2.InternalOnly(cfg.Deployment))
 	r.Use(middleware2.SecurityHeaders(cfg.Security.CSP, func() []string {
 		if p := cachedFrameOrigins.Load(); p != nil {
 			return *p

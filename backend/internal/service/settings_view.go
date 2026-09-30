@@ -34,6 +34,7 @@ type SystemSettings struct {
 	LinuxDoConnectRedirectURL            string
 
 	// Generic OIDC OAuth 登录
+	OIDCOnlyEnabled                   bool
 	OIDCConnectEnabled                bool
 	OIDCConnectProviderName           string
 	OIDCConnectClientID               string
@@ -131,6 +132,8 @@ type DefaultSubscriptionSetting struct {
 }
 
 type PublicSettings struct {
+	InternalOnly                     bool
+	AccountCenterURL                 string
 	RegistrationEnabled              bool
 	EmailVerifyEnabled               bool
 	RegistrationEmailSuffixWhitelist []string
@@ -157,6 +160,7 @@ type PublicSettings struct {
 	CustomEndpoints             string // JSON array of custom endpoints
 
 	LinuxDoOAuthEnabled   bool
+	OIDCOnlyEnabled       bool
 	BackendModeEnabled    bool
 	PaymentEnabled        bool
 	OIDCOAuthEnabled      bool

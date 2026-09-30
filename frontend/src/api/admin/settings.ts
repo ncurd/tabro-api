@@ -66,6 +66,7 @@ export interface SystemSettings {
 
   // Generic OIDC OAuth settings
   oidc_connect_enabled: boolean
+  oidc_only_enabled: boolean
   oidc_connect_provider_name: string
   oidc_connect_client_id: string
   oidc_connect_client_secret_configured: boolean
@@ -191,6 +192,7 @@ export interface UpdateSettingsRequest {
   linuxdo_connect_client_secret?: string
   linuxdo_connect_redirect_url?: string
   oidc_connect_enabled?: boolean
+  oidc_only_enabled?: boolean
   oidc_connect_provider_name?: string
   oidc_connect_client_id?: string
   oidc_connect_client_secret?: string

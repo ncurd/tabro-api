@@ -32,6 +32,12 @@ func TestDefaultModels_ContainsLatestClaudeModels(t *testing.T) {
 	t.Parallel()
 
 	want := map[string]Model{
+		"claude-opus-5-5": {
+			ID:          "claude-opus-5-5",
+			Type:        "model",
+			DisplayName: "Claude Opus 5.5",
+			CreatedAt:   "2026-09-22T00:00:00Z",
+		},
 		"claude-fable-5-1": {
 			ID:          "claude-fable-5-1",
 			Type:        "model",

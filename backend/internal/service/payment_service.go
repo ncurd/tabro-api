@@ -2,15 +2,20 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/paymentorder"
 	"github.com/Wei-Shaw/sub2api/ent/paymentproviderinstance"
+	bc "github.com/Wei-Shaw/sub2api/internal/billingcenter"
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 	"github.com/Wei-Shaw/sub2api/internal/payment/provider"
 )
@@ -157,20 +162,40 @@ type TopUserStat struct {
 // --- Service ---
 
 type PaymentService struct {
-	providerMu      sync.Mutex
-	providersLoaded bool
-	entClient       *dbent.Client
-	registry        *payment.Registry
-	loadBalancer    payment.LoadBalancer
-	redeemService   *RedeemService
-	subscriptionSvc *SubscriptionService
-	configService   *PaymentConfigService
-	userRepo        UserRepository
-	groupRepo       GroupRepository
+	financialDB        *sql.DB
+	centerPayments     *bc.PaymentBridge
+	stopCenterPayments func()
+	centerStopOnce     sync.Once
+	providerMu         sync.Mutex
+	providersLoaded    bool
+	entClient          *dbent.Client
+	registry           *payment.Registry
+	loadBalancer       payment.LoadBalancer
+	redeemService      *RedeemService
+	subscriptionSvc    *SubscriptionService
+	configService      *PaymentConfigService
+	userRepo           UserRepository
+	groupRepo          GroupRepository
 }
 
-func NewPaymentService(entClient *dbent.Client, registry *payment.Registry, loadBalancer payment.LoadBalancer, redeemService *RedeemService, subscriptionSvc *SubscriptionService, configService *PaymentConfigService, userRepo UserRepository, groupRepo GroupRepository) *PaymentService {
-	return &PaymentService{entClient: entClient, registry: registry, loadBalancer: loadBalancer, redeemService: redeemService, subscriptionSvc: subscriptionSvc, configService: configService, userRepo: userRepo, groupRepo: groupRepo}
+func NewPaymentService(entClient *dbent.Client, registry *payment.Registry, loadBalancer payment.LoadBalancer, redeemService *RedeemService, subscriptionSvc *SubscriptionService, configService *PaymentConfigService, userRepo UserRepository, groupRepo GroupRepository, db *sql.DB, cfg *config.Config) (*PaymentService, error) {
+	s := &PaymentService{entClient: entClient, registry: registry, loadBalancer: loadBalancer, redeemService: redeemService, subscriptionSvc: subscriptionSvc, configService: configService, userRepo: userRepo, groupRepo: groupRepo, financialDB: db}
+	cleanup, err := s.startBillingPaymentBridge(db, cfg)
+	if err != nil {
+		return nil, err
+	}
+	s.stopCenterPayments = cleanup
+	return s, nil
+}
+
+func (s *PaymentService) Stop() {
+	if s != nil {
+		s.centerStopOnce.Do(func() {
+			if s.stopCenterPayments != nil {
+				s.stopCenterPayments()
+			}
+		})
+	}
 }
 
 // --- Provider Registry ---
@@ -221,23 +246,163 @@ func (s *PaymentService) loadProviders(ctx context.Context) {
 	}
 }
 
-// GetWebhookProvider returns the provider instance that should verify a webhook.
-// It extracts out_trade_no from the raw body, looks up the order to find the
-// original provider instance, and creates a provider with that instance's credentials.
-// Falls back to the registry provider when the order cannot be found.
+// GetWebhookProvider resolves a clear-text order reference to its original
+// merchant credentials. WeChat notifications have an encrypted order reference
+// and must use GetWxpayWebhookProviders instead.
 func (s *PaymentService) GetWebhookProvider(ctx context.Context, providerKey, outTradeNo string) (payment.Provider, error) {
+	if providerKey == payment.TypeAlipay && outTradeNo == "" {
+		return nil, fmt.Errorf("alipay webhook has no out_trade_no")
+	}
+	if providerKey == payment.TypeWxpay && outTradeNo == "" {
+		return nil, fmt.Errorf("wxpay webhook requires verification against configured merchant instances")
+	}
+	if strings.HasPrefix(outTradeNo, "tbc_") {
+		if s.centerPayments == nil {
+			return nil, bc.ErrState
+		}
+		job, err := s.centerPayments.Store.OrderByExternalID(ctx, outTradeNo)
+		if err != nil {
+			return nil, err
+		}
+		if job.ProviderKey != providerKey {
+			return nil, bc.ErrConflict
+		}
+		return s.centerPayments.Providers.Resolve(ctx, job.ProviderInstanceID, job.ProviderKey)
+	}
 	if outTradeNo != "" {
 		order, err := s.entClient.PaymentOrder.Query().Where(paymentorder.OutTradeNo(outTradeNo)).Only(ctx)
-		if err == nil {
-			p, pErr := s.getOrderProvider(ctx, order)
-			if pErr == nil {
-				return p, nil
+		if err != nil && strings.HasPrefix(outTradeNo, orderIDPrefix) {
+			if id, parseErr := strconv.ParseInt(strings.TrimPrefix(outTradeNo, orderIDPrefix), 10, 64); parseErr == nil {
+				order, err = s.entClient.PaymentOrder.Get(ctx, id)
 			}
-			slog.Warn("[Webhook] order provider creation failed, falling back to registry", "outTradeNo", outTradeNo, "error", pErr)
+		}
+		if err == nil {
+			if payment.GetBasePaymentType(order.PaymentType) != providerKey {
+				return nil, fmt.Errorf("webhook provider does not match the order")
+			}
+			if order.ProviderInstanceID == nil || *order.ProviderInstanceID == "" {
+				// Very old local orders did not retain a provider instance ID.
+				// They can be verified only when there is exactly one configured
+				// merchant of this provider type.
+				return s.singleWebhookProvider(ctx, providerKey)
+			}
+			id, parseErr := strconv.ParseInt(*order.ProviderInstanceID, 10, 64)
+			if parseErr != nil {
+				return nil, parseErr
+			}
+			instance, getErr := s.entClient.PaymentProviderInstance.Get(ctx, id)
+			if getErr != nil || instance.ProviderKey != providerKey {
+				return nil, fmt.Errorf("webhook provider instance does not match the order")
+			}
+			cfg, configErr := s.loadBalancer.GetInstanceConfig(ctx, id)
+			if configErr != nil {
+				return nil, configErr
+			}
+			return provider.CreateProvider(providerKey, *order.ProviderInstanceID, cfg)
+		}
+		if providerKey == payment.TypeAlipay || providerKey == payment.TypeWxpay {
+			return nil, fmt.Errorf("webhook order not found: %w", err)
 		}
 	}
 	s.EnsureProviders(ctx)
 	return s.registry.GetProviderByKey(providerKey)
+}
+
+func (s *PaymentService) singleWebhookProvider(ctx context.Context, providerKey string) (payment.Provider, error) {
+	instances, err := s.entClient.PaymentProviderInstance.Query().
+		Where(paymentproviderinstance.ProviderKeyEQ(providerKey)).All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(instances) != 1 {
+		return nil, fmt.Errorf("legacy webhook without merchant instance is ambiguous")
+	}
+	id := int64(instances[0].ID)
+	cfg, err := s.loadBalancer.GetInstanceConfig(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return provider.CreateProvider(providerKey, fmt.Sprintf("%d", id), cfg)
+}
+
+// WebhookProviderCandidate carries credentials without trusting any field in
+// the encrypted WeChat notification. Disabled instances remain eligible so
+// payments created before disabling a merchant can still settle.
+type WebhookProviderCandidate struct {
+	InstanceID string
+	Provider   payment.Provider
+}
+
+func (s *PaymentService) GetWxpayWebhookProviders(ctx context.Context) ([]WebhookProviderCandidate, error) {
+	instances, err := s.entClient.PaymentProviderInstance.Query().
+		Where(paymentproviderinstance.ProviderKeyEQ(payment.TypeWxpay)).All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	candidates := make([]WebhookProviderCandidate, 0, len(instances))
+	for _, instance := range instances {
+		cfg, err := s.loadBalancer.GetInstanceConfig(ctx, int64(instance.ID))
+		if err != nil {
+			slog.Warn("[Webhook] cannot load wxpay merchant credentials", "instanceID", instance.ID, "error", err)
+			continue
+		}
+		id := fmt.Sprintf("%d", instance.ID)
+		p, err := provider.CreateProvider(payment.TypeWxpay, id, cfg)
+		if err != nil {
+			slog.Warn("[Webhook] cannot create wxpay merchant verifier", "instanceID", instance.ID, "error", err)
+			continue
+		}
+		candidates = append(candidates, WebhookProviderCandidate{InstanceID: id, Provider: p})
+	}
+	if len(candidates) == 0 {
+		return nil, fmt.Errorf("no configured wxpay merchant can verify the notification")
+	}
+	return candidates, nil
+}
+
+// MatchWebhookProviderInstance checks the order's frozen merchant after the
+// provider signature and encrypted resource have been verified.
+func (s *PaymentService) MatchWebhookProviderInstance(ctx context.Context, providerKey, outTradeNo, instanceID string) error {
+	if outTradeNo == "" || instanceID == "" {
+		return fmt.Errorf("webhook order or merchant instance is missing")
+	}
+	if strings.HasPrefix(outTradeNo, "tbc_") {
+		if s.centerPayments == nil {
+			return bc.ErrState
+		}
+		job, err := s.centerPayments.Store.OrderByExternalID(ctx, outTradeNo)
+		if err != nil {
+			return err
+		}
+		if job.ProviderKey != providerKey || job.ProviderInstanceID != instanceID {
+			return bc.ErrConflict
+		}
+		return nil
+	}
+	order, err := s.entClient.PaymentOrder.Query().Where(paymentorder.OutTradeNo(outTradeNo)).Only(ctx)
+	if err != nil && strings.HasPrefix(outTradeNo, orderIDPrefix) {
+		if id, parseErr := strconv.ParseInt(strings.TrimPrefix(outTradeNo, orderIDPrefix), 10, 64); parseErr == nil {
+			order, err = s.entClient.PaymentOrder.Get(ctx, id)
+		}
+	}
+	if err != nil {
+		return err
+	}
+	if payment.GetBasePaymentType(order.PaymentType) != providerKey {
+		return fmt.Errorf("webhook provider type does not match the order")
+	}
+	if order.ProviderInstanceID == nil || *order.ProviderInstanceID == "" {
+		instances, err := s.entClient.PaymentProviderInstance.Query().
+			Where(paymentproviderinstance.ProviderKeyEQ(providerKey)).All(ctx)
+		if err == nil && len(instances) == 1 && fmt.Sprintf("%d", instances[0].ID) == instanceID {
+			return nil
+		}
+		return fmt.Errorf("legacy webhook without merchant instance is ambiguous")
+	}
+	if *order.ProviderInstanceID != instanceID {
+		return fmt.Errorf("webhook merchant instance does not match the order")
+	}
+	return nil
 }
 
 // --- Helpers ---

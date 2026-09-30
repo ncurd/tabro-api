@@ -186,6 +186,7 @@ import { useI18n } from 'vue-i18n'
 import { useAdminSettingsStore, useAppStore, useAuthStore, useOnboardingStore } from '@/stores'
 import VersionBadge from '@/components/common/VersionBadge.vue'
 import { sanitizeSvg } from '@/utils/sanitize'
+import { paymentPurchaseDestination } from '@/router/paymentMigration'
 
 interface NavItem {
   path: string
@@ -217,6 +218,7 @@ const siteName = computed(() => appStore.siteName)
 const siteLogo = computed(() => appStore.siteLogo)
 const siteVersion = computed(() => appStore.siteVersion)
 const settingsLoaded = computed(() => appStore.publicSettingsLoaded)
+const authBillingAvailable = computed(() => paymentPurchaseDestination('/purchase', appStore.cachedPublicSettings) !== null)
 
 // SVG Icon Components
 const DashboardIcon = {
@@ -603,7 +605,7 @@ const userNavItems = computed((): NavItem[] => {
     { path: '/model-pricing', label: modelPricingLabel.value, icon: ModelPricingIcon, hideInSimpleMode: true },
     { path: '/docs', label: t('nav.docs'), icon: DocsIcon },
     { path: '/subscriptions', label: t('nav.mySubscriptions'), icon: CreditCardIcon, hideInSimpleMode: true },
-    ...(appStore.cachedPublicSettings?.payment_enabled
+    ...(appStore.cachedPublicSettings?.payment_enabled || authBillingAvailable.value
       ? [
           {
             path: '/purchase',
@@ -613,7 +615,7 @@ const userNavItems = computed((): NavItem[] => {
           },
         ]
       : []),
-    ...(appStore.cachedPublicSettings?.payment_enabled
+    ...(appStore.cachedPublicSettings?.payment_enabled || authBillingAvailable.value
       ? [
           {
             path: '/orders',
@@ -643,7 +645,7 @@ const personalNavItems = computed((): NavItem[] => {
     { path: '/model-pricing', label: modelPricingLabel.value, icon: ModelPricingIcon, hideInSimpleMode: true },
     { path: '/docs', label: t('nav.docs'), icon: DocsIcon },
     { path: '/subscriptions', label: t('nav.mySubscriptions'), icon: CreditCardIcon, hideInSimpleMode: true },
-    ...(appStore.cachedPublicSettings?.payment_enabled
+    ...(appStore.cachedPublicSettings?.payment_enabled || authBillingAvailable.value
       ? [
           {
             path: '/purchase',
@@ -653,7 +655,7 @@ const personalNavItems = computed((): NavItem[] => {
           },
         ]
       : []),
-    ...(appStore.cachedPublicSettings?.payment_enabled
+    ...(appStore.cachedPublicSettings?.payment_enabled || authBillingAvailable.value
       ? [
           {
             path: '/orders',
@@ -710,7 +712,7 @@ const adminNavItems = computed((): NavItem[] => {
     { path: '/admin/proxies', label: t('nav.proxies'), icon: ServerIcon },
     { path: '/admin/redeem', label: t('nav.redeemCodes'), icon: TicketIcon, hideInSimpleMode: true },
     { path: '/admin/promo-codes', label: t('nav.promoCodes'), icon: GiftIcon, hideInSimpleMode: true },
-    ...(adminSettingsStore.paymentEnabled
+    ...(adminSettingsStore.paymentEnabled || authBillingAvailable.value
       ? [
           {
             path: '/admin/orders',

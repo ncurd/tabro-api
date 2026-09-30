@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	bc "github.com/Wei-Shaw/sub2api/internal/billingcenter"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
@@ -1561,6 +1562,33 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		return metadata, ok
 	}
 	sessionExpiresAt, _ := openAIWSOIDCExpiration(ctx)
+	billingSession := service.GatewayBillingSessionFromContext(ctx)
+	var billingTurnsMu sync.Mutex
+	billingTurns := make(map[int]*bc.Execution)
+	finishBillingTurn := func(turn int) {
+		billingTurnsMu.Lock()
+		execution := billingTurns[turn]
+		delete(billingTurns, turn)
+		billingTurnsMu.Unlock()
+		if billingSession != nil && execution != nil {
+			finishCtx, finishCancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer finishCancel()
+			if err := billingSession.Finish(finishCtx, execution); err != nil {
+				reqLog.Error("openai.websocket_billing_reconciliation_failed", zap.Error(err))
+			}
+		}
+	}
+	defer func() {
+		billingTurnsMu.Lock()
+		remaining := make([]int, 0, len(billingTurns))
+		for turn := range billingTurns {
+			remaining = append(remaining, turn)
+		}
+		billingTurnsMu.Unlock()
+		for _, turn := range remaining {
+			finishBillingTurn(turn)
+		}
+	}()
 
 	hooks := &service.OpenAIWSIngressHooks{
 		SessionExpiresAt: sessionExpiresAt,
@@ -1590,6 +1618,20 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					"model is not allowed for this websocket session",
 					err,
 				)
+			}
+			if billingSession != nil {
+				operationHash := sha256.Sum256([]byte(wsBillingBaseID + ":" + strconv.Itoa(turn)))
+				execution, bounded, err := billingSession.Prepare(ctx, hex.EncodeToString(operationHash[:]), payload)
+				if err != nil {
+					return nil, service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "billing reservation failed", err)
+				}
+				billingTurnsMu.Lock()
+				billingTurns[turn] = execution
+				billingTurnsMu.Unlock()
+				if err := billingSession.ValidateModel(execution, upstreamModel); err != nil {
+					return nil, service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "mapped model exceeds billing reservation", err)
+				}
+				payload = bounded
 			}
 			preparedPayload, err := rewriteOpenAIWSResponseCreateTurnModel(payload, upstreamModel)
 			if err != nil {
@@ -1654,7 +1696,20 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			)
 			return nil
 		},
+		BeforeWrite: func(turn int) error {
+			if billingSession == nil {
+				return nil
+			}
+			billingTurnsMu.Lock()
+			execution := billingTurns[turn]
+			billingTurnsMu.Unlock()
+			return billingSession.BeforeSupplierWrite(ctx, execution)
+		},
 		AfterTurn: func(turn int, result *service.OpenAIForwardResult, turnErr error) {
+			defer finishBillingTurn(turn)
+			billingTurnsMu.Lock()
+			execution := billingTurns[turn]
+			billingTurnsMu.Unlock()
 			metadata, hasMetadata := takeTurnMetadata(turn)
 			releaseTurnSlot(turn)
 			if turnErr != nil || result == nil {
@@ -1674,6 +1729,12 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			}
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, true, result.FirstTokenMs)
 			turnCtx := openAIWSTurnUsageContext(ctx, wsBillingBaseID, apiKey.ID, turn)
+			if billingSession != nil {
+				turnCtx = bc.WithExecution(turnCtx, execution)
+				if execution != nil {
+					turnCtx = context.WithValue(turnCtx, ctxkey.GatewayBillingRequestID, execution.Key.OperationID)
+				}
+			}
 			h.submitUsageRecordTask(turnCtx, func(taskCtx context.Context) {
 				if err := h.gatewayService.RecordUsage(taskCtx, &service.OpenAIRecordUsageInput{
 					Result:             result,

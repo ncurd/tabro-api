@@ -21,8 +21,8 @@
 
 | 场景 | 模型示例 |
 |------|----------|
-| OpenAI / Codex 兼容 | `gpt-6-astra`、`gpt-5.6` |
-| Claude / Anthropic 兼容 | `claude-fable-5-1`、`claude-opus-5` |
+| OpenAI / Codex 兼容 | `gpt-6-astra`、`gpt-6-sol`、`gpt-6-luna`、`gpt-5.6` |
+| Claude / Anthropic 兼容 | `claude-fable-5-1`、`claude-opus-5-5`、`claude-opus-5` |
 | Antigravity Claude | `claude-fable-5`、`claude-opus-4-6-thinking` |
 
 如果你给 Key 配了模型白名单或模型映射，客户端里的模型 ID 必须能被该分组和账号支持。
@@ -182,11 +182,13 @@ export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 
 也可以用 `claude --model claude-fable-5-1` 或 `claude --model claude-opus-5` 临时选择模型。Fable 5.1 需要 Claude Code 2.1.255 或更高版本，Opus 5 需要 2.1.219 或更高版本。
 
+使用 Opus 5.5 时，将 `ANTHROPIC_MODEL` 设为 `claude-opus-5-5`，或运行 `claude --model claude-opus-5-5`。账号和分组的自定义模型白名单需允许该模型。
+
 ## Codex 直接配置
 
 Codex CLI / IDE 扩展共用 `~/.codex/config.toml`。Tabro 推荐使用 Responses API。
 
-使用 GPT-6 时，将下面的 `model` 和 `review_model` 改为 `gpt-6-astra`，并可将 `model_reasoning_effort` 设为 `low`、`medium`、`high`、`xhigh` 或 `max`。
+使用 GPT-6 时，将下面的 `model` 和 `review_model` 改为 `gpt-6-astra`、`gpt-6-sol` 或 `gpt-6-luna`，并可将 `model_reasoning_effort` 设为 `low`、`medium`、`high`、`xhigh` 或 `max`。Sol 和 Luna 还支持 `none`。
 
 `~/.codex/config.toml`：
 

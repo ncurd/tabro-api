@@ -192,7 +192,10 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	paymentConfigService := service.ProvidePaymentConfigService(client, settingRepository, encryptionKey)
 	registry := payment.ProvideRegistry()
 	defaultLoadBalancer := payment.ProvideDefaultLoadBalancer(client, encryptionKey)
-	paymentService := service.NewPaymentService(client, registry, defaultLoadBalancer, redeemService, subscriptionService, paymentConfigService, userRepository, groupRepository)
+	paymentService, err := service.NewPaymentService(client, registry, defaultLoadBalancer, redeemService, subscriptionService, paymentConfigService, userRepository, groupRepository, db, configConfig)
+	if err != nil {
+		return nil, err
+	}
 	settingHandler := admin.NewSettingHandler(settingService, emailService, turnstileService, opsService, paymentConfigService, paymentService)
 	opsHandler := admin.NewOpsHandler(opsService)
 	updateCache := repository.NewUpdateCache(redisClient)
@@ -215,7 +218,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	errorPassthroughService := service.NewErrorPassthroughService(errorPassthroughRepository, errorPassthroughCache)
 	errorPassthroughHandler := admin.NewErrorPassthroughHandler(errorPassthroughService)
 	tlsFingerprintProfileHandler := admin.NewTLSFingerprintProfileHandler(tlsFingerprintProfileService)
-	adminAPIKeyHandler := admin.NewAdminAPIKeyHandler(adminService)
+	adminAPIKeyHandler := admin.NewAdminAPIKeyHandler(adminService, apiKeyService)
 	scheduledTestPlanRepository := repository.NewScheduledTestPlanRepository(db)
 	scheduledTestResultRepository := repository.NewScheduledTestResultRepository(db)
 	scheduledTestService := service.ProvideScheduledTestService(scheduledTestPlanRepository, scheduledTestResultRepository)
@@ -239,9 +242,14 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	idempotencyCoordinator := service.ProvideIdempotencyCoordinator(idempotencyRepository, configConfig)
 	idempotencyCleanupService := service.ProvideIdempotencyCleanupService(idempotencyRepository, configConfig)
 	handlers := handler.ProvideHandlers(authHandler, userHandler, apiKeyHandler, usageHandler, redeemHandler, subscriptionHandler, announcementHandler, modelPricingHandler, adminHandlers, gatewayHandler, openAIGatewayHandler, mediaGenerationHandler, handlerSettingHandler, totpHandler, handlerPaymentHandler, paymentWebhookHandler, idempotencyCoordinator, idempotencyCleanupService)
-	jwtAuthMiddleware := middleware.NewJWTAuthMiddleware(authService, userService)
+	jwtAuthMiddleware := middleware.NewJWTAuthMiddleware(authService, userService, settingService)
 	adminAuthMiddleware := middleware.NewAdminAuthMiddleware(authService, userService, settingService)
-	apiKeyAuthMiddleware := middleware.NewGatewayAuthMiddleware(apiKeyService, subscriptionService, authService, configConfig)
+	gatewayBillingRepository := repository.ProvideGatewayBillingRepository(db, configConfig)
+	gatewayBillingCoordinator, err := service.ProvideGatewayBillingCoordinator(configConfig, gatewayBillingRepository, pricingService, gatewayService)
+	if err != nil {
+		return nil, err
+	}
+	apiKeyAuthMiddleware := middleware.ProvideGatewayAuthMiddleware(apiKeyService, subscriptionService, authService, configConfig, gatewayBillingCoordinator)
 	engine := server.ProvideRouter(configConfig, handlers, jwtAuthMiddleware, adminAuthMiddleware, apiKeyAuthMiddleware, authService, apiKeyService, subscriptionService, opsService, settingService, redisClient)
 	httpServer := server.ProvideHTTPServer(configConfig, engine)
 	opsMetricsCollector := service.ProvideOpsMetricsCollector(opsRepository, settingRepository, accountRepository, concurrencyService, db, redisClient, configConfig)
@@ -254,7 +262,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	subscriptionExpiryService := service.ProvideSubscriptionExpiryService(userSubscriptionRepository)
 	scheduledTestRunnerService := service.ProvideScheduledTestRunnerService(scheduledTestPlanRepository, scheduledTestService, accountTestService, rateLimitService, configConfig)
 	paymentOrderExpiryService := service.ProvidePaymentOrderExpiryService(paymentService)
-	v := provideCleanup(client, redisClient, opsMetricsCollector, opsAggregationService, opsAlertEvaluatorService, opsCleanupService, opsScheduledReportService, opsSystemLogSink, schedulerSnapshotService, tokenRefreshService, accountExpiryService, subscriptionExpiryService, usageCleanupService, idempotencyCleanupService, pricingService, emailQueueService, billingCacheService, usageRecordWorkerPool, subscriptionService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, openAIGatewayService, scheduledTestRunnerService, backupService, paymentOrderExpiryService, mediaGenerationService)
+	v := provideCleanup(client, redisClient, opsMetricsCollector, opsAggregationService, opsAlertEvaluatorService, opsCleanupService, opsScheduledReportService, opsSystemLogSink, schedulerSnapshotService, tokenRefreshService, accountExpiryService, subscriptionExpiryService, usageCleanupService, idempotencyCleanupService, pricingService, emailQueueService, billingCacheService, usageRecordWorkerPool, subscriptionService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, openAIGatewayService, scheduledTestRunnerService, backupService, paymentOrderExpiryService, mediaGenerationService, gatewayBillingCoordinator, paymentService)
 	application := &Application{
 		Server:  httpServer,
 		Cleanup: v,
@@ -309,6 +317,8 @@ func provideCleanup(
 	backupSvc *service.BackupService,
 	paymentOrderExpiry *service.PaymentOrderExpiryService,
 	mediaGeneration *service.MediaGenerationService,
+	gatewayBilling *service.GatewayBillingCoordinator,
+	centralPayments *service.PaymentService,
 ) func() {
 	return func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -321,6 +331,12 @@ func provideCleanup(
 
 		if mediaGeneration != nil {
 			mediaGeneration.Stop()
+		}
+		if gatewayBilling != nil {
+			gatewayBilling.Stop()
+		}
+		if centralPayments != nil {
+			centralPayments.Stop()
 		}
 		parallelSteps := []cleanupStep{
 			{"OpsScheduledReportService", func() error {

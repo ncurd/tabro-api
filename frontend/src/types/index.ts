@@ -42,6 +42,7 @@ export interface User {
   balance: number // User balance for API usage
   concurrency: number // Allowed concurrent requests
   status: 'active' | 'disabled' // Account status
+  api_only: boolean // API access remains available, gateway console sign-in is disabled
   allowed_groups: number[] | null // Allowed group IDs (null = all non-exclusive groups)
   balance_notify_enabled: boolean
   balance_notify_threshold: number | null
@@ -101,6 +102,8 @@ export interface CustomEndpoint {
 }
 
 export interface PublicSettings {
+	internal_only?: boolean
+	account_center_url?: string
   registration_enabled: boolean
   email_verify_enabled: boolean
   registration_email_suffix_whitelist: string[]
@@ -125,6 +128,7 @@ export interface PublicSettings {
   linuxdo_oauth_enabled: boolean
   oidc_oauth_enabled: boolean
   oidc_oauth_provider_name: string
+  oidc_only_enabled: boolean
   backend_mode_enabled: boolean
   version: string
   balance_low_notify_enabled: boolean
@@ -1296,6 +1300,7 @@ export interface UpdateUserRequest {
   balance?: number
   concurrency?: number
   status?: 'active' | 'disabled'
+  api_only?: boolean
   allowed_groups?: number[] | null
   // 用户专属分组倍率配置 (group_id -> rate_multiplier | null)
   // null 表示删除该分组的专属倍率

@@ -284,6 +284,31 @@ func TestLoginOIDCWithTokenPairPrefersImmutableIdentityBindingOverEmail(t *testi
 	require.Equal(t, user.ID, claims.UserID)
 }
 
+func TestLoginOIDCWithTokenPairAPIOnlyRejectsBoundAndUnboundIdentity(t *testing.T) {
+	user := &service.User{
+		ID: 94, Email: "api-only@example.com", Role: service.RoleUser,
+		Status: service.StatusActive, APIOnly: true,
+	}
+	handler, _, userRepo, apiKeyRepo, refreshCache := newOIDCLoginIntegrationServices(user, nil)
+	const issuer = "https://issuer.example.com"
+	apiKeyRepo.keys["oidc-internal:prebound"] = &service.APIKey{
+		ID: 8102, UserID: user.ID, Key: "oidc-internal:prebound",
+		Status: service.StatusActive, OIDCIssuer: issuer, OIDCSubject: "bound-subject",
+	}
+
+	for _, subject := range []string{"bound-subject", "unbound-subject"} {
+		pair, resolvedUser, err := handler.loginOIDCWithTokenPair(
+			context.Background(), user.Email, user.Username, "", false, issuer, subject,
+		)
+		require.ErrorIs(t, err, service.ErrInvalidCredentials)
+		require.Nil(t, pair)
+		require.Nil(t, resolvedUser)
+	}
+	require.Zero(t, userRepo.createCalls)
+	require.Empty(t, apiKeyRepo.created)
+	require.Empty(t, refreshCache.stored)
+}
+
 func TestLoginOIDCWithTokenPairBackendModeRejectsNonAdminWithoutSideEffects(t *testing.T) {
 	settingRepo := &oidcLoginSettingRepoStub{values: make(map[string]string)}
 	settingService := service.NewSettingService(settingRepo, &config.Config{})

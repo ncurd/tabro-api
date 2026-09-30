@@ -7,6 +7,8 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -170,13 +172,22 @@ func NeedsSetup() bool {
 	return true
 }
 
+func postgresDSN(cfg *DatabaseConfig, database string) string {
+	address := net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port))
+	u := url.URL{Scheme: "postgres", User: url.UserPassword(cfg.User, cfg.Password), Host: address, Path: "/" + database}
+	query := u.Query()
+	query.Set("sslmode", cfg.SSLMode)
+	u.RawQuery = query.Encode()
+	return u.String()
+}
+
 // TestDatabaseConnection tests the database connection and creates database if not exists
 func TestDatabaseConnection(cfg *DatabaseConfig) error {
+	if !validateDBName(cfg.DBName) {
+		return fmt.Errorf("invalid database name")
+	}
 	// First, connect to the default 'postgres' database to check/create target database
-	defaultDSN := fmt.Sprintf(
-		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-		cfg.Host, cfg.Port, cfg.User, cfg.Password, cfg.DBName, cfg.SSLMode,
-	)
+	defaultDSN := postgresDSN(cfg, "postgres")
 
 	db, err := sql.Open("postgres", defaultDSN)
 	if err != nil {
@@ -208,9 +219,7 @@ func TestDatabaseConnection(cfg *DatabaseConfig) error {
 
 	// Create database if not exists
 	if !exists {
-		// 注意：数据库名不能参数化，依赖前置输入校验保障安全。
-		// Note: Database names cannot be parameterized, but we've already validated cfg.DBName
-		// in the handler using validateDBName() which only allows [a-zA-Z][a-zA-Z0-9_]*
+		// Database names cannot be parameterized, so validate before interpolating.
 		_, err := db.ExecContext(ctx, fmt.Sprintf("CREATE DATABASE %s", cfg.DBName))
 		if err != nil {
 			return fmt.Errorf("failed to create database '%s': %w", cfg.DBName, err)
@@ -224,10 +233,7 @@ func TestDatabaseConnection(cfg *DatabaseConfig) error {
 	}
 	db = nil
 
-	targetDSN := fmt.Sprintf(
-		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-		cfg.Host, cfg.Port, cfg.User, cfg.Password, cfg.DBName, cfg.SSLMode,
-	)
+	targetDSN := postgresDSN(cfg, cfg.DBName)
 
 	targetDB, err := sql.Open("postgres", targetDSN)
 	if err != nil {
@@ -332,11 +338,7 @@ func createInstallLock() error {
 }
 
 func initializeDatabase(cfg *SetupConfig) error {
-	dsn := fmt.Sprintf(
-		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-		cfg.Database.Host, cfg.Database.Port, cfg.Database.User,
-		cfg.Database.Password, cfg.Database.DBName, cfg.Database.SSLMode,
-	)
+	dsn := postgresDSN(&cfg.Database, cfg.Database.DBName)
 
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
@@ -355,11 +357,7 @@ func initializeDatabase(cfg *SetupConfig) error {
 }
 
 func createAdminUser(cfg *SetupConfig) (bool, string, error) {
-	dsn := fmt.Sprintf(
-		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-		cfg.Database.Host, cfg.Database.Port, cfg.Database.User,
-		cfg.Database.Password, cfg.Database.DBName, cfg.Database.SSLMode,
-	)
+	dsn := postgresDSN(&cfg.Database, cfg.Database.DBName)
 
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {

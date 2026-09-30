@@ -150,3 +150,29 @@ func TestRelayPrepareTurnRewritesEveryCreateAndPreservesStableMetadata(t *testin
 	require.Equal(t, "client-model-1", completedTurns[1].RequestModel)
 	require.Equal(t, "upstream-model-1", completedTurns[1].UpstreamModel)
 }
+
+func TestRelayPhysicalWritePermitRunsAfterPrepareAndPreventsSecondTurn(t *testing.T) {
+	clientConn := newPassthroughTestFrameConn([]passthroughTestFrame{{msgType: coderws.MessageText, payload: []byte(`{"type":"response.create","model":"gpt-6-sol","input":"second"}`)}}, false)
+	upstreamBase := newPassthroughTestFrameConn([]passthroughTestFrame{{msgType: coderws.MessageText, payload: []byte(`{"type":"response.completed","response":{"id":"first","usage":{"input_tokens":4,"output_tokens":2}}}`)}}, true)
+	upstreamConn := &delayedReadFrameConn{base: upstreamBase, firstDelay: 50 * time.Millisecond}
+	denied := errors.New("independent second reservation denied")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	permits := make(chan int, 2)
+	result, exit := Relay(ctx, clientConn, upstreamConn, []byte(`{"type":"response.create","model":"gpt-6-sol","input":"first"}`), RelayOptions{UpstreamDrainTimeout: 500 * time.Millisecond, OnBeforeWrite: func(turn int) error {
+		permits <- turn
+		if turn == 2 {
+			return denied
+		}
+		return nil
+	}})
+	require.NotNil(t, exit)
+	require.Equal(t, "before_write", exit.Stage)
+	require.Equal(t, 2, exit.Turn)
+	require.ErrorIs(t, exit.Err, denied)
+	require.Equal(t, 1, <-permits)
+	require.Equal(t, 2, <-permits)
+	require.Len(t, upstreamBase.Writes(), 1)
+	require.Equal(t, "first", result.RequestID)
+	require.Equal(t, 2, result.Usage.OutputTokens)
+}

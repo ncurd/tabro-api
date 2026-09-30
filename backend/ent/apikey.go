@@ -38,9 +38,11 @@ type APIKey struct {
 	Status string `json:"status,omitempty"`
 	// Internal billing identity for signed OIDC access tokens
 	OidcManaged bool `json:"oidc_managed,omitempty"`
-	// Verified external issuer bound to this managed billing identity
+	// Automatically provisioned OIDC identity; Auth is the only billing authority
+	AuthBillingOnly bool `json:"auth_billing_only,omitempty"`
+	// Verified external issuer bound to this billing identity
 	OidcIssuer *string `json:"oidc_issuer,omitempty"`
-	// Verified external subject bound to this managed billing identity
+	// Verified external subject bound to this billing identity
 	OidcSubject *string `json:"oidc_subject,omitempty"`
 	// Last usage time of this API key
 	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
@@ -129,7 +131,7 @@ func (*APIKey) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case apikey.FieldIPWhitelist, apikey.FieldIPBlacklist:
 			values[i] = new([]byte)
-		case apikey.FieldOidcManaged:
+		case apikey.FieldOidcManaged, apikey.FieldAuthBillingOnly:
 			values[i] = new(sql.NullBool)
 		case apikey.FieldQuota, apikey.FieldQuotaUsed, apikey.FieldRateLimit5h, apikey.FieldRateLimit1d, apikey.FieldRateLimit7d, apikey.FieldUsage5h, apikey.FieldUsage1d, apikey.FieldUsage7d:
 			values[i] = new(sql.NullFloat64)
@@ -215,6 +217,12 @@ func (_m *APIKey) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field oidc_managed", values[i])
 			} else if value.Valid {
 				_m.OidcManaged = value.Bool
+			}
+		case apikey.FieldAuthBillingOnly:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field auth_billing_only", values[i])
+			} else if value.Valid {
+				_m.AuthBillingOnly = value.Bool
 			}
 		case apikey.FieldOidcIssuer:
 			if value, ok := values[i].(*sql.NullString); !ok {
@@ -410,6 +418,9 @@ func (_m *APIKey) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("oidc_managed=")
 	builder.WriteString(fmt.Sprintf("%v", _m.OidcManaged))
+	builder.WriteString(", ")
+	builder.WriteString("auth_billing_only=")
+	builder.WriteString(fmt.Sprintf("%v", _m.AuthBillingOnly))
 	builder.WriteString(", ")
 	if v := _m.OidcIssuer; v != nil {
 		builder.WriteString("oidc_issuer=")

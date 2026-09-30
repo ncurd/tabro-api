@@ -37,6 +37,8 @@ func TestFallbackPricingFile_ContainsLatestOpenAIAndAnthropicModels(t *testing.T
 
 	for _, model := range []string{
 		"gpt-6-astra",
+		"gpt-6-sol",
+		"gpt-6-luna",
 		"gpt-5.6",
 		"gpt-5.6-sol",
 		"gpt-5.6-terra",
@@ -56,6 +58,7 @@ func TestFallbackPricingFile_ContainsLatestOpenAIAndAnthropicModels(t *testing.T
 		"claude-fable-5",
 		"claude-fable-5-1",
 		"claude-opus-5",
+		"claude-opus-5-5",
 	} {
 		require.Contains(t, data, model)
 	}
@@ -79,12 +82,15 @@ func TestFallbackPricingFile_NewModelsUseOfficialPricing(t *testing.T) {
 		cacheWrite1h float64
 	}{
 		{model: "gpt-6-astra", input: 10e-6, output: 50e-6, cacheWrite: 12.5e-6, cacheRead: 1e-6},
+		{model: "gpt-6-sol", input: 2e-6, output: 10e-6, cacheWrite: 2.5e-6, cacheRead: 0.2e-6},
+		{model: "gpt-6-luna", input: 0.1e-6, output: 0.5e-6, cacheWrite: 0.125e-6, cacheRead: 0.01e-6},
 		{model: "gpt-5.6", input: 4e-6, output: 20e-6, cacheWrite: 5e-6, cacheRead: 0.4e-6},
 		{model: "gpt-5.6-sol", input: 4e-6, output: 20e-6, cacheWrite: 5e-6, cacheRead: 0.4e-6},
 		{model: "gpt-5.6-terra", input: 2e-6, output: 12e-6, cacheWrite: 2.5e-6, cacheRead: 0.2e-6},
 		{model: "gpt-5.6-luna", input: 0.2e-6, output: 1.2e-6, cacheWrite: 0.25e-6, cacheRead: 0.02e-6},
 		{model: "claude-fable-5-1", input: 10e-6, output: 50e-6, cacheWrite: 12.5e-6, cacheRead: 0.25e-6, cacheWrite1h: 20e-6},
 		{model: "claude-opus-5", input: 5e-6, output: 25e-6, cacheWrite: 6.25e-6, cacheRead: 0.5e-6, cacheWrite1h: 10e-6},
+		{model: "claude-opus-5-5", input: 4e-6, output: 20e-6, cacheWrite: 5e-6, cacheRead: 0.2e-6, cacheWrite1h: 8e-6},
 	}
 
 	for _, tt := range tests {
@@ -165,12 +171,15 @@ func TestFallbackPricingFile_NewModelsIncludeOfficialBatchPricing(t *testing.T) 
 		cacheRead  float64
 	}{
 		{model: "gpt-6-astra", input: 5e-6, output: 25e-6, cacheWrite: 6.25e-6, cacheRead: 0.5e-6},
+		{model: "gpt-6-sol", input: 1e-6, output: 5e-6, cacheWrite: 1.25e-6, cacheRead: 0.1e-6},
+		{model: "gpt-6-luna", input: 0.05e-6, output: 0.25e-6, cacheWrite: 0.0625e-6, cacheRead: 0.005e-6},
 		{model: "gpt-5.6", input: 2e-6, output: 10e-6, cacheWrite: 2.5e-6, cacheRead: 0.2e-6},
 		{model: "gpt-5.6-sol", input: 2e-6, output: 10e-6, cacheWrite: 2.5e-6, cacheRead: 0.2e-6},
 		{model: "gpt-5.6-terra", input: 1e-6, output: 6e-6, cacheWrite: 1.25e-6, cacheRead: 0.1e-6},
 		{model: "gpt-5.6-luna", input: 0.1e-6, output: 0.6e-6, cacheWrite: 0.125e-6, cacheRead: 0.01e-6},
 		{model: "claude-fable-5-1", input: 5e-6, output: 25e-6, cacheWrite: 6.25e-6, cacheRead: 0.125e-6},
 		{model: "claude-opus-5", input: 2.5e-6, output: 12.5e-6, cacheWrite: 3.125e-6, cacheRead: 0.25e-6},
+		{model: "claude-opus-5-5", input: 2e-6, output: 10e-6, cacheWrite: 2.5e-6, cacheRead: 0.1e-6},
 	}
 
 	for _, tt := range tests {
@@ -181,13 +190,13 @@ func TestFallbackPricingFile_NewModelsIncludeOfficialBatchPricing(t *testing.T) 
 			require.InDelta(t, tt.output, pricing.Output, 1e-12)
 			require.InDelta(t, tt.cacheWrite, pricing.CacheWrite, 1e-12)
 			require.InDelta(t, tt.cacheRead, pricing.CacheRead, 1e-12)
-			if tt.model == "gpt-6-astra" {
+			if strings.HasPrefix(tt.model, "gpt-6-") {
 				require.True(t, pricing.SupportsTier)
 			}
 			if tt.model == "gpt-6-astra" || strings.HasPrefix(tt.model, "gpt-5.6") {
 				require.True(t, pricing.SupportsMax)
 			}
-			if tt.model == "claude-opus-5" {
+			if tt.model == "claude-opus-5" || tt.model == "claude-opus-5-5" {
 				require.True(t, pricing.SupportsSpeed)
 				require.InDelta(t, 2.0, pricing.ProviderSpecific["fast"], 1e-12)
 			}
@@ -714,4 +723,48 @@ func TestGetModelPricing_UnknownModelKeepsHistoricalFallback(t *testing.T) {
 		"gpt-5.6-luna":  {InputCostPerToken: 0.2e-6},
 	}}
 	require.Same(t, legacy, svc.GetModelPricing("gpt-unknown-custom-model"))
+}
+
+func TestGetModelPricing_GPT6SolAndLunaKeepIndependentPricing(t *testing.T) {
+	for _, tt := range []struct {
+		model   string
+		pricing *LiteLLMModelPricing
+	}{
+		{"gpt-6-sol", openAIGPT6SolFallbackPricing},
+		{"gpt-6-luna", openAIGPT6LunaFallbackPricing},
+	} {
+		t.Run(tt.model, func(t *testing.T) {
+			svc := &PricingService{pricingData: map[string]*LiteLLMModelPricing{
+				"gpt-6":       {InputCostPerToken: 999},
+				"gpt-6-astra": {InputCostPerToken: 999},
+			}}
+			for _, alias := range []string{tt.model, tt.model + "-max", tt.model + "-20260922", "openai/" + tt.model + "-high"} {
+				require.Same(t, tt.pricing, svc.GetModelPricing(alias), alias)
+			}
+			remote := &LiteLLMModelPricing{InputCostPerToken: 123}
+			svc.pricingData[tt.model] = remote
+			for _, alias := range []string{tt.model, tt.model + "-max", "openai/" + tt.model + "-high"} {
+				require.Same(t, remote, svc.GetModelPricing(alias), alias)
+			}
+		})
+	}
+}
+
+func TestGetModelPricing_Opus55DoesNotInheritOpus5Pricing(t *testing.T) {
+	svc := &PricingService{pricingData: map[string]*LiteLLMModelPricing{
+		"claude-opus-5": {InputCostPerToken: 999},
+	}}
+	aliases := []string{"claude-opus-5-5", "claude-opus-5.5", "claude-opus-5-5-20260922", "anthropic/claude-opus-5-5", "anthropic.claude-opus-5-5-v1:0"}
+	for _, model := range aliases {
+		require.Same(t, anthropicOpus55FallbackPricing, svc.GetModelPricing(model), model)
+	}
+	remote := &LiteLLMModelPricing{InputCostPerToken: 123}
+	svc.pricingData["claude-opus-5-5"] = remote
+	for _, model := range aliases {
+		require.Same(t, remote, svc.GetModelPricing(model), model)
+	}
+
+	// An old Opus 5 request must not pick up the cheaper 5.5 entry either.
+	delete(svc.pricingData, "claude-opus-5")
+	require.Same(t, anthropicOpus5FallbackPricing, svc.GetModelPricing("claude-opus-5"))
 }

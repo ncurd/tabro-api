@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 
+	bc "github.com/Wei-Shaw/sub2api/internal/billingcenter"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
@@ -94,9 +95,7 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 		// ── 3. 基础鉴权（始终执行） ─────────────────────────────────
 
 		// disabled / 未知状态 → 无条件拦截（expired 和 quota_exhausted 留给计费阶段）
-		if !apiKey.IsActive() &&
-			apiKey.Status != service.StatusAPIKeyExpired &&
-			apiKey.Status != service.StatusAPIKeyQuotaExhausted {
+		if !gatewayKeyStatusPermitsInitialAuth(apiKey, oidcPrincipal) {
 			AbortWithError(c, 401, "API_KEY_DISABLED", "API key is disabled")
 			return
 		}
@@ -128,9 +127,17 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 			return
 		}
 
+		finishBilling, billingErr := prepareGatewayBilling(c, apiKeyService, apiKey, oidcPrincipal, apiKeyString)
+		if billingErr != nil {
+			status, code, message := gatewayBillingError(billingErr)
+			AbortWithError(c, status, code, message)
+			return
+		}
+		defer finishBilling()
+
 		// ── 4. SimpleMode → early return ─────────────────────────────
 
-		if cfg.RunMode == config.RunModeSimple {
+		if cfg.RunMode == config.RunModeSimple || bc.IsCentral(c.Request.Context()) {
 			c.Set(string(ContextKeyAPIKey), apiKey)
 			c.Set(string(ContextKeyUser), AuthSubject{
 				UserID:      apiKey.User.ID,

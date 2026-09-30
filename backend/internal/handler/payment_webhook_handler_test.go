@@ -3,14 +3,16 @@
 package handler
 
 import (
-	"encoding/json"
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/payment"
+	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestWriteSuccessResponse(t *testing.T) {
@@ -22,18 +24,12 @@ func TestWriteSuccessResponse(t *testing.T) {
 		wantCode        int
 		wantContentType string
 		wantBody        string
-		checkJSON       bool
-		wantJSONCode    string
-		wantJSONMessage string
 	}{
 		{
-			name:            "wxpay returns JSON with code SUCCESS",
-			providerKey:     "wxpay",
-			wantCode:        http.StatusOK,
-			wantContentType: "application/json",
-			checkJSON:       true,
-			wantJSONCode:    "SUCCESS",
-			wantJSONMessage: "成功",
+			name:        "wxpay returns empty 204",
+			providerKey: "wxpay",
+			wantCode:    http.StatusNoContent,
+			wantBody:    "",
 		},
 		{
 			name:            "stripe returns empty 200",
@@ -73,17 +69,10 @@ func TestWriteSuccessResponse(t *testing.T) {
 			writeSuccessResponse(c, tt.providerKey)
 
 			assert.Equal(t, tt.wantCode, w.Code)
-			assert.Contains(t, w.Header().Get("Content-Type"), tt.wantContentType)
-
-			if tt.checkJSON {
-				var resp wxpaySuccessResponse
-				err := json.Unmarshal(w.Body.Bytes(), &resp)
-				require.NoError(t, err, "response body should be valid JSON")
-				assert.Equal(t, tt.wantJSONCode, resp.Code)
-				assert.Equal(t, tt.wantJSONMessage, resp.Message)
-			} else {
-				assert.Equal(t, tt.wantBody, w.Body.String())
+			if tt.wantContentType != "" {
+				assert.Contains(t, w.Header().Get("Content-Type"), tt.wantContentType)
 			}
+			assert.Equal(t, tt.wantBody, w.Body.String())
 		})
 	}
 }
@@ -105,6 +94,24 @@ func TestExtractOutTradeNo(t *testing.T) {
 		rawBody     string
 		want        string
 	}{
+		{
+			name:        "alipay form callback reads central order reference",
+			providerKey: "alipay",
+			rawBody:     "out_trade_no=tbc_abc123&trade_status=TRADE_SUCCESS",
+			want:        "tbc_abc123",
+		},
+		{
+			name:        "alipay form callback decodes escaped reference",
+			providerKey: "alipay",
+			rawBody:     "out_trade_no=sub2_order%2B42&trade_status=TRADE_SUCCESS",
+			want:        "sub2_order+42",
+		},
+		{
+			name:        "wxpay encrypted callback has no clear-text order reference",
+			providerKey: "wxpay",
+			rawBody:     `{"resource":{"ciphertext":"encrypted"},"mchid":"untrusted"}`,
+			want:        "",
+		},
 		{
 			name:        "easypay reads out_trade_no from query string",
 			providerKey: "easypay",
@@ -143,4 +150,52 @@ func TestExtractOutTradeNo(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+type webhookCandidateProvider struct {
+	verified *payment.PaymentNotification
+	err      error
+}
+
+func (*webhookCandidateProvider) Name() string        { return "wxpay" }
+func (*webhookCandidateProvider) ProviderKey() string { return payment.TypeWxpay }
+func (*webhookCandidateProvider) SupportedTypes() []payment.PaymentType {
+	return []payment.PaymentType{payment.TypeWxpay}
+}
+func (*webhookCandidateProvider) CreatePayment(context.Context, payment.CreatePaymentRequest) (*payment.CreatePaymentResponse, error) {
+	return nil, nil
+}
+func (*webhookCandidateProvider) QueryOrder(context.Context, string) (*payment.QueryOrderResponse, error) {
+	return nil, nil
+}
+func (p *webhookCandidateProvider) VerifyNotification(context.Context, string, map[string]string) (*payment.PaymentNotification, error) {
+	return p.verified, p.err
+}
+func (*webhookCandidateProvider) Refund(context.Context, payment.RefundRequest) (*payment.RefundResponse, error) {
+	return nil, nil
+}
+
+func TestVerifyWxpayCandidatesMatchesVerifiedMerchantToOrder(t *testing.T) {
+	result := &payment.PaymentNotification{OrderID: "tbc_order", Status: payment.ProviderStatusSuccess}
+	candidates := []service.WebhookProviderCandidate{
+		{InstanceID: "first", Provider: &webhookCandidateProvider{err: errors.New("signature mismatch")}},
+		{InstanceID: "second", Provider: &webhookCandidateProvider{verified: result}},
+	}
+	got, err := verifyWxpayCandidates(context.Background(), candidates, `{"resource":"encrypted"}`, nil,
+		func(orderID, instanceID string) error {
+			assert.Equal(t, "tbc_order", orderID)
+			assert.Equal(t, "second", instanceID)
+			return nil
+		})
+	assert.NoError(t, err)
+	assert.Same(t, result, got)
+
+	_, err = verifyWxpayCandidates(context.Background(), candidates, `{"resource":"encrypted"}`, nil,
+		func(string, string) error { return errors.New("frozen merchant mismatch") })
+	assert.ErrorContains(t, err, "frozen merchant mismatch")
+
+	_, err = verifyWxpayCandidates(context.Background(), []service.WebhookProviderCandidate{
+		{InstanceID: "first", Provider: &webhookCandidateProvider{err: errors.New("signature mismatch")}},
+	}, `{"resource":"encrypted"}`, nil, func(string, string) error { t.Fatal("unverified merchant accepted"); return nil })
+	assert.ErrorContains(t, err, "no configured wxpay merchant verified")
 }

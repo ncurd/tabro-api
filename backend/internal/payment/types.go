@@ -120,35 +120,55 @@ type CreatePaymentResponse struct {
 
 // QueryOrderResponse describes the payment status from the upstream provider.
 type QueryOrderResponse struct {
-	TradeNo  string
-	Status   string  // "pending", "paid", "failed", "refunded"
-	Amount   float64 // Amount in payment currency
-	Currency string  // ISO currency code when provided by the upstream
-	PaidAt   string  // RFC3339 timestamp or empty
+	ConfirmedUnpaidClosed bool // Only a terminal provider fact, never a generic failure/not-found.
+	TradeNo               string
+	Status                string  // "pending", "paid", "failed", "refunded"
+	Amount                float64 // Amount in payment currency
+	ExactAmount           string  // Verified decimal amount, without a float round-trip.
+	Currency              string  // ISO currency code when provided by the upstream
+	PaidAt                string  // RFC3339 timestamp or empty
 }
 
 // PaymentNotification is the parsed result of a webhook/notify callback.
 type PaymentNotification struct {
-	TradeNo  string
-	OrderID  string
-	Amount   float64
-	Currency string
-	Status   string // "success" or "failed"
-	RawData  string // Raw notification body for audit
+	TradeNo     string
+	OrderID     string
+	Amount      float64
+	ExactAmount string
+	Currency    string
+	Status      string // "success" or "failed"
+	RawData     string // Raw notification body for audit
 }
 
 // RefundRequest contains the parameters for requesting a refund.
 type RefundRequest struct {
-	TradeNo string
-	OrderID string
-	Amount  string // Refund amount formatted to 2 decimal places
-	Reason  string
+	RefundID string // Stable merchant refund identity for a retry of the same intent.
+	TradeNo  string
+	OrderID  string
+	Amount   string // Refund amount formatted to 2 decimal places
+	Reason   string
 }
 
 // RefundResponse is returned after a refund request.
 type RefundResponse struct {
 	RefundID string
 	Status   string // "success", "pending", "failed"
+}
+
+// PaymentReferenceResolver canonicalizes providers with multiple identifiers
+// for one payment (for example Stripe checkout session vs payment intent).
+type PaymentReferenceResolver interface {
+	CanonicalPaymentReference(context.Context, string) (string, error)
+}
+
+type RefundStatusProvider interface {
+	QueryRefund(context.Context, string) (*RefundResponse, error)
+}
+
+// Providers with a merchant refund reference can recover an ambiguous dispatch
+// without sending the refund twice, even if no provider refund ID was received.
+type RefundRequestStatusProvider interface {
+	QueryRefundRequest(context.Context, RefundRequest) (*RefundResponse, error)
 }
 
 // InstanceSelection holds the selected provider instance and its decrypted config.

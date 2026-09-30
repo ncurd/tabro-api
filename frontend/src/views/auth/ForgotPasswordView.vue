@@ -1,6 +1,11 @@
 <template>
   <AuthLayout>
-    <div class="space-y-6">
+    <div v-if="oidcOnlyEnabled" class="space-y-6 text-center">
+      <h2 class="text-2xl font-bold text-gray-900 dark:text-white">{{ t('auth.oidcOnlyTitle') }}</h2>
+      <p class="text-sm text-gray-600 dark:text-gray-300">{{ t('auth.oidcOnlyMessage') }}</p>
+      <router-link to="/login" class="btn btn-primary inline-flex">{{ t('auth.backToLogin') }}</router-link>
+    </div>
+    <div v-else-if="settingsLoaded" class="space-y-6">
       <!-- Title -->
       <div class="text-center">
         <h2 class="text-2xl font-bold text-gray-900 dark:text-white">
@@ -133,7 +138,7 @@
     </div>
 
     <!-- Footer -->
-    <template #footer>
+    <template v-if="settingsLoaded && !oidcOnlyEnabled" #footer>
       <p class="text-gray-500 dark:text-dark-400">
         {{ t('auth.rememberedPassword') }}
         <router-link
@@ -167,6 +172,8 @@ const appStore = useAppStore()
 const isLoading = ref<boolean>(false)
 const isSubmitted = ref<boolean>(false)
 const errorMessage = ref<string>('')
+const settingsLoaded = ref<boolean>(Boolean(appStore.cachedPublicSettings))
+const oidcOnlyEnabled = ref<boolean>(appStore.cachedPublicSettings?.oidc_only_enabled ?? false)
 
 // Public settings
 const turnstileEnabled = ref<boolean>(false)
@@ -190,10 +197,13 @@ const errors = reactive({
 onMounted(async () => {
   try {
     const settings = await getPublicSettings()
+    oidcOnlyEnabled.value = settings.oidc_only_enabled ?? false
     turnstileEnabled.value = settings.turnstile_enabled
     turnstileSiteKey.value = settings.turnstile_site_key || ''
   } catch (error) {
     console.error('Failed to load public settings:', error)
+  } finally {
+    settingsLoaded.value = true
   }
 })
 
@@ -243,6 +253,8 @@ function validateForm(): boolean {
 // ==================== Form Handlers ====================
 
 async function handleSubmit(): Promise<void> {
+  if (oidcOnlyEnabled.value) return
+
   errorMessage.value = ''
 
   if (!validateForm()) {

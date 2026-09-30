@@ -1155,6 +1155,8 @@ watch(openAIUsageRefreshKey, (nextKey, prevKey) => {
   if (!prevKey || nextKey === prevKey) return
   if (props.account.platform !== 'openai' || props.account.type !== 'oauth') return
 
+  // A changed server usage revision invalidates the previous row's cache.
+  _usageCache.delete(props.account.id)
   requestAutoLoad()
 })
 

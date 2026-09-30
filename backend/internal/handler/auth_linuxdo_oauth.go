@@ -70,6 +70,9 @@ func (e *linuxDoTokenExchangeError) Error() string {
 // LinuxDoOAuthStart 启动 LinuxDo Connect OAuth 登录流程。
 // GET /api/v1/auth/oauth/linuxdo/start?redirect=/dashboard
 func (h *AuthHandler) LinuxDoOAuthStart(c *gin.Context) {
+	if h.rejectNonOIDCAuth(c) {
+		return
+	}
 	cfg, err := h.getLinuxDoOAuthConfig(c.Request.Context())
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -120,6 +123,9 @@ func (h *AuthHandler) LinuxDoOAuthStart(c *gin.Context) {
 // LinuxDoOAuthCallback 处理 OAuth 回调：创建/登录用户，然后重定向到前端。
 // GET /api/v1/auth/oauth/linuxdo/callback?code=...&state=...
 func (h *AuthHandler) LinuxDoOAuthCallback(c *gin.Context) {
+	if h.rejectNonOIDCAuth(c) {
+		return
+	}
 	cfg, cfgErr := h.getLinuxDoOAuthConfig(c.Request.Context())
 	if cfgErr != nil {
 		response.ErrorFrom(c, cfgErr)
@@ -250,6 +256,9 @@ type completeLinuxDoOAuthRequest struct {
 // the invitation code and creating the user account.
 // POST /api/v1/auth/oauth/linuxdo/complete-registration
 func (h *AuthHandler) CompleteLinuxDoOAuthRegistration(c *gin.Context) {
+	if h.rejectNonOIDCAuth(c) {
+		return
+	}
 	var req completeLinuxDoOAuthRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "INVALID_REQUEST", "message": err.Error()})

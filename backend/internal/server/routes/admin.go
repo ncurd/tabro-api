@@ -221,6 +221,7 @@ func registerUserManagementRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		users.GET("/:id/usage", h.Admin.User.GetUserUsage)
 		users.GET("/:id/balance-history", h.Admin.User.GetBalanceHistory)
 		users.POST("/:id/replace-group", h.Admin.User.ReplaceGroup)
+		users.PUT("/:id/oidc-gateway-identity", h.Admin.APIKey.ProvisionUserOIDCGatewayIdentity)
 
 		// User attribute values
 		users.GET("/:id/attributes", h.Admin.UserAttribute.GetUserAttributes)

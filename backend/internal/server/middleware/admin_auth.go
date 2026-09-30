@@ -36,7 +36,7 @@ func adminAuth(
 		//   Sec-WebSocket-Protocol: sub2api-admin, jwt.<token>
 		if isWebSocketUpgradeRequest(c) {
 			if token := extractJWTFromWebSocketSubprotocol(c); token != "" {
-				if !validateJWTForAdmin(c, token, authService, userService) {
+				if !validateJWTForAdmin(c, token, authService, userService, settingService) {
 					return
 				}
 				c.Next()
@@ -64,7 +64,7 @@ func adminAuth(
 					AbortWithError(c, 401, "UNAUTHORIZED", "Authorization required")
 					return
 				}
-				if !validateJWTForAdmin(c, token, authService, userService) {
+				if !validateJWTForAdmin(c, token, authService, userService, settingService) {
 					return
 				}
 				c.Next()
@@ -156,6 +156,7 @@ func validateJWTForAdmin(
 	token string,
 	authService *service.AuthService,
 	userService *service.UserService,
+	settingService *service.SettingService,
 ) bool {
 	// 验证 JWT token
 	claims, err := authService.ValidateToken(token)
@@ -165,6 +166,10 @@ func validateJWTForAdmin(
 			return false
 		}
 		AbortWithError(c, 401, "INVALID_TOKEN", "Invalid token")
+		return false
+	}
+	if settingService != nil && settingService.IsOIDCOnlyEnabled(c.Request.Context()) && claims.AuthMethod != service.AuthMethodOIDC {
+		AbortWithError(c, 401, "OIDC_ONLY_LOGIN_REQUIRED", "OIDC login is required")
 		return false
 	}
 
@@ -178,6 +183,10 @@ func validateJWTForAdmin(
 	// 检查用户状态
 	if !user.IsActive() {
 		AbortWithError(c, 401, "USER_INACTIVE", "User account is not active")
+		return false
+	}
+	if user.APIOnly {
+		AbortWithError(c, 401, "INVALID_TOKEN", "Invalid token")
 		return false
 	}
 
@@ -198,7 +207,7 @@ func validateJWTForAdmin(
 		Concurrency: user.Concurrency,
 	})
 	c.Set(string(ContextKeyUserRole), user.Role)
-	c.Set("auth_method", "jwt")
+	c.Set("auth_method", claims.AuthMethod)
 
 	return true
 }

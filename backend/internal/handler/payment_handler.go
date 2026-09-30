@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"net/http"
 	"strconv"
 	"strings"
 
@@ -209,37 +210,14 @@ type CreateOrderRequest struct {
 	Currency    string  `json:"currency"`
 }
 
-// CreateOrder creates a new payment order.
+// CreateOrder is retired. Historical order, refund and webhook routes remain
+// available while their payment records are reconciled.
 // POST /api/v1/payment/orders
 func (h *PaymentHandler) CreateOrder(c *gin.Context) {
-	subject, ok := requireAuth(c)
-	if !ok {
-		return
-	}
-
-	var req CreateOrderRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
-		return
-	}
-
-	result, err := h.paymentService.CreateOrder(c.Request.Context(), service.CreateOrderRequest{
-		UserID:      subject.UserID,
-		Amount:      req.Amount,
-		PaymentType: req.PaymentType,
-		ClientIP:    c.ClientIP(),
-		IsMobile:    isMobile(c),
-		SrcHost:     c.Request.Host,
-		SrcURL:      c.Request.Referer(),
-		OrderType:   req.OrderType,
-		PlanID:      req.PlanID,
-		Currency:    req.Currency,
-	})
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	response.Success(c, result)
+	c.Header("Cache-Control", "no-store")
+	response.ErrorWithDetails(c, http.StatusGone,
+		"Payment orders are now created in the Auth account center (充值与套餐).",
+		"ACCOUNT_CENTER_REQUIRED", nil)
 }
 
 // GetMyOrders returns the authenticated user's orders.

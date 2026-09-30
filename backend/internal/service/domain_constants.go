@@ -114,6 +114,7 @@ const (
 	SettingKeyLinuxDoConnectRedirectURL  = "linuxdo_connect_redirect_url"
 
 	// Generic OIDC OAuth 登录设置
+	SettingKeyOIDCOnlyEnabled                 = "oidc_only_enabled"
 	SettingKeyOIDCConnectEnabled              = "oidc_connect_enabled"
 	SettingKeyOIDCConnectProviderName         = "oidc_connect_provider_name"
 	SettingKeyOIDCConnectClientID             = "oidc_connect_client_id"

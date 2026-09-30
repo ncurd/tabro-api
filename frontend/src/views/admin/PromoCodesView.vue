@@ -112,6 +112,7 @@
           <template #cell-actions="{ row }">
             <div class="flex items-center space-x-1">
               <button
+                v-if="!appStore.cachedPublicSettings?.oidc_only_enabled"
                 @click="copyRegisterLink(row)"
                 class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-green-50 hover:text-green-600 dark:hover:bg-green-900/20 dark:hover:text-green-400"
                 :title="t('admin.promo.copyRegisterLink')"
@@ -664,6 +665,7 @@ const handleUpdate = async () => {
 
 // Copy Register Link
 const copyRegisterLink = async (code: PromoCode) => {
+  if (appStore.cachedPublicSettings?.oidc_only_enabled) return
   const baseUrl = window.location.origin
   const registerLink = `${baseUrl}/register?promo=${encodeURIComponent(code.code)}`
 

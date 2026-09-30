@@ -1,6 +1,11 @@
 <template>
   <AuthLayout>
-    <div class="space-y-6">
+    <div v-if="oidcOnlyEnabled" class="space-y-6 text-center">
+      <h2 class="text-2xl font-bold text-gray-900 dark:text-white">{{ t('auth.oidcOnlyTitle') }}</h2>
+      <p class="text-sm text-gray-600 dark:text-gray-300">{{ t('auth.oidcOnlyMessage') }}</p>
+      <router-link to="/login" class="btn btn-primary inline-flex">{{ t('auth.backToLogin') }}</router-link>
+    </div>
+    <div v-else class="space-y-6">
       <!-- Title -->
       <div class="text-center">
         <h2 class="text-2xl font-bold text-gray-900 dark:text-white">
@@ -156,7 +161,7 @@
     </div>
 
     <!-- Footer -->
-    <template #footer>
+    <template v-if="!oidcOnlyEnabled" #footer>
       <button
         @click="handleBack"
         class="flex items-center gap-2 text-gray-500 transition-colors hover:text-gray-700 dark:text-dark-400 dark:hover:text-gray-300"
@@ -190,6 +195,7 @@ const { t, locale } = useI18n()
 const router = useRouter()
 const authStore = useAuthStore()
 const appStore = useAppStore()
+const oidcOnlyEnabled = ref<boolean>(appStore.cachedPublicSettings?.oidc_only_enabled ?? false)
 
 // ==================== State ====================
 
@@ -247,6 +253,7 @@ onMounted(async () => {
   // Load public settings
   try {
     const settings = await getPublicSettings()
+    oidcOnlyEnabled.value = settings.oidc_only_enabled ?? false
     turnstileEnabled.value = settings.turnstile_enabled
     turnstileSiteKey.value = settings.turnstile_site_key || ''
     siteName.value = settings.site_name || 'Tabro'
@@ -255,6 +262,12 @@ onMounted(async () => {
     )
   } catch (error) {
     console.error('Failed to load public settings:', error)
+  }
+  if (oidcOnlyEnabled.value) {
+    sessionStorage.removeItem('register_data')
+    password.value = ''
+    hasRegisterData.value = false
+    return
   }
 
   // Auto-send verification code if we have valid data
@@ -311,6 +324,7 @@ function onTurnstileError(): void {
 // ==================== Send Code ====================
 
 async function sendCode(): Promise<void> {
+  if (oidcOnlyEnabled.value) return
   isSendingCode.value = true
   errorMessage.value = ''
 
@@ -380,6 +394,7 @@ function validateForm(): boolean {
 }
 
 async function handleVerify(): Promise<void> {
+  if (oidcOnlyEnabled.value) return
   errorMessage.value = ''
 
   if (!validateForm()) {

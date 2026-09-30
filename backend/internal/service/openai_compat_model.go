@@ -132,9 +132,11 @@ func openAIReasoningEffortToClaudeOutputEffortForModel(effort, model string) str
 
 func supportsIndependentOpenAIReasoningEfforts(model string) bool {
 	model = strings.ToLower(strings.TrimSpace(model))
-	return strings.Contains(model, "gpt-6-astra") || strings.Contains(model, "gpt-5.6")
+	return strings.Contains(model, "gpt-6-astra") || strings.Contains(model, "gpt-6-sol") ||
+		strings.Contains(model, "gpt-6-luna") || strings.Contains(model, "gpt-5.6")
 }
 
 func supportsOpenAINoneReasoningEffort(model string) bool {
-	return strings.Contains(strings.ToLower(strings.TrimSpace(model)), "gpt-5.6")
+	model = strings.ToLower(strings.TrimSpace(model))
+	return strings.Contains(model, "gpt-6-sol") || strings.Contains(model, "gpt-6-luna") || strings.Contains(model, "gpt-5.6")
 }

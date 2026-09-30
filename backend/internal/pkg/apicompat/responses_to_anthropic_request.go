@@ -56,12 +56,20 @@ func ResponsesToAnthropicRequest(req *ResponsesRequest) (*AnthropicRequest, erro
 		effort := mapResponsesEffortToAnthropicForModel(req.Reasoning.Effort, req.Model)
 		out.OutputConfig = &AnthropicOutputConfig{Effort: effort}
 		// Enable thinking for non-low efforts
-		if effort != "low" {
+		if isClaudeOpus55(req.Model) {
+			out.Thinking = &AnthropicThinking{Type: "adaptive"}
+		} else if effort != "low" {
 			out.Thinking = &AnthropicThinking{
 				Type:         "enabled",
 				BudgetTokens: defaultThinkingBudget(effort),
 			}
 		}
+	}
+	// Opus 5.5 rejects sampling controls and manual thinking budgets. Leave
+	// thinking/effort absent when unspecified so the upstream defaults to medium.
+	if isClaudeOpus55(req.Model) {
+		out.Temperature = nil
+		out.TopP = nil
 	}
 
 	return out, nil
@@ -96,6 +104,10 @@ func mapResponsesEffortToAnthropic(effort string) string {
 }
 
 func mapResponsesEffortToAnthropicForModel(effort, model string) string {
+	if isClaudeOpus55(model) && (effort == "none" || effort == "minimal") {
+		// Adaptive thinking is always on; low is its least expensive effort.
+		return "low"
+	}
 	if supportsIndependentAnthropicXHighAndMax(model) && (effort == "xhigh" || effort == "max") {
 		return effort
 	}
@@ -103,6 +115,11 @@ func mapResponsesEffortToAnthropicForModel(effort, model string) string {
 		return "max"
 	}
 	return effort // low→low, medium→medium, high→high, unknown→passthrough
+}
+
+func isClaudeOpus55(model string) bool {
+	model = strings.ToLower(strings.TrimSpace(model))
+	return strings.Contains(model, "claude-opus-5-5") || strings.Contains(model, "claude-opus-5.5")
 }
 
 func supportsIndependentAnthropicXHighAndMax(model string) bool {

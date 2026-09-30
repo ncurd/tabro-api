@@ -35,6 +35,8 @@ type User struct {
 	Concurrency int `json:"concurrency,omitempty"`
 	// Status holds the value of the "status" field.
 	Status string `json:"status,omitempty"`
+	// Disallow gateway web login without disabling direct model API access
+	APIOnly bool `json:"api_only,omitempty"`
 	// Incremented to revoke previously issued user access tokens
 	TokenVersion int64 `json:"token_version,omitempty"`
 	// Username holds the value of the "username" field.
@@ -196,7 +198,7 @@ func (*User) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case user.FieldTotpEnabled, user.FieldBalanceNotifyEnabled:
+		case user.FieldAPIOnly, user.FieldTotpEnabled, user.FieldBalanceNotifyEnabled:
 			values[i] = new(sql.NullBool)
 		case user.FieldBalance, user.FieldBalanceNotifyThreshold, user.FieldTotalRecharged:
 			values[i] = new(sql.NullFloat64)
@@ -281,6 +283,12 @@ func (_m *User) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field status", values[i])
 			} else if value.Valid {
 				_m.Status = value.String
+			}
+		case user.FieldAPIOnly:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field api_only", values[i])
+			} else if value.Valid {
+				_m.APIOnly = value.Bool
 			}
 		case user.FieldTokenVersion:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -470,6 +478,9 @@ func (_m *User) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("status=")
 	builder.WriteString(_m.Status)
+	builder.WriteString(", ")
+	builder.WriteString("api_only=")
+	builder.WriteString(fmt.Sprintf("%v", _m.APIOnly))
 	builder.WriteString(", ")
 	builder.WriteString("token_version=")
 	builder.WriteString(fmt.Sprintf("%v", _m.TokenVersion))

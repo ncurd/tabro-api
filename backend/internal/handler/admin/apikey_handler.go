@@ -12,13 +12,15 @@ import (
 
 // AdminAPIKeyHandler handles admin API key management
 type AdminAPIKeyHandler struct {
-	adminService service.AdminService
+	adminService  service.AdminService
+	apiKeyService *service.APIKeyService
 }
 
 // NewAdminAPIKeyHandler creates a new admin API key handler
-func NewAdminAPIKeyHandler(adminService service.AdminService) *AdminAPIKeyHandler {
+func NewAdminAPIKeyHandler(adminService service.AdminService, apiKeyService *service.APIKeyService) *AdminAPIKeyHandler {
 	return &AdminAPIKeyHandler{
-		adminService: adminService,
+		adminService:  adminService,
+		apiKeyService: apiKeyService,
 	}
 }
 
@@ -82,6 +84,33 @@ func (h *AdminAPIKeyHandler) BindOIDCIdentity(c *gin.Context) {
 		return
 	}
 	apiKey, err := h.adminService.AdminBindAPIKeyOIDCIdentity(c.Request.Context(), keyID, req.Issuer, req.Subject)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{
+		"api_key": dto.APIKeyFromService(apiKey),
+		"issuer":  apiKey.OIDCIssuer,
+		"subject": apiKey.OIDCSubject,
+	})
+}
+
+// ProvisionUserOIDCGatewayIdentity creates or reuses an internal billing key
+// for an active user, then binds its verified external identity. It does not
+// issue a reusable API key secret or require the target user to log in.
+// PUT /api/v1/admin/users/:id/oidc-gateway-identity
+func (h *AdminAPIKeyHandler) ProvisionUserOIDCGatewayIdentity(c *gin.Context) {
+	userID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || userID <= 0 {
+		response.BadRequest(c, "Invalid user ID")
+		return
+	}
+	var req AdminBindAPIKeyOIDCIdentityRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	apiKey, err := h.apiKeyService.ProvisionOIDCGatewayIdentity(c.Request.Context(), userID, req.Issuer, req.Subject)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

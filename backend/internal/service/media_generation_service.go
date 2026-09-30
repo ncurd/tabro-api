@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -15,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	bc "github.com/Wei-Shaw/sub2api/internal/billingcenter"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 	"github.com/tidwall/gjson"
@@ -67,9 +69,24 @@ func NewMediaGenerationService(
 	}
 }
 
-func (s *MediaGenerationService) ForwardAzureSpeech(ctx context.Context, account *Account, req AzureSpeechRequest) (*MediaSyncAudioResult, []byte, http.Header, error) {
+func (s *MediaGenerationService) ForwardAzureSpeech(ctx context.Context, account *Account, req AzureSpeechRequest, metas ...MediaRequestMeta) (*MediaSyncAudioResult, []byte, http.Header, error) {
 	if account == nil {
 		return nil, nil, nil, fmt.Errorf("azure speech account is required")
+	}
+	var billingJob *MediaGenerationJob
+	if len(metas) > 0 && bc.ExecutionFromContext(ctx) != nil {
+		meta := metas[0]
+		snapshot, err := s.prepareQwenAudioBilling(ctx, meta, account, req.Model, req.Model, MediaJobKindAudioSpeech)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		billingJob = s.newJob(meta, account, req.Model, MediaJobKindAudioSpeech, MediaProviderAzureSpeech, PlatformAzureSpeech)
+		billingJob.Status = MediaJobStatusRunning
+		billingJob.AudioCharacterCount = len([]rune(req.Input))
+		billingJob.BillingSnapshotJSON = snapshot.JSON()
+		if err := s.jobRepo.Create(ctx, billingJob); err != nil {
+			return nil, nil, nil, err
+		}
 	}
 	upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, azureSpeechTTSEndpoint(account), strings.NewReader(buildAzureSpeechSSML(req)))
 	if err != nil {
@@ -93,6 +110,12 @@ func (s *MediaGenerationService) ForwardAzureSpeech(ctx context.Context, account
 		return nil, nil, resp.Header, &UpstreamFailoverError{StatusCode: resp.StatusCode, ResponseBody: body, ResponseHeaders: resp.Header}
 	}
 
+	if billingJob != nil {
+		metadata, _ := json.Marshal(map[string]any{"request_id": firstNonEmpty(resp.Header.Get("x-requestid"), resp.Header.Get("x-ms-requestid")), "usage": map[string]int{"characters": billingJob.AudioCharacterCount}})
+		if err := s.persistAndSettleQwenAudio(ctx, billingJob, metadata); err != nil {
+			return nil, nil, resp.Header, err
+		}
+	}
 	contentType := resp.Header.Get("Content-Type")
 	return &MediaSyncAudioResult{
 		RequestID:   firstNonEmpty(resp.Header.Get("x-requestid"), resp.Header.Get("x-ms-requestid"), resp.Header.Get("x-request-id")),
@@ -101,8 +124,26 @@ func (s *MediaGenerationService) ForwardAzureSpeech(ctx context.Context, account
 }
 
 func (s *MediaGenerationService) CreateAudioSpeechJob(ctx context.Context, meta MediaRequestMeta, account *Account, req AzureSpeechRequest) (*MediaGenerationJob, error) {
+	if s.jobRepo == nil || account == nil {
+		return nil, ErrMediaBillingUnavailable
+	}
+	if bc.ExecutionFromContext(ctx) != nil {
+		snapshot, err := s.prepareQwenAudioBilling(ctx, meta, account, req.Model, req.Model, MediaJobKindAudioSpeech)
+		if err != nil {
+			return nil, err
+		}
+		meta.billingSnapshotJSON = snapshot.JSON()
+	}
+	job := s.newJob(meta, account, req.Model, MediaJobKindAudioSpeech, MediaProviderAzureSpeech, PlatformAzureSpeech)
+	job.UpstreamTaskID = newMediaPublicID("azbatch")
+	job.AudioVoice, job.AudioFormat = req.Voice, req.ResponseFormat
+	job.AudioCharacterCount = len([]rune(req.Input))
+	// Persist identity and prices before the provider may accept this batch.
+	if err := s.jobRepo.Create(ctx, job); err != nil {
+		return nil, err
+	}
 	body := []byte(fmt.Sprintf(`{"inputKind":"SSML","inputs":[{"content":"%s"}]}`, escapeJSONString(buildAzureSpeechSSML(req))))
-	upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPut, azureSpeechBatchEndpoint(account)+"/"+newMediaPublicID("azbatch")+"?api-version=2024-04-01", bytes.NewReader(body))
+	upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPut, azureSpeechBatchEndpoint(account)+"/"+job.UpstreamTaskID+"?api-version=2024-04-01", bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
@@ -116,10 +157,8 @@ func (s *MediaGenerationService) CreateAudioSpeechJob(ctx context.Context, meta 
 	if status < 200 || status >= 300 {
 		return nil, &UpstreamFailoverError{StatusCode: status, ResponseBody: respBody, ResponseHeaders: headers}
 	}
-	job := s.newJob(meta, account, req.Model, MediaJobKindAudioSpeech, MediaProviderAzureSpeech, PlatformAzureSpeech)
-	job.UpstreamTaskID = gjson.GetBytes(respBody, "id").String()
-	if job.UpstreamTaskID == "" {
-		job.UpstreamTaskID = gjson.GetBytes(respBody, "self").String()
+	if returnedID := gjson.GetBytes(respBody, "id").String(); returnedID != "" && returnedID != job.UpstreamTaskID {
+		return nil, fmt.Errorf("Azure batch result identity differs from the persisted submission")
 	}
 	job.UpstreamRequestID = firstNonEmpty(headers.Get("x-requestid"), headers.Get("x-ms-requestid"))
 	job.UpstreamStatus = gjson.GetBytes(respBody, "status").String()
@@ -127,10 +166,10 @@ func (s *MediaGenerationService) CreateAudioSpeechJob(ctx context.Context, meta 
 	job.AudioFormat = req.ResponseFormat
 	job.AudioCharacterCount = len([]rune(req.Input))
 	job.UpstreamResponseJSON = append([]byte(nil), respBody...)
-	if err := s.jobRepo.Create(ctx, job); err != nil {
-		return nil, err
+	if job.UpstreamTaskID == "" {
+		return nil, ErrMediaUsageIncomplete
 	}
-	return job, nil
+	return s.persistVideoSubmission(ctx, job)
 }
 
 func (s *MediaGenerationService) RefreshAudioSpeechJob(ctx context.Context, job *MediaGenerationJob, account *Account) (*MediaGenerationJob, error) {
@@ -163,7 +202,7 @@ func (s *MediaGenerationService) RefreshAudioSpeechJob(ctx context.Context, job 
 	if err != nil {
 		return nil, err
 	}
-	if updated != nil && updated.Status == MediaJobStatusSucceeded {
+	if updated != nil && isCompletedMediaJob(updated.Status) {
 		if err := s.recordMediaUsage(ctx, updated); err != nil {
 			return nil, err
 		}
@@ -174,6 +213,12 @@ func (s *MediaGenerationService) RefreshAudioSpeechJob(ctx context.Context, job 
 func (s *MediaGenerationService) CreateVideoJob(ctx context.Context, meta MediaRequestMeta, account *Account, req VideoGenerationRequest) (*MediaGenerationJob, error) {
 	if account == nil {
 		return nil, fmt.Errorf("video generation account is required")
+	}
+	if bc.IsCentral(ctx) && req.Duration == 0 {
+		req.Duration = 5
+	}
+	if bc.IsCentral(ctx) && req.Resolution == "" {
+		req.Resolution = "720P"
 	}
 	if err := req.Validate(); err != nil {
 		return nil, err
@@ -194,6 +239,9 @@ func (s *MediaGenerationService) CreateVideoJob(ctx context.Context, meta MediaR
 	meta.upstreamModel, mappingErr = s.resolveMediaUpstreamModel(ctx, meta, account, req.Model)
 	if mappingErr != nil {
 		return nil, mappingErr
+	}
+	if bc.IsCentral(ctx) && req.Duration == -1 && !strings.HasPrefix(meta.upstreamModel, "doubao-seedance-2-0") {
+		return nil, &InvalidMediaRequestError{Message: "mapped video model has no verified automatic duration bound"}
 	}
 	if s.cfg == nil || s.cfg.RunMode != config.RunModeSimple {
 		snapshot, err := s.mediaBilling.Prepare(ctx, meta, account, req.Model, meta.upstreamModel, MediaJobKindVideoGeneration, req.Resolution)
@@ -243,7 +291,7 @@ func (s *MediaGenerationService) RefreshVideoJob(ctx context.Context, job *Media
 	}
 	if isCompletedMediaJob(job.Status) {
 		if job.Status != MediaJobStatusSucceeded {
-			return job, nil
+			return job, s.recordMediaUsage(ctx, job)
 		}
 		if err := s.recordMediaUsage(ctx, job); err != nil {
 			if !errors.Is(err, ErrMediaUsageIncomplete) || !MediaJobNeedsUsageRefresh(job) {
@@ -355,7 +403,7 @@ func (s *MediaGenerationService) refreshDashScopeVideoJob(ctx context.Context, j
 	if err != nil {
 		return nil, err
 	}
-	if updated != nil && updated.Status == MediaJobStatusSucceeded {
+	if updated != nil && isCompletedMediaJob(updated.Status) {
 		if err := s.recordMediaUsage(ctx, updated); err != nil {
 			return nil, err
 		}
@@ -442,7 +490,7 @@ func (s *MediaGenerationService) refreshArkVideoJob(ctx context.Context, job *Me
 	if err != nil {
 		return nil, err
 	}
-	if updated != nil && updated.Status == MediaJobStatusSucceeded {
+	if updated != nil && isCompletedMediaJob(updated.Status) {
 		if err := s.recordMediaUsage(ctx, updated); err != nil {
 			return nil, err
 		}
@@ -456,6 +504,9 @@ func (s *MediaGenerationService) recordMediaUsage(ctx context.Context, job *Medi
 	}
 	if job.UsageRecordedAt != nil {
 		return nil
+	}
+	if job.Status == MediaJobStatusFailed || (job.Status == MediaJobStatusCanceled && !(job.Kind == MediaJobKindVoiceClone && job.AudioVoice != "")) {
+		return s.mediaBilling.ReconcileFailure(ctx, job)
 	}
 	if len(job.BillingSnapshotJSON) > 0 {
 		if err := s.mediaBilling.Settle(ctx, job); err != nil {
@@ -743,6 +794,7 @@ func (s *MediaGenerationService) persistVideoSubmission(ctx context.Context, job
 	for attempt := 0; attempt < 3; attempt++ {
 		updated, err := s.jobRepo.UpdateFromUpstream(persistCtx, job.PublicID, MediaGenerationJobUpdate{Status: job.Status, UpstreamTaskID: job.UpstreamTaskID, UpstreamStatus: job.UpstreamStatus, UpstreamRequestID: job.UpstreamRequestID, UpstreamResponseJSON: job.UpstreamResponseJSON, VideoDurationSeconds: job.VideoDurationSeconds, VideoResolution: job.VideoResolution, VideoRatio: job.VideoRatio})
 		if err == nil && updated != nil {
+			handoffMediaExecution(ctx)
 			return updated, nil
 		}
 		lastErr = err

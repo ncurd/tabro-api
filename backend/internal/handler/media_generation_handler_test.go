@@ -96,7 +96,7 @@ type mediaGenerationServiceStub struct {
 	refreshErr   error
 }
 
-func (s *mediaGenerationServiceStub) ForwardAzureSpeech(context.Context, *service.Account, service.AzureSpeechRequest) (*service.MediaSyncAudioResult, []byte, http.Header, error) {
+func (s *mediaGenerationServiceStub) ForwardAzureSpeech(context.Context, *service.Account, service.AzureSpeechRequest, ...service.MediaRequestMeta) (*service.MediaSyncAudioResult, []byte, http.Header, error) {
 	return s.audioResult, s.audioBody, s.audioHeader, nil
 }
 

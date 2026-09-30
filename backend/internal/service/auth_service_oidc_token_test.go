@@ -318,3 +318,56 @@ func TestAuthServiceLoginExistingAdminOAuthUser(t *testing.T) {
 		require.ErrorIs(t, err, ErrInvalidCredentials)
 	})
 }
+
+func TestAuthServiceAPIOnlyRejectsWebLoginAndTokenIssuance(t *testing.T) {
+	user := &User{ID: 31, Email: "api-only@example.com", Role: RoleUser, Status: StatusActive, APIOnly: true}
+	require.NoError(t, user.SetPassword("correct-password"))
+	svc, cache, repo := newAuthTokenMetadataService(user)
+
+	_, _, err := svc.Login(context.Background(), user.Email, "correct-password")
+	require.ErrorIs(t, err, ErrInvalidCredentials)
+
+	_, _, err = svc.LoginOrRegisterOAuth(context.Background(), user.Email, "")
+	require.ErrorIs(t, err, ErrInvalidCredentials)
+	_, err = svc.LoginOrRegisterOAuthUser(context.Background(), user.Email, "", "")
+	require.ErrorIs(t, err, ErrInvalidCredentials)
+	_, _, err = svc.LoginOrRegisterOAuthWithTokenPair(context.Background(), user.Email, "", "")
+	require.ErrorIs(t, err, ErrInvalidCredentials)
+	_, err = svc.LoginExistingOIDCIdentityUser(context.Background(), user.ID, false)
+	require.ErrorIs(t, err, ErrInvalidCredentials)
+
+	_, err = svc.GenerateToken(user)
+	require.ErrorIs(t, err, ErrInvalidCredentials)
+	_, err = svc.GenerateTokenPair(context.Background(), user, "")
+	require.ErrorIs(t, err, ErrInvalidCredentials)
+	_, err = svc.GenerateOIDCTokenPair(context.Background(), user, 901, "")
+	require.ErrorIs(t, err, ErrInvalidCredentials)
+	require.Empty(t, cache.tokens)
+	require.Zero(t, repo.createCalls)
+	require.Zero(t, repo.updateCalls)
+}
+
+func TestAuthServiceAPIOnlyRejectsAdminOIDCLogin(t *testing.T) {
+	admin := &User{ID: 32, Email: "api-only-admin@example.com", Role: RoleAdmin, Status: StatusActive, APIOnly: true}
+	svc, _, _ := newAuthTokenMetadataService(admin)
+
+	_, err := svc.LoginExistingAdminOAuthUser(context.Background(), admin.Email)
+	require.ErrorIs(t, err, ErrInvalidCredentials)
+	_, err = svc.LoginExistingOIDCIdentityUser(context.Background(), admin.ID, true)
+	require.ErrorIs(t, err, ErrInvalidCredentials)
+}
+
+func TestAuthServiceAPIOnlyRejectsPreviouslyIssuedRefreshTokens(t *testing.T) {
+	ctx := context.Background()
+	user := &User{ID: 33, Email: "was-web-user@example.com", Role: RoleUser, Status: StatusActive, TokenVersion: 2}
+	svc, cache, _ := newAuthTokenMetadataService(user)
+	pair, err := svc.GenerateOIDCTokenPair(ctx, user, 901, "api-only-family")
+	require.NoError(t, err)
+
+	user.APIOnly = true
+	_, err = svc.RefreshToken(ctx, pair.AccessToken)
+	require.ErrorIs(t, err, ErrInvalidToken)
+	_, err = svc.RefreshTokenPair(ctx, pair.RefreshToken)
+	require.ErrorIs(t, err, ErrRefreshTokenInvalid)
+	require.Empty(t, cache.tokens)
+}

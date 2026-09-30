@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 
+	bc "github.com/Wei-Shaw/sub2api/internal/billingcenter"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/gemini"
@@ -461,6 +462,19 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		// 5) forward (根据平台分流)
 		var result *service.ForwardResult
 		requestCtx := c.Request.Context()
+		if execution := bc.ExecutionFromContext(requestCtx); execution != nil && execution.Mode == "central" {
+			if h.apiKeyService == nil || h.apiKeyService.GatewayBilling == nil {
+				googleError(c, http.StatusServiceUnavailable, "Billing unavailable")
+				return
+			}
+			if err := h.apiKeyService.GatewayBilling.ValidateBillingModelCaps(execution, account.GetMappedModel(modelName)); err != nil {
+				if accountReleaseFunc != nil {
+					accountReleaseFunc()
+				}
+				googleError(c, http.StatusConflict, "Mapped model exceeds billing reservation")
+				return
+			}
+		}
 		if fs.SwitchCount > 0 {
 			requestCtx = service.WithAccountSwitchCount(requestCtx, fs.SwitchCount, h.metadataBridgeEnabled())
 		}

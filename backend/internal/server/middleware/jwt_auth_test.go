@@ -8,13 +8,54 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/require"
 )
+
+type oidcOnlySettingRepo struct {
+	service.SettingRepository
+	enabled  bool
+	adminKey string
+}
+
+func (r *oidcOnlySettingRepo) GetValue(_ context.Context, key string) (string, error) {
+	if key == service.SettingKeyAdminAPIKey {
+		if r.adminKey == "" {
+			return "", service.ErrSettingNotFound
+		}
+		return r.adminKey, nil
+	}
+	return strconv.FormatBool(r.enabled), nil
+}
+
+func (r *oidcOnlySettingRepo) GetMultiple(_ context.Context, keys []string) (map[string]string, error) {
+	values := make(map[string]string, len(keys))
+	for _, key := range keys {
+		value, err := r.GetValue(context.Background(), key)
+		if err == nil {
+			values[key] = value
+		}
+	}
+	return values, nil
+}
+
+func signJWTWithAuthMethod(t *testing.T, authSvc *service.AuthService, user *service.User, authMethod, secret string) string {
+	t.Helper()
+	plainToken, err := authSvc.GenerateToken(user)
+	require.NoError(t, err)
+	claims, err := authSvc.ValidateToken(plainToken)
+	require.NoError(t, err)
+	claims.AuthMethod = authMethod
+	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(secret))
+	require.NoError(t, err)
+	return token
+}
 
 // stubJWTUserRepo 实现 UserRepository 的最小子集，仅支持 GetByID。
 type stubJWTUserRepo struct {
@@ -33,6 +74,10 @@ func (r *stubJWTUserRepo) GetByID(_ context.Context, id int64) (*service.User, e
 // newJWTTestEnv 创建 JWT 认证中间件测试环境。
 // 返回 gin.Engine（已注册 JWT 中间件）和 AuthService（用于生成 Token）。
 func newJWTTestEnv(users map[int64]*service.User) (*gin.Engine, *service.AuthService) {
+	return newJWTTestEnvWithSetting(users, nil)
+}
+
+func newJWTTestEnvWithSetting(users map[int64]*service.User, settingSvc *service.SettingService) (*gin.Engine, *service.AuthService) {
 	gin.SetMode(gin.TestMode)
 
 	cfg := &config.Config{}
@@ -42,7 +87,7 @@ func newJWTTestEnv(users map[int64]*service.User) (*gin.Engine, *service.AuthSer
 	userRepo := &stubJWTUserRepo{users: users}
 	authSvc := service.NewAuthService(nil, userRepo, nil, nil, cfg, nil, nil, nil, nil, nil, nil)
 	userSvc := service.NewUserService(userRepo, nil, nil, nil)
-	mw := NewJWTAuthMiddleware(authSvc, userSvc)
+	mw := NewJWTAuthMiddleware(authSvc, userSvc, settingSvc)
 
 	r := gin.New()
 	r.Use(gin.HandlerFunc(mw))
@@ -55,6 +100,55 @@ func newJWTTestEnv(users map[int64]*service.User) (*gin.Engine, *service.AuthSer
 		})
 	})
 	return r, authSvc
+}
+
+func TestJWTAuthOIDCOnlyRejectsExistingLocalSession(t *testing.T) {
+	user := &service.User{
+		ID:           1,
+		Email:        "user@example.com",
+		Role:         service.RoleUser,
+		Status:       service.StatusActive,
+		TokenVersion: 1,
+	}
+	settingSvc := service.NewSettingService(&oidcOnlySettingRepo{enabled: true}, &config.Config{})
+	router, authSvc := newJWTTestEnvWithSetting(map[int64]*service.User{user.ID: user}, settingSvc)
+
+	for _, tc := range []struct {
+		name       string
+		authMethod string
+		status     int
+	}{
+		{name: "legacy_local", status: http.StatusUnauthorized},
+		{name: "other_provider", authMethod: "linuxdo", status: http.StatusUnauthorized},
+		{name: "oidc", authMethod: service.AuthMethodOIDC, status: http.StatusOK},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			token := signJWTWithAuthMethod(t, authSvc, user, tc.authMethod, "test-jwt-secret-32bytes-long!!!")
+			w := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+			req.Header.Set("Authorization", "Bearer "+token)
+			router.ServeHTTP(w, req)
+			require.Equal(t, tc.status, w.Code)
+			if tc.status == http.StatusUnauthorized {
+				require.Contains(t, w.Body.String(), "OIDC_ONLY_LOGIN_REQUIRED")
+			}
+		})
+	}
+}
+
+func TestJWTAuthAPIOnlyRejectsPreviouslyIssuedSession(t *testing.T) {
+	user := &service.User{ID: 24, Email: "api-only@example.com", Role: service.RoleUser, Status: service.StatusActive}
+	router, authSvc := newJWTTestEnv(map[int64]*service.User{user.ID: user})
+	token, err := authSvc.GenerateToken(user)
+	require.NoError(t, err)
+
+	user.APIOnly = true
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusUnauthorized, w.Code)
+	require.Contains(t, w.Body.String(), "INVALID_TOKEN")
 }
 
 func TestJWTAuth_ValidToken(t *testing.T) {

@@ -40,6 +40,14 @@ func NewAuthHandler(cfg *config.Config, authService *service.AuthService, apiKey
 	}
 }
 
+func (h *AuthHandler) rejectNonOIDCAuth(c *gin.Context) bool {
+	if h.settingSvc == nil || !h.settingSvc.IsOIDCOnlyEnabled(c.Request.Context()) {
+		return false
+	}
+	response.ErrorFrom(c, service.ErrOIDCOnlyLoginRequired)
+	return true
+}
+
 // RegisterRequest represents the registration request payload
 type RegisterRequest struct {
 	Email          string `json:"email" binding:"required,email"`
@@ -81,6 +89,10 @@ type AuthResponse struct {
 // respondWithTokenPair 生成 Token 对并返回认证响应
 // 如果 Token 对生成失败，回退到只返回 Access Token（向后兼容）
 func (h *AuthHandler) respondWithTokenPair(c *gin.Context, user *service.User) {
+	if user == nil || user.APIOnly {
+		response.ErrorFrom(c, service.ErrInvalidCredentials)
+		return
+	}
 	tokenPair, err := h.authService.GenerateTokenPair(c.Request.Context(), user, "")
 	if err != nil {
 		slog.Error("failed to generate token pair", "error", err, "user_id", user.ID)
@@ -109,6 +121,9 @@ func (h *AuthHandler) respondWithTokenPair(c *gin.Context, user *service.User) {
 // Register handles user registration
 // POST /api/v1/auth/register
 func (h *AuthHandler) Register(c *gin.Context) {
+	if h.rejectNonOIDCAuth(c) {
+		return
+	}
 	var req RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
@@ -133,6 +148,9 @@ func (h *AuthHandler) Register(c *gin.Context) {
 // SendVerifyCode 发送邮箱验证码
 // POST /api/v1/auth/send-verify-code
 func (h *AuthHandler) SendVerifyCode(c *gin.Context) {
+	if h.rejectNonOIDCAuth(c) {
+		return
+	}
 	var req SendVerifyCodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
@@ -160,6 +178,9 @@ func (h *AuthHandler) SendVerifyCode(c *gin.Context) {
 // Login handles user login
 // POST /api/v1/auth/login
 func (h *AuthHandler) Login(c *gin.Context) {
+	if h.rejectNonOIDCAuth(c) {
+		return
+	}
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
@@ -221,6 +242,9 @@ type Login2FARequest struct {
 // Login2FA completes the login with 2FA verification
 // POST /api/v1/auth/login/2fa
 func (h *AuthHandler) Login2FA(c *gin.Context) {
+	if h.rejectNonOIDCAuth(c) {
+		return
+	}
 	var req Login2FARequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
@@ -262,6 +286,10 @@ func (h *AuthHandler) Login2FA(c *gin.Context) {
 	user, err := h.userService.GetByID(c.Request.Context(), session.UserID)
 	if err != nil {
 		response.ErrorFrom(c, err)
+		return
+	}
+	if user == nil || user.APIOnly {
+		response.ErrorFrom(c, service.ErrInvalidCredentials)
 		return
 	}
 
@@ -449,6 +477,9 @@ type ForgotPasswordResponse struct {
 // ForgotPassword 请求密码重置
 // POST /api/v1/auth/forgot-password
 func (h *AuthHandler) ForgotPassword(c *gin.Context) {
+	if h.rejectNonOIDCAuth(c) {
+		return
+	}
 	var req ForgotPasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
@@ -495,6 +526,9 @@ type ResetPasswordResponse struct {
 // ResetPassword 重置密码
 // POST /api/v1/auth/reset-password
 func (h *AuthHandler) ResetPassword(c *gin.Context) {
+	if h.rejectNonOIDCAuth(c) {
+		return
+	}
 	var req ResetPasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())

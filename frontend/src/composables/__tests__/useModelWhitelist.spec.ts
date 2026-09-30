@@ -42,7 +42,7 @@ describe('useModelWhitelist', () => {
       expect(apiKeyModels).toContain(model)
     }
     expect(oauthModels).toEqual(expect.arrayContaining([
-      'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5', 'gpt-image-2.5-flare'
+      'gpt-6-sol', 'gpt-6-luna', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5', 'gpt-image-2.5-flare'
     ]))
     expect(buildModelMappingObject('whitelist', ['gpt-5.4'], [])).toEqual({
       'gpt-5.4': 'gpt-5.4'
@@ -95,13 +95,18 @@ describe('useModelWhitelist', () => {
     expect(getModelsByPlatform('antigravity')).toContain('claude-fable-5')
   })
 
-  it('直连模型列表包含 GPT-6 Astra、Claude Fable 5.1 和 Claude Opus 5', () => {
-    expect(getModelsByPlatform('openai')).toContain('gpt-6-astra')
+  it('直连模型列表包含 GPT-6 系列、Claude Fable 5.1 和 Claude Opus 5/5.5', () => {
+    expect(getModelsByPlatform('openai')).toEqual(expect.arrayContaining([
+      'gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna'
+    ]))
     expect(getModelsByPlatform('anthropic')).toContain('claude-fable-5-1')
     expect(getModelsByPlatform('anthropic')).toContain('claude-opus-5')
+    expect(getModelsByPlatform('anthropic')).toContain('claude-opus-5-5')
+    expect(getModelsByPlatform('anthropic', 'bedrock')).toContain('claude-opus-5-5')
 
     expect(getModelsByPlatform('antigravity')).not.toContain('claude-fable-5-1')
     expect(getModelsByPlatform('antigravity')).not.toContain('claude-opus-5')
+    expect(getModelsByPlatform('antigravity')).not.toContain('claude-opus-5-5')
   })
 
   it('直连和 Bedrock 预设包含新模型，Antigravity 预设不包含新 Claude 模型', () => {
@@ -110,18 +115,25 @@ describe('useModelWhitelist', () => {
       from: 'gpt-6-astra',
       to: 'gpt-6-astra'
     }))
+    expect(getPresetMappingsByPlatform('openai')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: 'GPT-6 Sol', from: 'gpt-6-sol', to: 'gpt-6-sol' }),
+      expect.objectContaining({ label: 'GPT-6 Luna', from: 'gpt-6-luna', to: 'gpt-6-luna' })
+    ]))
     expect(getPresetMappingsByPlatform('anthropic')).toEqual(expect.arrayContaining([
       expect.objectContaining({ from: 'claude-fable-5-1', to: 'claude-fable-5-1' }),
-      expect.objectContaining({ from: 'claude-opus-5', to: 'claude-opus-5' })
+      expect.objectContaining({ from: 'claude-opus-5', to: 'claude-opus-5' }),
+      expect.objectContaining({ label: 'Opus 5.5', from: 'claude-opus-5-5', to: 'claude-opus-5-5' })
     ]))
     expect(getPresetMappingsByPlatform('bedrock')).toEqual(expect.arrayContaining([
       expect.objectContaining({ from: 'claude-fable-5-1', to: 'anthropic.claude-fable-5-1' }),
-      expect.objectContaining({ from: 'claude-opus-5', to: 'anthropic.claude-opus-5' })
+      expect.objectContaining({ from: 'claude-opus-5', to: 'anthropic.claude-opus-5' }),
+      expect.objectContaining({ from: 'claude-opus-5-5', to: 'anthropic.claude-opus-5-5' })
     ]))
 
     const antigravityModels = getPresetMappingsByPlatform('antigravity').map(({ from }) => from)
     expect(antigravityModels).not.toContain('claude-fable-5-1')
     expect(antigravityModels).not.toContain('claude-opus-5')
+    expect(antigravityModels).not.toContain('claude-opus-5-5')
   })
 
   it('openai 模型列表包含 GPT-5.4 官方快照', () => {
@@ -236,12 +248,15 @@ describe('useModelWhitelist', () => {
   })
 
   it('whitelist 模式会保留新增直连模型的精确映射', () => {
-    const models = ['gpt-6-astra', 'claude-fable-5-1', 'claude-opus-5']
+    const models = ['gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna', 'claude-fable-5-1', 'claude-opus-5', 'claude-opus-5-5']
 
     expect(buildModelMappingObject('whitelist', models, [])).toEqual({
       'gpt-6-astra': 'gpt-6-astra',
+      'gpt-6-sol': 'gpt-6-sol',
+      'gpt-6-luna': 'gpt-6-luna',
       'claude-fable-5-1': 'claude-fable-5-1',
-      'claude-opus-5': 'claude-opus-5'
+      'claude-opus-5': 'claude-opus-5',
+      'claude-opus-5-5': 'claude-opus-5-5'
     })
   })
 })

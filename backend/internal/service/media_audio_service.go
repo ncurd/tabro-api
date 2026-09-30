@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	bc "github.com/Wei-Shaw/sub2api/internal/billingcenter"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/tidwall/gjson"
 )
@@ -180,7 +181,9 @@ func (s *MediaGenerationService) DeleteClonedVoice(ctx context.Context, meta Med
 	if err := validatePinnedQwenVoiceAccount(account, job); err != nil {
 		return nil, err
 	}
-	_, err = s.callQwenAudio(ctx, account, qwenVoiceCustomizationPath, map[string]any{
+	// Ownership and pinned credentials were checked above; deleting an existing
+	// voice is not a new paid enrollment, despite the provider's POST method.
+	_, err = s.callQwenAudio(bc.WithExecution(ctx, nil), account, qwenVoiceCustomizationPath, map[string]any{
 		"model": QwenVoiceEnrollmentModel, "input": map[string]string{"action": "delete", "voice": clonedVoiceProviderID(job)},
 	})
 	if err != nil {
@@ -401,6 +404,7 @@ func (s *MediaGenerationService) persistAndSettleQwenAudio(ctx context.Context, 
 		return fmt.Errorf("audio result resource is missing")
 	}
 	*job = *updated
+	handoffMediaExecution(ctx)
 	if s.mediaBilling != nil && len(job.BillingSnapshotJSON) > 0 {
 		if err := s.mediaBilling.Settle(persistCtx, job); err != nil {
 			slog.Error("audio billing pending reconciliation", "job_id", job.PublicID, "error", err)

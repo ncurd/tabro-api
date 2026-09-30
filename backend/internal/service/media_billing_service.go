@@ -8,6 +8,7 @@ import (
 	"math"
 	"strings"
 
+	bc "github.com/Wei-Shaw/sub2api/internal/billingcenter"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/tidwall/gjson"
 )
@@ -44,31 +45,32 @@ type MediaPriceSnapshot struct {
 
 // Only prices and verified billing identity are persisted; never credentials or input media.
 type MediaBillingSnapshot struct {
-	Version               int                 `json:"version"`
-	Kind                  string              `json:"kind"`
-	UserID                int64               `json:"user_id"`
-	APIKeyID              int64               `json:"api_key_id"`
-	AccountID             int64               `json:"account_id"`
-	AccountType           string              `json:"account_type"`
-	GroupID               *int64              `json:"group_id,omitempty"`
-	SubscriptionID        *int64              `json:"subscription_id,omitempty"`
-	ChannelID             int64               `json:"channel_id,omitempty"`
-	Model                 string              `json:"model"`
-	RequestedModel        string              `json:"requested_model"`
-	UpstreamModel         string              `json:"upstream_model"`
-	Price                 MediaPriceSnapshot  `json:"price"`
-	AccountPrice          *MediaPriceSnapshot `json:"account_price,omitempty"`
-	RateMultiplier        float64             `json:"rate_multiplier"`
-	AccountRateMultiplier float64             `json:"account_rate_multiplier"`
-	ChargeAPIKeyQuota     bool                `json:"charge_api_key_quota"`
-	ChargeRateLimits      bool                `json:"charge_rate_limits"`
-	ChargeAccountQuota    bool                `json:"charge_account_quota"`
-	PayloadHash           string              `json:"payload_hash"`
-	OIDCIssuer            *string             `json:"oidc_issuer,omitempty"`
-	OIDCSubject           *string             `json:"oidc_subject,omitempty"`
-	OIDCTenant            *string             `json:"oidc_tenant,omitempty"`
-	TabroRunID            *string             `json:"tabro_run_id,omitempty"`
-	TabroProjectID        *string             `json:"tabro_project_id,omitempty"`
+	Center                *bc.ExecutionSnapshot `json:"center,omitempty"`
+	Version               int                   `json:"version"`
+	Kind                  string                `json:"kind"`
+	UserID                int64                 `json:"user_id"`
+	APIKeyID              int64                 `json:"api_key_id"`
+	AccountID             int64                 `json:"account_id"`
+	AccountType           string                `json:"account_type"`
+	GroupID               *int64                `json:"group_id,omitempty"`
+	SubscriptionID        *int64                `json:"subscription_id,omitempty"`
+	ChannelID             int64                 `json:"channel_id,omitempty"`
+	Model                 string                `json:"model"`
+	RequestedModel        string                `json:"requested_model"`
+	UpstreamModel         string                `json:"upstream_model"`
+	Price                 MediaPriceSnapshot    `json:"price"`
+	AccountPrice          *MediaPriceSnapshot   `json:"account_price,omitempty"`
+	RateMultiplier        float64               `json:"rate_multiplier"`
+	AccountRateMultiplier float64               `json:"account_rate_multiplier"`
+	ChargeAPIKeyQuota     bool                  `json:"charge_api_key_quota"`
+	ChargeRateLimits      bool                  `json:"charge_rate_limits"`
+	ChargeAccountQuota    bool                  `json:"charge_account_quota"`
+	PayloadHash           string                `json:"payload_hash"`
+	OIDCIssuer            *string               `json:"oidc_issuer,omitempty"`
+	OIDCSubject           *string               `json:"oidc_subject,omitempty"`
+	OIDCTenant            *string               `json:"oidc_tenant,omitempty"`
+	TabroRunID            *string               `json:"tabro_run_id,omitempty"`
+	TabroProjectID        *string               `json:"tabro_project_id,omitempty"`
 }
 
 func (s *MediaBillingSnapshot) JSON() []byte { b, _ := json.Marshal(s); return b }
@@ -89,11 +91,29 @@ func (s *MediaBillingService) Prepare(ctx context.Context, meta MediaRequestMeta
 	case BillingModelSourceChannelMapped:
 		billingModel = firstNonEmpty(mapping.MappedModel, model)
 	}
-	price, err := snapshotMediaPrice(s.pricing.GetChannelModelPricing(ctx, *key.GroupID, billingModel), kind)
-	if err != nil {
-		return nil, fmt.Errorf("%w for model %s: %v", ErrMediaPricingNotConfigured, billingModel, err)
+	var price *MediaPriceSnapshot
+	var err error
+	var creditSnapshot *gatewayCreditPriceSnapshot
+	if execution := bc.ExecutionFromContext(ctx); execution != nil && execution.Quote.Request.MaximumUsage[gatewayCreditMeter] != "" {
+		var frozen gatewayCreditPriceSnapshot
+		if json.Unmarshal(execution.GatewayPricingSnapshot, &frozen) != nil || frozen.MediaPrice == nil ||
+			frozen.MediaKind != kind || frozen.BillingModel != billingModel ||
+			(kind == MediaJobKindVideoGeneration && frozen.MediaTier != normalizeMediaBillingTier(firstNonEmpty(tier, "720P"))) {
+			return nil, fmt.Errorf("%w: media price differs from reserved gateway credits", ErrMediaBillingUnavailable)
+		}
+		creditSnapshot = &frozen
+		price = frozen.MediaPrice
+	} else {
+		price, err = snapshotMediaPrice(s.pricing.GetChannelModelPricing(ctx, *key.GroupID, billingModel), kind)
+		if err != nil {
+			return nil, fmt.Errorf("%w for model %s: %v", ErrMediaPricingNotConfigured, billingModel, err)
+		}
 	}
-	if _, err = price.UnitPrice(tier); err != nil {
+	pricedTier := tier
+	if kind == MediaJobKindVideoGeneration {
+		pricedTier = firstNonEmpty(tier, "720P")
+	}
+	if _, err = price.UnitPrice(pricedTier); err != nil {
 		return nil, fmt.Errorf("%w for model %s resolution %s", ErrMediaPricingNotConfigured, billingModel, tier)
 	}
 	multiplier := key.Group.RateMultiplier
@@ -106,12 +126,19 @@ func (s *MediaBillingService) Prepare(ctx context.Context, meta MediaRequestMeta
 			multiplier = *rate
 		}
 	}
+	if creditSnapshot != nil {
+		multiplier = creditSnapshot.RateMultiplier
+	}
 	accountRate := account.BillingRateMultiplier()
 	if !validMediaPrice(multiplier) || !validMediaPrice(accountRate) {
 		return nil, fmt.Errorf("%w: invalid multiplier", ErrMediaPricingNotConfigured)
 	}
 	snap := &MediaBillingSnapshot{Version: 1, Kind: kind, UserID: meta.UserID, APIKeyID: meta.APIKeyID, AccountID: account.ID, AccountType: account.Type, GroupID: copyMediaInt64(key.GroupID), ChannelID: mapping.ChannelID, Model: billingModel, RequestedModel: model, UpstreamModel: upstreamModel, Price: *price, RateMultiplier: multiplier, AccountRateMultiplier: accountRate, ChargeAPIKeyQuota: key.Quota > 0, ChargeRateLimits: key.HasRateLimits(), ChargeAccountQuota: account.IsAPIKeyOrBedrock() && account.HasAnyQuotaLimit(), PayloadHash: HashUsageRequestPayload(meta.RequestJSON)}
-	if key.Group.IsSubscriptionType() {
+	if execution := bc.ExecutionFromContext(ctx); execution != nil {
+		frozen := execution.Snapshot()
+		snap.Center = frozen
+	}
+	if key.Group.IsSubscriptionType() && !bc.IsCentral(ctx) {
 		if meta.Subscription == nil || meta.Subscription.UserID != meta.UserID || meta.Subscription.GroupID != *key.GroupID {
 			return nil, fmt.Errorf("%w: subscription context is required", ErrMediaBillingUnavailable)
 		}
@@ -220,6 +247,16 @@ func (s *MediaBillingService) Settle(ctx context.Context, job *MediaGenerationJo
 	if snap.UserID != job.UserID || snap.APIKeyID != job.APIKeyID || snap.AccountID != job.AccountID || snap.Kind != job.Kind {
 		return fmt.Errorf("%w: billing identity mismatch", ErrMediaBillingUnavailable)
 	}
+	if snap.Center != nil {
+		if s.apiKeys == nil || s.apiKeys.GatewayBilling == nil {
+			return ErrMediaBillingUnavailable
+		}
+		execution, err := s.apiKeys.GatewayBilling.Restore(ctx, snap.Center)
+		if err != nil {
+			return err
+		}
+		ctx = bc.WithExecution(ctx, execution)
+	}
 	units, tier, err := mediaBillableUnits(job, snap.Kind)
 	if err != nil && snap.Price.Mode == BillingModePerRequest && (snap.AccountPrice == nil || snap.AccountPrice.Mode == BillingModePerRequest) {
 		units = 1
@@ -227,6 +264,25 @@ func (s *MediaBillingService) Settle(ctx context.Context, job *MediaGenerationJo
 	}
 	if err != nil {
 		return err
+	}
+	shadowIncomplete := false
+	quotedTier := ""
+	if snap.Center != nil {
+		quotedTier = normalizeMediaBillingTier(snap.Center.Quote.Request.ServiceTier)
+		if snap.Center.Quote.Request.MaximumUsage[gatewayCreditMeter] != "" {
+			var frozen gatewayCreditPriceSnapshot
+			if json.Unmarshal(snap.Center.GatewayPricingSnapshot, &frozen) != nil || frozen.MediaPrice == nil {
+				return fmt.Errorf("%w: frozen gateway media price is missing", ErrMediaBillingUnavailable)
+			}
+			quotedTier = frozen.MediaTier
+		}
+	}
+	if snap.Center != nil && snap.Kind == MediaJobKindVideoGeneration && quotedTier != tier {
+		if snap.Center.Mode == "shadow" {
+			shadowIncomplete = true
+		} else {
+			return fmt.Errorf("%w: actual video resolution differs from frozen quote", ErrMediaUsageIncomplete)
+		}
 	}
 	price, err := snap.Price.UnitPrice(tier)
 	if err != nil {
@@ -276,13 +332,27 @@ func (s *MediaBillingService) Settle(ctx context.Context, job *MediaGenerationJo
 	if snap.ChargeAccountQuota {
 		cmd.AccountQuotaCost = accountCost
 	}
+	if snap.Center != nil {
+		cmd.ExactUsage, err = mediaBillingMeters(job)
+		if err != nil && snap.Center.Mode != "shadow" {
+			return err
+		}
+		cmd.ShadowUsageIncomplete = shadowIncomplete || err != nil
+		if err = attachCentralUsageMeters(ctx, cmd, cmd.ExactUsage); err != nil {
+			return err
+		}
+		if bc.IsCentral(ctx) {
+			log.SubscriptionID = nil
+			log.BillingMode = &cmd.BillingMode
+		}
+	}
 	billingCtx, cancel := detachedBillingContext(ctx)
 	defer cancel()
 	if _, err = s.ledger.Apply(billingCtx, cmd); err != nil {
 		return fmt.Errorf("%w: %v", ErrMediaBillingUnavailable, err)
 	}
 	// Invalidation is retry-safe even if a prior transaction committed before its caller disconnected.
-	if s.cache != nil {
+	if s.cache != nil && !bc.IsCentral(ctx) {
 		if snap.SubscriptionID != nil && snap.GroupID != nil {
 			_ = s.cache.InvalidateSubscription(billingCtx, snap.UserID, *snap.GroupID)
 		} else {
@@ -292,7 +362,7 @@ func (s *MediaBillingService) Settle(ctx context.Context, job *MediaGenerationJo
 			_ = s.cache.cache.InvalidateAPIKeyRateLimit(billingCtx, snap.APIKeyID)
 		}
 	}
-	if s.apiKeys != nil {
+	if s.apiKeys != nil && !bc.IsCentral(ctx) {
 		s.apiKeys.InvalidateAuthCacheByUserID(billingCtx, snap.UserID)
 	}
 	if _, err = s.usage.Create(billingCtx, log); err != nil {
@@ -370,9 +440,40 @@ func MediaJobNeedsUsageRefresh(job *MediaGenerationJob) bool {
 		return false
 	}
 	_, tier, err := mediaBillableUnits(job, snap.Kind)
-	needsDuration := snap.Price.Mode != BillingModePerRequest || (snap.AccountPrice != nil && snap.AccountPrice.Mode != BillingModePerRequest)
+	needsDuration := snap.Center != nil || snap.Price.Mode != BillingModePerRequest || (snap.AccountPrice != nil && snap.AccountPrice.Mode != BillingModePerRequest)
 	if err != nil && needsDuration {
 		return true
 	}
 	return tier == "" && (snap.Price.Default == nil || (snap.AccountPrice != nil && snap.AccountPrice.Default == nil))
+}
+
+// Failure is not proof that the supplier did no paid work. Keep its hold and
+// expose a durable reconciliation state rather than releasing based on HTTP
+// status, a canceled job, or missing usage metadata.
+func (s *MediaBillingService) ReconcileFailure(ctx context.Context, job *MediaGenerationJob) error {
+	if s == nil || job == nil || len(job.BillingSnapshotJSON) == 0 {
+		return nil
+	}
+	var snapshot MediaBillingSnapshot
+	if json.Unmarshal(job.BillingSnapshotJSON, &snapshot) != nil {
+		return ErrMediaBillingUnavailable
+	}
+	if snapshot.Center == nil || snapshot.Center.Mode != "central" {
+		return nil
+	}
+	if s.apiKeys == nil || s.apiKeys.GatewayBilling == nil {
+		return ErrMediaBillingUnavailable
+	}
+	e, err := s.apiKeys.GatewayBilling.Restore(ctx, snapshot.Center)
+	if err != nil {
+		return err
+	}
+	op, err := e.Coordinator.Store.Get(ctx, e.Key)
+	if err != nil {
+		return err
+	}
+	if op.State == bc.Dispatched || op.State == bc.Dispatching {
+		return s.apiKeys.GatewayBilling.repo.MarkReconciliation(ctx, e.Key, op.Version)
+	}
+	return nil
 }

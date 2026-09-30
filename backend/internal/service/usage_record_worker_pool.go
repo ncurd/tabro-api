@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	bc "github.com/Wei-Shaw/sub2api/internal/billingcenter"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -46,7 +47,11 @@ func BindUsageRecordTaskContext(requestCtx context.Context, task UsageRecordTask
 		return nil
 	}
 	snapshot := ctxkey.CaptureGatewayUsageContext(requestCtx)
+	execution := bc.ExecutionFromContext(requestCtx)
 	return func(workerCtx context.Context) {
+		if execution != nil {
+			workerCtx = bc.WithExecution(workerCtx, execution)
+		}
 		task(snapshot.Apply(workerCtx))
 	}
 }

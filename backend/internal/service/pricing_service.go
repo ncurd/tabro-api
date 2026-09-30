@@ -23,6 +23,8 @@ var (
 	openAIModelDatePattern         = regexp.MustCompile(`-\d{8}$`)
 	openAIModelBasePattern         = regexp.MustCompile(`^(gpt-\d+(?:\.\d+)?)(?:-|$)`)
 	openAIGPT6AstraFallbackPricing = &LiteLLMModelPricing{
+		MaxInputTokens:                      922000,
+		MaxOutputTokens:                     128000,
 		InputCostPerToken:                   1e-05,    // $10 per MTok
 		InputCostPerTokenPriority:           2e-05,    // $20 per MTok
 		OutputCostPerToken:                  5e-05,    // $50 per MTok
@@ -39,7 +41,47 @@ var (
 		SupportsPromptCaching:               true,
 		SupportsServiceTier:                 true,
 	}
+	openAIGPT6SolFallbackPricing = &LiteLLMModelPricing{
+		MaxInputTokens:                      922000,
+		MaxOutputTokens:                     128000,
+		InputCostPerToken:                   2e-06,
+		InputCostPerTokenPriority:           4e-06,
+		OutputCostPerToken:                  1e-05,
+		OutputCostPerTokenPriority:          2e-05,
+		CacheCreationInputTokenCost:         2.5e-06,
+		CacheCreationInputTokenCostPriority: 5e-06,
+		CacheReadInputTokenCost:             2e-07,
+		CacheReadInputTokenCostPriority:     4e-07,
+		LongContextInputTokenThreshold:      272000,
+		LongContextInputCostMultiplier:      2.0,
+		LongContextOutputCostMultiplier:     1.5,
+		LiteLLMProvider:                     "openai",
+		Mode:                                "chat",
+		SupportsPromptCaching:               true,
+		SupportsServiceTier:                 true,
+	}
+	openAIGPT6LunaFallbackPricing = &LiteLLMModelPricing{
+		MaxInputTokens:                      922000,
+		MaxOutputTokens:                     128000,
+		InputCostPerToken:                   1e-07,
+		InputCostPerTokenPriority:           2e-07,
+		OutputCostPerToken:                  5e-07,
+		OutputCostPerTokenPriority:          1e-06,
+		CacheCreationInputTokenCost:         1.25e-07,
+		CacheCreationInputTokenCostPriority: 2.5e-07,
+		CacheReadInputTokenCost:             1e-08,
+		CacheReadInputTokenCostPriority:     2e-08,
+		LongContextInputTokenThreshold:      272000,
+		LongContextInputCostMultiplier:      2.0,
+		LongContextOutputCostMultiplier:     1.5,
+		LiteLLMProvider:                     "openai",
+		Mode:                                "chat",
+		SupportsPromptCaching:               true,
+		SupportsServiceTier:                 true,
+	}
 	openAIGPT56SolFallbackPricing = &LiteLLMModelPricing{
+		MaxInputTokens:                      922000,
+		MaxOutputTokens:                     128000,
 		InputCostPerToken:                   4e-06, // $4 per MTok
 		InputCostPerTokenPriority:           8e-06, // $8 per MTok
 		OutputCostPerToken:                  2e-05, // $20 per MTok
@@ -57,6 +99,8 @@ var (
 		SupportsServiceTier:                 true,
 	}
 	openAIGPT56TerraFallbackPricing = &LiteLLMModelPricing{
+		MaxInputTokens:                      922000,
+		MaxOutputTokens:                     128000,
 		InputCostPerToken:                   2e-06,   // $2 per MTok
 		InputCostPerTokenPriority:           4e-06,   // $4 per MTok
 		OutputCostPerToken:                  1.2e-05, // $12 per MTok
@@ -74,6 +118,8 @@ var (
 		SupportsServiceTier:                 true,
 	}
 	openAIGPT56LunaFallbackPricing = &LiteLLMModelPricing{
+		MaxInputTokens:                      922000,
+		MaxOutputTokens:                     128000,
 		InputCostPerToken:                   2e-07,   // $0.20 per MTok
 		InputCostPerTokenPriority:           4e-07,   // $0.40 per MTok
 		OutputCostPerToken:                  1.2e-06, // $1.20 per MTok
@@ -137,7 +183,21 @@ var (
 		Mode:                                "chat",
 		SupportsPromptCaching:               true,
 	}
+	anthropicOpus55FallbackPricing = &LiteLLMModelPricing{
+		MaxInputTokens:                      1000000,
+		MaxOutputTokens:                     128000,
+		InputCostPerToken:                   4e-06, // $4 per MTok
+		OutputCostPerToken:                  2e-05, // $20 per MTok
+		CacheCreationInputTokenCost:         5e-06, // $5 per MTok
+		CacheCreationInputTokenCostAbove1hr: 8e-06, // $8 per MTok
+		CacheReadInputTokenCost:             2e-07, // $0.20 per MTok (5% of input)
+		LiteLLMProvider:                     "anthropic",
+		Mode:                                "chat",
+		SupportsPromptCaching:               true,
+	}
 	anthropicOpus5FallbackPricing = &LiteLLMModelPricing{
+		MaxInputTokens:                      1000000,
+		MaxOutputTokens:                     128000,
 		InputCostPerToken:                   5e-06,    // $5 per MTok
 		OutputCostPerToken:                  2.5e-05,  // $25 per MTok
 		CacheCreationInputTokenCost:         6.25e-06, // $6.25 per MTok
@@ -152,6 +212,8 @@ var (
 // LiteLLMModelPricing LiteLLM价格数据结构
 // 只保留我们需要的字段，使用指针来处理可能缺失的值
 type LiteLLMModelPricing struct {
+	MaxInputTokens                      int     `json:"max_input_tokens"`
+	MaxOutputTokens                     int     `json:"max_output_tokens"`
 	InputCostPerToken                   float64 `json:"input_cost_per_token"`
 	InputCostPerTokenPriority           float64 `json:"input_cost_per_token_priority"`
 	OutputCostPerToken                  float64 `json:"output_cost_per_token"`
@@ -181,6 +243,8 @@ type PricingRemoteClient interface {
 
 // LiteLLMRawEntry 用于解析原始JSON数据
 type LiteLLMRawEntry struct {
+	MaxInputTokens                      int                         `json:"max_input_tokens"`
+	MaxOutputTokens                     int                         `json:"max_output_tokens"`
 	InputCostPerToken                   *float64                    `json:"input_cost_per_token"`
 	InputCostPerTokenPriority           *float64                    `json:"input_cost_per_token_priority"`
 	OutputCostPerToken                  *float64                    `json:"output_cost_per_token"`
@@ -512,6 +576,8 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 		}
 
 		pricing := &LiteLLMModelPricing{
+			MaxInputTokens:        entry.MaxInputTokens,
+			MaxOutputTokens:       entry.MaxOutputTokens,
 			LiteLLMProvider:       entry.LiteLLMProvider,
 			Mode:                  entry.Mode,
 			SupportsPromptCaching: entry.SupportsPromptCaching,
@@ -701,7 +767,14 @@ func (s *PricingService) mergeFallbackPricingData(pricingData map[string]*LiteLL
 
 	merged := 0
 	for model, pricing := range fallbackData {
-		if _, ok := pricingData[model]; ok {
+		if current, ok := pricingData[model]; ok {
+			// Remote price-only entries retain the bundled capability limits.
+			if current.MaxInputTokens <= 0 {
+				current.MaxInputTokens = pricing.MaxInputTokens
+			}
+			if current.MaxOutputTokens <= 0 {
+				current.MaxOutputTokens = pricing.MaxOutputTokens
+			}
 			continue
 		}
 		pricingData[model] = pricing
@@ -883,6 +956,11 @@ func (s *PricingService) GetModelPricing(modelName string) *LiteLLMModelPricing 
 			Info(fmt.Sprintf("[Pricing] Anthropic fallback matched %s -> %s", lookupCandidates[0], "claude-fable-5-1(static)"))
 		return anthropicFable51FallbackPricing
 	}
+	if isAnthropicOpus55Model(lookupCandidates[0]) {
+		logger.With(zap.String("component", "service.pricing")).
+			Info(fmt.Sprintf("[Pricing] Anthropic fallback matched %s -> %s", lookupCandidates[0], "claude-opus-5-5(static)"))
+		return anthropicOpus55FallbackPricing
+	}
 	if isAnthropicOpus5Model(lookupCandidates[0]) {
 		logger.With(zap.String("component", "service.pricing")).
 			Info(fmt.Sprintf("[Pricing] Anthropic fallback matched %s -> %s", lookupCandidates[0], "claude-opus-5(static)"))
@@ -895,8 +973,10 @@ func (s *PricingService) GetModelPricing(modelName string) *LiteLLMModelPricing 
 	}
 
 	// 6. OpenAI 模型回退策略
-	if strings.HasPrefix(lookupCandidates[0], "gpt-") {
-		return s.matchOpenAIModel(lookupCandidates[0])
+	for _, candidate := range lookupCandidates {
+		if strings.HasPrefix(candidate, "gpt-") {
+			return s.matchOpenAIModel(candidate)
+		}
 	}
 
 	return nil
@@ -1054,6 +1134,7 @@ func (s *PricingService) matchByModelFamily(model string) *LiteLLMModelPricing {
 	// 注意：原 map 实现存在 Go map 迭代随机性导致的同类 bug，此处改为有序切片修复。
 	families := []modelFamily{
 		{name: "fable-5.1", match: []string{"claude-fable-5-1", "claude-fable-5.1"}},
+		{name: "opus-5.5", match: []string{"claude-opus-5-5", "claude-opus-5.5"}},
 		{name: "opus-5", match: []string{"claude-opus-5"}},
 		{name: "fable-5", match: []string{"claude-fable-5"}},
 		{name: "opus-4.8", match: []string{"claude-opus-4-8", "claude-opus-4.8"}, pricing: []string{"claude-opus-4-8", "claude-opus-4.8", "claude-opus-4-7", "claude-opus-4-6"}},
@@ -1095,6 +1176,8 @@ func (s *PricingService) matchByModelFamily(model string) *LiteLLMModelPricing {
 			}
 		case strings.Contains(model, "opus"):
 			switch {
+			case strings.Contains(model, "opus-5-5") || strings.Contains(model, "opus-5.5"):
+				fallbackName = "opus-5.5"
 			case strings.Contains(model, "opus-5") || strings.Contains(model, "opus-5.0"):
 				fallbackName = "opus-5"
 			case strings.Contains(model, "4.8") || strings.Contains(model, "4-8"):
@@ -1147,6 +1230,10 @@ func (s *PricingService) matchByModelFamily(model string) *LiteLLMModelPricing {
 	for _, pattern := range lookups {
 		for key, pricing := range s.pricingData {
 			keyLower := strings.ToLower(key)
+			// Opus 5.5 has distinct prices; do not use it as an Opus 5 fallback.
+			if matched.name == "opus-5" && isAnthropicOpus55Model(keyLower) {
+				continue
+			}
 			if strings.Contains(keyLower, pattern) {
 				logger.LegacyPrintf("service.pricing", "[Pricing] Fuzzy matched %s -> %s", model, key)
 				return pricing
@@ -1167,8 +1254,13 @@ func isAnthropicFable51Model(model string) bool {
 	return strings.HasPrefix(normalized, "claude-fable-5-1") || strings.HasPrefix(normalized, "claude-fable-5.1")
 }
 
+func isAnthropicOpus55Model(model string) bool {
+	normalized := lastSegment(strings.ToLower(strings.TrimSpace(model)))
+	return strings.Contains(normalized, "claude-opus-5-5") || strings.Contains(normalized, "claude-opus-5.5")
+}
+
 func isAnthropicOpus5Model(model string) bool {
-	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "claude-opus-5")
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "claude-opus-5") && !isAnthropicOpus55Model(model)
 }
 
 // matchOpenAIModel OpenAI 模型回退匹配策略
@@ -1177,7 +1269,7 @@ func isAnthropicOpus5Model(model string) bool {
 // 2. gpt-5.2-codex -> gpt-5.2（去掉后缀如 -codex, -mini, -max 等）
 // 3. gpt-5.2-20251222 -> gpt-5.2（去掉日期版本号）
 // 4. gpt-5.3-codex -> gpt-5.2-codex
-// 5. gpt-6-astra* -> 官方静态兜底价
+// 5. gpt-6-astra/sol/luna* -> 各自的官方静态兜底价
 // 6. gpt-5.6* -> 业务静态兜底价
 // 7. gpt-5.4* -> 业务静态兜底价
 // 8. 最终回退到 DefaultTestModel (gpt-5.1-codex)
@@ -1191,6 +1283,26 @@ func (s *PricingService) matchOpenAIModel(model string) *LiteLLMModelPricing {
 		}
 	}
 
+	// Named GPT-6 models have independent prices. Resolve them before the generic
+	// gpt-6 variant so Sol/Luna never inherit Astra or another GPT-6 model's rates.
+	for _, family := range []struct {
+		model   string
+		pricing *LiteLLMModelPricing
+	}{
+		{"gpt-6-astra", openAIGPT6AstraFallbackPricing},
+		{"gpt-6-sol", openAIGPT6SolFallbackPricing},
+		{"gpt-6-luna", openAIGPT6LunaFallbackPricing},
+	} {
+		if strings.HasPrefix(model, family.model) {
+			if pricing, ok := s.pricingData[family.model]; ok {
+				return pricing
+			}
+			logger.With(zap.String("component", "service.pricing")).
+				Info(fmt.Sprintf("[Pricing] OpenAI fallback matched %s -> %s(static)", model, family.model))
+			return family.pricing
+		}
+	}
+
 	// 尝试的回退变体
 	variants := s.generateOpenAIModelVariants(model, openAIModelDatePattern)
 
@@ -1200,12 +1312,6 @@ func (s *PricingService) matchOpenAIModel(model string) *LiteLLMModelPricing {
 				Info(fmt.Sprintf("[Pricing] OpenAI fallback matched %s -> %s", model, variant))
 			return pricing
 		}
-	}
-
-	if strings.HasPrefix(model, "gpt-6-astra") {
-		logger.With(zap.String("component", "service.pricing")).
-			Info(fmt.Sprintf("[Pricing] OpenAI fallback matched %s -> %s", model, "gpt-6-astra(static)"))
-		return openAIGPT6AstraFallbackPricing
 	}
 
 	if strings.HasPrefix(model, "gpt-5.3-codex") {

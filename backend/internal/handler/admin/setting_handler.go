@@ -12,6 +12,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -41,6 +42,36 @@ func scopesContainOpenID(scopes string) bool {
 		}
 	}
 	return false
+}
+
+// Keep the login configuration fixed while OIDC is the sole sign-in method.
+// The administrator must first save it, complete an OIDC sign-in, then enable
+// the switch in a separate request. To change providers, disable the switch first.
+func oidcLoginConfigChanged(req UpdateSettingsRequest, previous *service.SystemSettings) bool {
+	if previous == nil {
+		return true
+	}
+	return req.OIDCConnectEnabled != previous.OIDCConnectEnabled ||
+		strings.TrimSpace(req.OIDCConnectClientID) != previous.OIDCConnectClientID ||
+		(req.OIDCConnectTokenAuthMethod != "none" && strings.TrimSpace(req.OIDCConnectClientSecret) != previous.OIDCConnectClientSecret) ||
+		strings.TrimSpace(req.OIDCConnectIssuerURL) != previous.OIDCConnectIssuerURL ||
+		strings.TrimSpace(req.OIDCConnectDiscoveryURL) != previous.OIDCConnectDiscoveryURL ||
+		strings.TrimSpace(req.OIDCConnectAuthorizeURL) != previous.OIDCConnectAuthorizeURL ||
+		strings.TrimSpace(req.OIDCConnectTokenURL) != previous.OIDCConnectTokenURL ||
+		strings.TrimSpace(req.OIDCConnectUserInfoURL) != previous.OIDCConnectUserInfoURL ||
+		strings.TrimSpace(req.OIDCConnectJWKSURL) != previous.OIDCConnectJWKSURL ||
+		strings.TrimSpace(req.OIDCConnectScopes) != previous.OIDCConnectScopes ||
+		strings.TrimSpace(req.OIDCConnectRedirectURL) != previous.OIDCConnectRedirectURL ||
+		strings.TrimSpace(req.OIDCConnectFrontendRedirectURL) != previous.OIDCConnectFrontendRedirectURL ||
+		strings.TrimSpace(req.OIDCConnectTokenAuthMethod) != previous.OIDCConnectTokenAuthMethod ||
+		req.OIDCConnectUsePKCE != previous.OIDCConnectUsePKCE ||
+		req.OIDCConnectValidateIDToken != previous.OIDCConnectValidateIDToken ||
+		strings.TrimSpace(req.OIDCConnectAllowedSigningAlgs) != previous.OIDCConnectAllowedSigningAlgs ||
+		req.OIDCConnectClockSkewSeconds != previous.OIDCConnectClockSkewSeconds ||
+		req.OIDCConnectRequireEmailVerified != previous.OIDCConnectRequireEmailVerified ||
+		strings.TrimSpace(req.OIDCConnectUserInfoEmailPath) != previous.OIDCConnectUserInfoEmailPath ||
+		strings.TrimSpace(req.OIDCConnectUserInfoIDPath) != previous.OIDCConnectUserInfoIDPath ||
+		strings.TrimSpace(req.OIDCConnectUserInfoUsernamePath) != previous.OIDCConnectUserInfoUsernamePath
 }
 
 func normalizeSMTPAuthProtocolInput(values ...string) (string, error) {
@@ -116,6 +147,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 
 	response.Success(c, dto.SystemSettings{
 		RegistrationEnabled:                  settings.RegistrationEnabled,
+		OIDCOnlyEnabled:                      settings.OIDCOnlyEnabled,
 		EmailVerifyEnabled:                   settings.EmailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist:     settings.RegistrationEmailSuffixWhitelist,
 		PromoCodeEnabled:                     settings.PromoCodeEnabled,
@@ -263,6 +295,7 @@ type UpdateSettingsRequest struct {
 	LinuxDoConnectRedirectURL  string `json:"linuxdo_connect_redirect_url"`
 
 	// Generic OIDC OAuth 登录
+	OIDCOnlyEnabled                 *bool  `json:"oidc_only_enabled"`
 	OIDCConnectEnabled              bool   `json:"oidc_connect_enabled"`
 	OIDCConnectProviderName         string `json:"oidc_connect_provider_name"`
 	OIDCConnectClientID             string `json:"oidc_connect_client_id"`
@@ -384,6 +417,10 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
+	}
+	oidcOnlyEnabled := previousSettings.OIDCOnlyEnabled
+	if req.OIDCOnlyEnabled != nil {
+		oidcOnlyEnabled = *req.OIDCOnlyEnabled
 	}
 
 	// 验证参数
@@ -617,6 +654,21 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		}
 	}
 
+	if oidcOnlyEnabled {
+		if !req.OIDCConnectEnabled {
+			response.ErrorFrom(c, infraerrors.BadRequest("OIDC_REQUIRED_FOR_ONLY_MODE", "OIDC must remain enabled while OIDC-only mode is active"))
+			return
+		}
+		if !previousSettings.OIDCOnlyEnabled && c.GetString("auth_method") != service.AuthMethodOIDC {
+			response.ErrorFrom(c, infraerrors.Forbidden("OIDC_ADMIN_SESSION_REQUIRED", "Sign in as an administrator through OIDC before enabling OIDC-only mode"))
+			return
+		}
+		if oidcLoginConfigChanged(req, previousSettings) {
+			response.ErrorFrom(c, infraerrors.BadRequest("OIDC_CONFIG_CHANGE_REQUIRES_MODE_OFF", "Save and test OIDC configuration before enabling OIDC-only mode; disable OIDC-only mode before changing OIDC configuration"))
+			return
+		}
+	}
+
 	// “购买订阅”页面配置验证
 	purchaseEnabled := previousSettings.PurchaseSubscriptionEnabled
 	if req.PurchaseSubscriptionEnabled != nil {
@@ -826,6 +878,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 
 	settings := &service.SystemSettings{
 		RegistrationEnabled:              req.RegistrationEnabled,
+		OIDCOnlyEnabled:                  oidcOnlyEnabled,
 		EmailVerifyEnabled:               req.EmailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist: req.RegistrationEmailSuffixWhitelist,
 		PromoCodeEnabled:                 req.PromoCodeEnabled,
@@ -1046,6 +1099,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 
 	response.Success(c, dto.SystemSettings{
 		RegistrationEnabled:                  updatedSettings.RegistrationEnabled,
+		OIDCOnlyEnabled:                      updatedSettings.OIDCOnlyEnabled,
 		EmailVerifyEnabled:                   updatedSettings.EmailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist:     updatedSettings.RegistrationEmailSuffixWhitelist,
 		PromoCodeEnabled:                     updatedSettings.PromoCodeEnabled,
@@ -1194,6 +1248,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	changed := make([]string, 0, 20)
 	if before.RegistrationEnabled != after.RegistrationEnabled {
 		changed = append(changed, "registration_enabled")
+	}
+	if before.OIDCOnlyEnabled != after.OIDCOnlyEnabled {
+		changed = append(changed, "oidc_only_enabled")
 	}
 	if before.EmailVerifyEnabled != after.EmailVerifyEnabled {
 		changed = append(changed, "email_verify_enabled")

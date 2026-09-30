@@ -37,6 +37,7 @@ var (
 	ErrEmailVerifyRequired     = infraerrors.BadRequest("EMAIL_VERIFY_REQUIRED", "email verification is required")
 	ErrEmailSuffixNotAllowed   = infraerrors.BadRequest("EMAIL_SUFFIX_NOT_ALLOWED", "email suffix is not allowed")
 	ErrRegDisabled             = infraerrors.Forbidden("REGISTRATION_DISABLED", "registration is currently disabled")
+	ErrOIDCOnlyLoginRequired   = infraerrors.Forbidden("OIDC_ONLY_LOGIN_REQUIRED", "OIDC login is required")
 	ErrServiceUnavailable      = infraerrors.ServiceUnavailable("SERVICE_UNAVAILABLE", "service temporarily unavailable")
 	ErrInvitationCodeRequired  = infraerrors.BadRequest("INVITATION_CODE_REQUIRED", "invitation code is required")
 	ErrInvitationCodeInvalid   = infraerrors.BadRequest("INVITATION_CODE_INVALID", "invalid or used invitation code")
@@ -123,6 +124,9 @@ func (s *AuthService) Register(ctx context.Context, email, password string) (str
 
 // RegisterWithVerification 用户注册（支持邮件验证、优惠码和邀请码），返回token和用户
 func (s *AuthService) RegisterWithVerification(ctx context.Context, email, password, verifyCode, promoCode, invitationCode string) (string, *User, error) {
+	if s.settingService != nil && s.settingService.IsOIDCOnlyEnabled(ctx) {
+		return "", nil, ErrOIDCOnlyLoginRequired
+	}
 	// 检查是否开放注册（默认关闭：settingService 未配置时不允许注册）
 	if s.settingService == nil || !s.settingService.IsRegistrationEnabled(ctx) {
 		return "", nil, ErrRegDisabled
@@ -253,6 +257,9 @@ type SendVerifyCodeResult struct {
 
 // SendVerifyCode 发送邮箱验证码（同步方式）
 func (s *AuthService) SendVerifyCode(ctx context.Context, email string) error {
+	if s.settingService != nil && s.settingService.IsOIDCOnlyEnabled(ctx) {
+		return ErrOIDCOnlyLoginRequired
+	}
 	// 检查是否开放注册（默认关闭）
 	if s.settingService == nil || !s.settingService.IsRegistrationEnabled(ctx) {
 		return ErrRegDisabled
@@ -292,6 +299,9 @@ func (s *AuthService) SendVerifyCode(ctx context.Context, email string) error {
 // SendVerifyCodeAsync 异步发送邮箱验证码并返回倒计时
 func (s *AuthService) SendVerifyCodeAsync(ctx context.Context, email string) (*SendVerifyCodeResult, error) {
 	logger.LegacyPrintf("service.auth", "[Auth] SendVerifyCodeAsync called for email: %s", email)
+	if s.settingService != nil && s.settingService.IsOIDCOnlyEnabled(ctx) {
+		return nil, ErrOIDCOnlyLoginRequired
+	}
 
 	// 检查是否开放注册（默认关闭）
 	if s.settingService == nil || !s.settingService.IsRegistrationEnabled(ctx) {
@@ -411,6 +421,9 @@ func (s *AuthService) IsEmailVerifyEnabled(ctx context.Context) bool {
 
 // Login 用户登录，返回JWT token
 func (s *AuthService) Login(ctx context.Context, email, password string) (string, *User, error) {
+	if s.settingService != nil && s.settingService.IsOIDCOnlyEnabled(ctx) {
+		return "", nil, ErrOIDCOnlyLoginRequired
+	}
 	// 查找用户
 	user, err := s.userRepo.GetByEmail(ctx, email)
 	if err != nil {
@@ -430,6 +443,9 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (string
 	// 检查用户状态
 	if !user.IsActive() {
 		return "", nil, ErrUserNotActive
+	}
+	if user.APIOnly {
+		return "", nil, ErrInvalidCredentials
 	}
 
 	// 生成JWT token
@@ -521,6 +537,9 @@ func (s *AuthService) LoginOrRegisterOAuth(ctx context.Context, email, username 
 
 	if !user.IsActive() {
 		return "", nil, ErrUserNotActive
+	}
+	if user.APIOnly {
+		return "", nil, ErrInvalidCredentials
 	}
 
 	// 尽力补全：当用户名为空时，使用第三方返回的用户名回填。
@@ -689,6 +708,9 @@ func (s *AuthService) LoginOrRegisterOAuthUser(ctx context.Context, email, usern
 	if !user.IsActive() {
 		return nil, ErrUserNotActive
 	}
+	if user.APIOnly {
+		return nil, ErrInvalidCredentials
+	}
 
 	if user.Username == "" && username != "" {
 		user.Username = username
@@ -719,7 +741,7 @@ func (s *AuthService) LoginExistingAdminOAuthUser(ctx context.Context, email str
 		}
 		return nil, ErrInvalidCredentials
 	}
-	if user == nil || !user.IsActive() || !user.IsAdmin() {
+	if user == nil || !user.IsActive() || !user.IsAdmin() || user.APIOnly {
 		return nil, ErrInvalidCredentials
 	}
 	return user, nil
@@ -745,6 +767,9 @@ func (s *AuthService) LoginExistingOIDCIdentityUser(ctx context.Context, userID 
 			return nil, ErrInvalidCredentials
 		}
 		return nil, ErrUserNotActive
+	}
+	if user.APIOnly {
+		return nil, ErrInvalidCredentials
 	}
 	if backendMode && !user.IsAdmin() {
 		return nil, ErrInvalidCredentials
@@ -970,6 +995,9 @@ func (s *AuthService) GenerateToken(user *User) (string, error) {
 }
 
 func (s *AuthService) generateToken(user *User, metadata authTokenMetadata) (string, error) {
+	if user == nil || user.APIOnly {
+		return "", ErrInvalidCredentials
+	}
 	now := time.Now()
 	var expiresAt time.Time
 	if s.cfg.JWT.AccessTokenExpireMinutes > 0 {
@@ -1033,6 +1061,9 @@ func (s *AuthService) RefreshToken(ctx context.Context, oldTokenString string) (
 	if err != nil && !errors.Is(err, ErrTokenExpired) {
 		return "", err
 	}
+	if s.settingService != nil && s.settingService.IsOIDCOnlyEnabled(ctx) && claims.AuthMethod != AuthMethodOIDC {
+		return "", ErrOIDCOnlyLoginRequired
+	}
 
 	// 获取最新的用户信息
 	user, err := s.userRepo.GetByID(ctx, claims.UserID)
@@ -1047,6 +1078,9 @@ func (s *AuthService) RefreshToken(ctx context.Context, oldTokenString string) (
 	// 检查用户状态
 	if !user.IsActive() {
 		return "", ErrUserNotActive
+	}
+	if user.APIOnly {
+		return "", ErrInvalidToken
 	}
 
 	// Security: Check TokenVersion to prevent refreshing revoked tokens
@@ -1066,6 +1100,9 @@ func (s *AuthService) RefreshToken(ctx context.Context, oldTokenString string) (
 // 要求：必须同时开启邮件验证且 SMTP 配置正确
 func (s *AuthService) IsPasswordResetEnabled(ctx context.Context) bool {
 	if s.settingService == nil {
+		return false
+	}
+	if s.settingService.IsOIDCOnlyEnabled(ctx) {
 		return false
 	}
 	// Must have email verification enabled and SMTP configured
@@ -1248,6 +1285,9 @@ func (s *AuthService) GenerateOIDCTokenPair(ctx context.Context, user *User, bil
 }
 
 func (s *AuthService) generateTokenPair(ctx context.Context, user *User, familyID string, metadata authTokenMetadata) (*TokenPair, error) {
+	if user == nil || user.APIOnly {
+		return nil, ErrInvalidCredentials
+	}
 	// 检查 refreshTokenCache 是否可用
 	if s.refreshTokenCache == nil {
 		return nil, errors.New("refresh token cache not configured")
@@ -1352,6 +1392,9 @@ func (s *AuthService) RefreshTokenPair(ctx context.Context, refreshToken string)
 		logger.LegacyPrintf("service.auth", "[Auth] Error getting refresh token: %v", err)
 		return nil, ErrServiceUnavailable
 	}
+	if s.settingService != nil && s.settingService.IsOIDCOnlyEnabled(ctx) && data.AuthMethod != AuthMethodOIDC {
+		return nil, ErrOIDCOnlyLoginRequired
+	}
 
 	// 检查Token是否过期
 	if time.Now().After(data.ExpiresAt) {
@@ -1377,6 +1420,10 @@ func (s *AuthService) RefreshTokenPair(ctx context.Context, refreshToken string)
 		// 用户被禁用，撤销整个Token家族
 		_ = s.refreshTokenCache.DeleteTokenFamily(ctx, data.FamilyID)
 		return nil, ErrUserNotActive
+	}
+	if user.APIOnly {
+		_ = s.refreshTokenCache.DeleteTokenFamily(ctx, data.FamilyID)
+		return nil, ErrRefreshTokenInvalid
 	}
 
 	// 检查TokenVersion（密码更改后所有Token失效）

@@ -127,6 +127,20 @@ func (_c *APIKeyCreate) SetNillableOidcManaged(v *bool) *APIKeyCreate {
 	return _c
 }
 
+// SetAuthBillingOnly sets the "auth_billing_only" field.
+func (_c *APIKeyCreate) SetAuthBillingOnly(v bool) *APIKeyCreate {
+	_c.mutation.SetAuthBillingOnly(v)
+	return _c
+}
+
+// SetNillableAuthBillingOnly sets the "auth_billing_only" field if the given value is not nil.
+func (_c *APIKeyCreate) SetNillableAuthBillingOnly(v *bool) *APIKeyCreate {
+	if v != nil {
+		_c.SetAuthBillingOnly(*v)
+	}
+	return _c
+}
+
 // SetOidcIssuer sets the "oidc_issuer" field.
 func (_c *APIKeyCreate) SetOidcIssuer(v string) *APIKeyCreate {
 	_c.mutation.SetOidcIssuer(v)
@@ -433,6 +447,10 @@ func (_c *APIKeyCreate) defaults() error {
 		v := apikey.DefaultOidcManaged
 		_c.mutation.SetOidcManaged(v)
 	}
+	if _, ok := _c.mutation.AuthBillingOnly(); !ok {
+		v := apikey.DefaultAuthBillingOnly
+		_c.mutation.SetAuthBillingOnly(v)
+	}
 	if _, ok := _c.mutation.Quota(); !ok {
 		v := apikey.DefaultQuota
 		_c.mutation.SetQuota(v)
@@ -505,6 +523,9 @@ func (_c *APIKeyCreate) check() error {
 	}
 	if _, ok := _c.mutation.OidcManaged(); !ok {
 		return &ValidationError{Name: "oidc_managed", err: errors.New(`ent: missing required field "APIKey.oidc_managed"`)}
+	}
+	if _, ok := _c.mutation.AuthBillingOnly(); !ok {
+		return &ValidationError{Name: "auth_billing_only", err: errors.New(`ent: missing required field "APIKey.auth_billing_only"`)}
 	}
 	if v, ok := _c.mutation.OidcIssuer(); ok {
 		if err := apikey.OidcIssuerValidator(v); err != nil {
@@ -597,6 +618,10 @@ func (_c *APIKeyCreate) createSpec() (*APIKey, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.OidcManaged(); ok {
 		_spec.SetField(apikey.FieldOidcManaged, field.TypeBool, value)
 		_node.OidcManaged = value
+	}
+	if value, ok := _c.mutation.AuthBillingOnly(); ok {
+		_spec.SetField(apikey.FieldAuthBillingOnly, field.TypeBool, value)
+		_node.AuthBillingOnly = value
 	}
 	if value, ok := _c.mutation.OidcIssuer(); ok {
 		_spec.SetField(apikey.FieldOidcIssuer, field.TypeString, value)
@@ -873,6 +898,18 @@ func (u *APIKeyUpsert) SetOidcManaged(v bool) *APIKeyUpsert {
 // UpdateOidcManaged sets the "oidc_managed" field to the value that was provided on create.
 func (u *APIKeyUpsert) UpdateOidcManaged() *APIKeyUpsert {
 	u.SetExcluded(apikey.FieldOidcManaged)
+	return u
+}
+
+// SetAuthBillingOnly sets the "auth_billing_only" field.
+func (u *APIKeyUpsert) SetAuthBillingOnly(v bool) *APIKeyUpsert {
+	u.Set(apikey.FieldAuthBillingOnly, v)
+	return u
+}
+
+// UpdateAuthBillingOnly sets the "auth_billing_only" field to the value that was provided on create.
+func (u *APIKeyUpsert) UpdateAuthBillingOnly() *APIKeyUpsert {
+	u.SetExcluded(apikey.FieldAuthBillingOnly)
 	return u
 }
 
@@ -1350,6 +1387,20 @@ func (u *APIKeyUpsertOne) SetOidcManaged(v bool) *APIKeyUpsertOne {
 func (u *APIKeyUpsertOne) UpdateOidcManaged() *APIKeyUpsertOne {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.UpdateOidcManaged()
+	})
+}
+
+// SetAuthBillingOnly sets the "auth_billing_only" field.
+func (u *APIKeyUpsertOne) SetAuthBillingOnly(v bool) *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetAuthBillingOnly(v)
+	})
+}
+
+// UpdateAuthBillingOnly sets the "auth_billing_only" field to the value that was provided on create.
+func (u *APIKeyUpsertOne) UpdateAuthBillingOnly() *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateAuthBillingOnly()
 	})
 }
 
@@ -2044,6 +2095,20 @@ func (u *APIKeyUpsertBulk) SetOidcManaged(v bool) *APIKeyUpsertBulk {
 func (u *APIKeyUpsertBulk) UpdateOidcManaged() *APIKeyUpsertBulk {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.UpdateOidcManaged()
+	})
+}
+
+// SetAuthBillingOnly sets the "auth_billing_only" field.
+func (u *APIKeyUpsertBulk) SetAuthBillingOnly(v bool) *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetAuthBillingOnly(v)
+	})
+}
+
+// UpdateAuthBillingOnly sets the "auth_billing_only" field to the value that was provided on create.
+func (u *APIKeyUpsertBulk) UpdateAuthBillingOnly() *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateAuthBillingOnly()
 	})
 }
 

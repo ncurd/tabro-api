@@ -232,7 +232,10 @@ type OpenAIWSIngressHooks struct {
 	SessionExpiresAt time.Time
 	PrepareTurn      func(turn int, payload []byte) (*OpenAIWSPreparedTurn, error)
 	BeforeTurn       func(turn int) error
-	AfterTurn        func(turn int, result *OpenAIForwardResult, turnErr error)
+	// BeforeWrite runs immediately before every billable frame transmission,
+	// including recovery attempts, so a turn cannot reuse dispatch permission.
+	BeforeWrite func(turn int) error
+	AfterTurn   func(turn int, result *OpenAIForwardResult, turnErr error)
 }
 
 func openAIWSIngressSessionExpired(hooks *OpenAIWSIngressHooks, now time.Time) bool {
@@ -2825,6 +2828,12 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		cancelUpstreamWrite := func() {}
 		if !sessionExpiresAt.IsZero() {
 			upstreamWriteCtx, cancelUpstreamWrite = context.WithDeadline(ctx, sessionExpiresAt)
+		}
+		if hooks != nil && hooks.BeforeWrite != nil {
+			if err := hooks.BeforeWrite(turn); err != nil {
+				cancelUpstreamWrite()
+				return nil, err
+			}
 		}
 		writeErr := lease.WriteJSONWithContextTimeout(upstreamWriteCtx, json.RawMessage(payload), s.openAIWSWriteTimeout())
 		cancelUpstreamWrite()

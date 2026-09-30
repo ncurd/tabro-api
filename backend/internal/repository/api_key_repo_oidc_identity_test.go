@@ -23,6 +23,9 @@ func newOIDCIdentityAPIKeyRepoSQLite(t *testing.T) (*apiKeyRepository, *dbent.Cl
 	dsn := fmt.Sprintf("file:api_key_repo_oidc_identity_%d?mode=memory&cache=shared", time.Now().UnixNano())
 	db, err := sql.Open("sqlite", dsn)
 	require.NoError(t, err)
+	// SQLite shared-memory writes cannot run concurrently. Serialize access in
+	// repository tests; PostgreSQL enforces cross-process uniqueness in production.
+	db.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = db.Close() })
 
 	_, err = db.Exec("PRAGMA foreign_keys = ON")

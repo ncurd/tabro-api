@@ -64,6 +64,7 @@ func (r *userRepository) Create(ctx context.Context, userIn *service.User) error
 		SetBalance(userIn.Balance).
 		SetConcurrency(userIn.Concurrency).
 		SetStatus(userIn.Status).
+		SetAPIOnly(userIn.APIOnly).
 		SetTokenVersion(userIn.TokenVersion).
 		Save(ctx)
 	if err != nil {
@@ -147,6 +148,7 @@ func (r *userRepository) Update(ctx context.Context, userIn *service.User) error
 		SetBalance(userIn.Balance).
 		SetConcurrency(userIn.Concurrency).
 		SetStatus(userIn.Status).
+		SetAPIOnly(userIn.APIOnly).
 		SetTokenVersion(userIn.TokenVersion).
 		SetBalanceNotifyEnabled(userIn.BalanceNotifyEnabled).
 		SetBalanceNotifyThresholdType(userIn.BalanceNotifyThresholdType).
@@ -561,6 +563,7 @@ func applyUserEntityToService(dst *service.User, src *dbent.User) {
 	}
 	dst.ID = src.ID
 	dst.TokenVersion = src.TokenVersion
+	dst.APIOnly = src.APIOnly
 	dst.CreatedAt = src.CreatedAt
 	dst.UpdatedAt = src.UpdatedAt
 }

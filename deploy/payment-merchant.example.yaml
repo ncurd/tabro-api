@@ -1,0 +1,25 @@
+# 新支付商户资料已迁入 tabro-auth 用户中心。
+# 用 Auth superAdmin 打开「平台管理 → 支付配置」填写支付宝/微信支付凭据，
+# 再到「平台管理 → 支付商品」发布并上架积分或套餐商品。
+# 字段、官方获取路径和带商户版本号的回调地址见：
+# tabro-auth/docs/PAYMENT_MERCHANT_SETUP_CN.md
+# 本文件仅为网关历史订单退役记录，不会被程序自动加载。
+
+# 旧网关服务商实例的加密密钥。存在未结历史订单时，保留部署中现有值；
+# 不要用空值覆盖，也不要为了新 Auth 商户在网关创建新实例。
+payment:
+  encryption_key: ""
+
+# 旧 Auth→网关支付桥。新 Auth 本地支付不使用该桥。
+# 若旧生产者仍有未结订单、退款或未投递事件，在核对存量状态后才停桥。
+# 旧桥运行期间，继续保留其原有回调域名和商户凭据。
+billing_center:
+  payments:
+    enabled: false
+    producer_client_id: "tabro-payment-adapter"
+    client_secret: ""
+    callback_base_url: ""
+    account_center_base_url: ""
+
+# 网关的普通 billing_center 计费连接器仍用于模型用量计费，
+# 不要因支付迁移而关闭或改动它。

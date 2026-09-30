@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import AccountUsageCell from '../AccountUsageCell.vue'
 import type { Account } from '@/types'
@@ -57,7 +57,16 @@ function makeAccount(overrides: Partial<Account>): Account {
 describe('AccountUsageCell', () => {
   beforeEach(() => {
     getUsage.mockReset()
+    // jsdom has no responsive media-query implementation. These cases exercise
+    // the desktop usage cell; the mock retains the browser event API.
+    vi.stubGlobal('matchMedia', vi.fn((media: string) => ({
+      matches: true, media, onchange: null,
+      addEventListener: vi.fn(), removeEventListener: vi.fn(),
+      addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn()
+    })))
   })
+
+  afterEach(() => vi.unstubAllGlobals())
 
   it('Antigravity 图片用量会聚合新旧 image 模型', async () => {
     getUsage.mockResolvedValue({
@@ -193,7 +202,7 @@ describe('AccountUsageCell', () => {
 
     await flushPromises()
 
-    expect(getUsage).toHaveBeenCalledWith(2000)
+    expect(getUsage).toHaveBeenCalledWith(2000, undefined)
     expect(wrapper.text()).toContain('5h|15|300')
     expect(wrapper.text()).toContain('7d|77|300')
   })
@@ -254,7 +263,7 @@ describe('AccountUsageCell', () => {
 
     await flushPromises()
 
-    expect(getUsage).toHaveBeenCalledWith(2001)
+    expect(getUsage).toHaveBeenCalledWith(2001, undefined)
     // 单一数据源：始终使用 /usage API 返回值，忽略 codex 快照
     expect(wrapper.text()).toContain('5h|18|900')
     expect(wrapper.text()).toContain('7d|36|900')
@@ -325,7 +334,7 @@ describe('AccountUsageCell', () => {
 
     // 手动刷新再拉一次
     expect(getUsage).toHaveBeenCalledTimes(2)
-    expect(getUsage).toHaveBeenCalledWith(2010)
+    expect(getUsage).toHaveBeenCalledWith(2010, undefined)
     // 单一数据源：始终使用 /usage API 值
     expect(wrapper.text()).toContain('5h|18|900')
   })
@@ -380,7 +389,7 @@ describe('AccountUsageCell', () => {
 
 	await flushPromises()
 
-	expect(getUsage).toHaveBeenCalledWith(2002)
+	expect(getUsage).toHaveBeenCalledWith(2002, undefined)
 	expect(wrapper.text()).toContain('5h|0|27700')
 	expect(wrapper.text()).toContain('7d|0|27700')
   })
@@ -512,7 +521,7 @@ describe('AccountUsageCell', () => {
 
 	await flushPromises()
 
-  expect(getUsage).toHaveBeenCalledWith(2004)
+  expect(getUsage).toHaveBeenCalledWith(2004, undefined)
   expect(wrapper.text()).toContain('5h|100|106540000')
   expect(wrapper.text()).toContain('7d|100|106540000')
   })
@@ -545,8 +554,8 @@ describe('AccountUsageCell', () => {
 
 		expect(wrapper.text()).toContain('1.0M req')
 		expect(wrapper.text()).toContain('1.0B')
-		expect(wrapper.text()).toContain('A $12.35')
-		expect(wrapper.text()).toContain('U $6.79')
+		expect(wrapper.text()).toContain('A 12.35 ✦')
+		expect(wrapper.text()).toContain('U 6.79 ✦')
 
 		const badges = wrapper.findAll('span[title]')
 		expect(badges.some(node => node.attributes('title') === 'usage.accountBilled')).toBe(true)

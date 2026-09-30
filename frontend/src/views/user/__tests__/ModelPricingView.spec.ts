@@ -15,6 +15,41 @@ function mountPricing() {
 describe('ModelPricingView media prices', () => {
   beforeEach(() => getAvailable.mockReset())
 
+  it('displays and refreshes backend token prices for GPT-6 Sol/Luna and Opus 5.5 without applying the group multiplier again', async () => {
+    // Values are already adjusted by the backend and deliberately differ from list prices.
+    const models = ['gpt-6-sol', 'gpt-6-luna', 'claude-opus-5-5'].map(id => ({
+      id, pricing_available: true, billing_mode: 'token', price_unit: 'million_tokens',
+      input_price_per_million: 12.34, output_price_per_million: 56.78,
+      cache_write_price_per_million: 15.42, cache_read_price_per_million: 1.23,
+      priority_input_price_per_million: 24.68, priority_output_price_per_million: 113.56
+    }))
+    const group = {
+      id: 3, name: '新模型', platform: 'openai', rate_multiplier: 2, effective_rate_multiplier: 3,
+      models
+    }
+    getAvailable.mockResolvedValueOnce({ groups: [group] }).mockResolvedValueOnce({
+      groups: [{ ...group, models: models.map(model => ({ ...model, input_price_per_million: 8.76 })) }]
+    })
+
+    const wrapper = mountPricing()
+    await flushPromises()
+    expect(wrapper.text()).toContain('有效倍率 3.00x')
+    expect(wrapper.findAll('tbody tr')).toHaveLength(3)
+    for (const model of models) {
+      const row = wrapper.findAll('tbody tr').find(row => row.text().includes(model.id))!
+      expect(row.findAll('td').slice(2).map(cell => cell.text())).toEqual([
+        '12.3400 ✦', '56.7800 ✦', '15.4200 ✦', '1.2300 ✦', '24.6800 ✦', '113.5600 ✦', '暂无'
+      ])
+    }
+
+    await wrapper.findAll('button').find(button => button.text() === '刷新')!.trigger('click')
+    await flushPromises()
+    expect(getAvailable).toHaveBeenCalledTimes(2)
+    for (const row of wrapper.findAll('tbody tr')) {
+      expect(row.findAll('td')[2].text()).toBe('8.7600 ✦')
+    }
+  })
+
   it('shows per-second tiers, explicit free pricing, and missing prices without token columns', async () => {
     getAvailable.mockResolvedValue({ groups: [{
       id: 1, name: '视频', platform: 'dashscope', rate_multiplier: 1, effective_rate_multiplier: 2,

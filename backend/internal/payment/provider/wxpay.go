@@ -231,6 +231,12 @@ func (w *Wxpay) QueryOrder(ctx context.Context, tradeNo string) (*payment.QueryO
 	if err != nil {
 		return nil, fmt.Errorf("wxpay query order: %w", err)
 	}
+	if err := w.validateTransactionMerchant(tx); err != nil {
+		return nil, err
+	}
+	if wxSV(tx.OutTradeNo) != tradeNo {
+		return nil, fmt.Errorf("wxpay query order reference does not match request")
+	}
 	var amt float64
 	if tx.Amount != nil && tx.Amount.Total != nil {
 		amt = payment.FenToYuan(*tx.Amount.Total)
@@ -243,7 +249,11 @@ func (w *Wxpay) QueryOrder(ctx context.Context, tradeNo string) (*payment.QueryO
 	if tx.SuccessTime != nil {
 		pa = *tx.SuccessTime
 	}
-	return &payment.QueryOrderResponse{TradeNo: id, Status: mapWxState(wxSV(tx.TradeState)), Amount: amt, PaidAt: pa}, nil
+	exact := ""
+	if tx.Amount != nil && tx.Amount.Total != nil {
+		exact = payment.MinorUnitsToExactDecimal(*tx.Amount.Total)
+	}
+	return &payment.QueryOrderResponse{TradeNo: id, ConfirmedUnpaidClosed: wxSV(tx.TradeState) == wxpayTradeStateClosed, Status: mapWxState(wxSV(tx.TradeState)), Amount: amt, ExactAmount: exact, Currency: wxpayCurrency, PaidAt: pa}, nil
 }
 
 func (w *Wxpay) VerifyNotification(ctx context.Context, rawBody string, headers map[string]string) (*payment.PaymentNotification, error) {
@@ -262,8 +272,14 @@ func (w *Wxpay) VerifyNotification(ctx context.Context, rawBody string, headers 
 	if err != nil {
 		return nil, fmt.Errorf("wxpay verify notification: %w", err)
 	}
+	if err := w.validateTransactionMerchant(&tx); err != nil {
+		return nil, err
+	}
 	if nr.EventType != wxpayEventTransactionSuccess {
 		return nil, nil
+	}
+	if wxSV(tx.OutTradeNo) == "" || wxSV(tx.TransactionId) == "" {
+		return nil, fmt.Errorf("wxpay notification is missing order or transaction ID")
 	}
 	var amt float64
 	if tx.Amount != nil && tx.Amount.Total != nil {
@@ -273,10 +289,28 @@ func (w *Wxpay) VerifyNotification(ctx context.Context, rawBody string, headers 
 	if wxSV(tx.TradeState) == wxpayTradeStateSuccess {
 		st = payment.ProviderStatusSuccess
 	}
+	exact := ""
+	if tx.Amount != nil && tx.Amount.Total != nil {
+		exact = payment.MinorUnitsToExactDecimal(*tx.Amount.Total)
+	}
 	return &payment.PaymentNotification{
 		TradeNo: wxSV(tx.TransactionId), OrderID: wxSV(tx.OutTradeNo),
-		Amount: amt, Status: st, RawData: rawBody,
+		Amount: amt, ExactAmount: exact, Currency: wxpayCurrency, Status: st, RawData: rawBody,
 	}, nil
+}
+
+func (w *Wxpay) validateTransactionMerchant(tx *payments.Transaction) error {
+	if tx == nil {
+		return fmt.Errorf("wxpay transaction is missing")
+	}
+	if wxSV(tx.Appid) == "" || wxSV(tx.Appid) != w.config["appId"] ||
+		wxSV(tx.Mchid) == "" || wxSV(tx.Mchid) != w.config["mchId"] {
+		return fmt.Errorf("wxpay transaction appid or mchid does not match merchant")
+	}
+	if tx.Amount == nil || tx.Amount.Total == nil || *tx.Amount.Total <= 0 || wxSV(tx.Amount.Currency) != wxpayCurrency {
+		return fmt.Errorf("wxpay transaction amount or currency is invalid")
+	}
+	return nil
 }
 
 func (w *Wxpay) Refund(ctx context.Context, req payment.RefundRequest) (*payment.RefundResponse, error) {
@@ -294,9 +328,13 @@ func (w *Wxpay) Refund(ctx context.Context, req payment.RefundRequest) (*payment
 	}
 	rs := refunddomestic.RefundsApiService{Client: c}
 	cur := wxpayCurrency
+	refundID := req.RefundID
+	if refundID == "" {
+		refundID = fmt.Sprintf("%s-refund-%d", req.OrderID, time.Now().UnixNano())
+	}
 	res, _, err := rs.Create(ctx, refunddomestic.CreateRequest{
 		OutTradeNo:  core.String(req.OrderID),
-		OutRefundNo: core.String(fmt.Sprintf("%s-refund-%d", req.OrderID, time.Now().UnixNano())),
+		OutRefundNo: core.String(refundID),
 		Reason:      core.String(req.Reason),
 		Amount:      &refunddomestic.AmountReq{Refund: core.Int64(rf), Total: core.Int64(tf), Currency: &cur},
 	})
@@ -348,3 +386,29 @@ var (
 	_ payment.Provider           = (*Wxpay)(nil)
 	_ payment.CancelableProvider = (*Wxpay)(nil)
 )
+
+// Query by the merchant intent survives a lost Create response. ABNORMAL is not
+// failure: funds may still need manual provider processing, so retain the hold.
+func (w *Wxpay) QueryRefundRequest(ctx context.Context, request payment.RefundRequest) (*payment.RefundResponse, error) {
+	c, err := w.ensureClient()
+	if err != nil {
+		return nil, err
+	}
+	svc := refunddomestic.RefundsApiService{Client: c}
+	result, _, err := svc.QueryByOutRefundNo(ctx, refunddomestic.QueryByOutRefundNoRequest{OutRefundNo: core.String(request.RefundID)})
+	if err != nil {
+		return nil, err
+	}
+	expected, err := payment.YuanToFen(request.Amount)
+	if err != nil || wxSV(result.OutRefundNo) != request.RefundID || wxSV(result.OutTradeNo) != request.OrderID || wxSV(result.TransactionId) != request.TradeNo || result.Amount == nil || result.Amount.Refund == nil || *result.Amount.Refund != expected || wxSV(result.Amount.Currency) != wxpayCurrency || wxSV(result.RefundId) == "" {
+		return nil, fmt.Errorf("wxpay refund query mismatch")
+	}
+	status := payment.ProviderStatusPending
+	if result.Status != nil && *result.Status == refunddomestic.STATUS_SUCCESS {
+		status = payment.ProviderStatusSuccess
+	}
+	if result.Status != nil && *result.Status == refunddomestic.STATUS_CLOSED {
+		status = payment.ProviderStatusFailed
+	}
+	return &payment.RefundResponse{RefundID: wxSV(result.RefundId), Status: status}, nil
+}

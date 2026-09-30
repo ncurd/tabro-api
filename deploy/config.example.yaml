@@ -156,6 +156,9 @@ gateway:
     # Safe default. Enable only after issuer/JWKS, identity binding, and
     # application allowlists are configured.
     enabled: false
+    # First validated Auth token creates an API-only technical user and billing key.
+    # Requires billing_center.enabled=true; Auth remains the payment authority.
+    auto_provision: false
     # Exact `iss` claim. Never derived from an unverified token.
     # Example: "https://idp.example.com/realms/production"
     issuer_url: ""
@@ -1016,6 +1019,25 @@ pricing:
 # Billing Configuration
 # 计费配置
 # =============================================================================
+# Auth Billing Center connector. Account authority is selected by database
+# mappings and fenced migration, never by toggling this connector switch.
+# Use BILLING_CENTER_CLIENT_SECRET to inject the producer secret at runtime.
+billing_center:
+  enabled: false
+  base_url: "https://auth.example.com"
+  token_url: "https://auth.example.com/connect/token"
+  producer_client_id: "tabro-api-gateway"
+  client_secret: ""
+  timeout_seconds: 15
+  insecure_local: false
+  # 单独的 billing.credit 客户端；用户订单/金额由 Auth 冻结。
+  payments:
+    enabled: false
+    producer_client_id: "tabro-payment-adapter"
+    client_secret: ""
+    callback_base_url: "https://gateway.example.com"
+    account_center_base_url: "https://auth.example.com"
+
 billing:
   circuit_breaker:
     # Enable circuit breaker for billing service
@@ -1123,3 +1145,9 @@ update:
   # Leave empty for direct connection (recommended for overseas servers)
   # 留空表示直连（适用于海外服务器）
   proxy_url: ""
+
+# Unified-account deployments: expose only gateway calls and internal operations.
+# Keep false until Auth account center and administrative access are ready.
+deployment:
+  internal_only: false
+  account_center_url: "" # e.g. https://auth.example.com/account

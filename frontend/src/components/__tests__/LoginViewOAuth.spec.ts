@@ -70,6 +70,7 @@ interface LoginSettings {
   backend_mode_enabled: boolean
   linuxdo_oauth_enabled: boolean
   oidc_oauth_enabled: boolean
+  oidc_only_enabled?: boolean
 }
 
 async function mountLoginView(settings: LoginSettings) {
@@ -135,5 +136,20 @@ describe('LoginView OAuth availability', () => {
     expect(wrapper.find('[data-testid="linuxdo-oauth"]').exists()).toBe(false)
     expect(wrapper.find('#email').exists()).toBe(true)
     expect(wrapper.find('#password').exists()).toBe(true)
+  })
+
+  it('shows only OIDC when OIDC-only mode is enabled', async () => {
+    const wrapper = await mountLoginView({
+      backend_mode_enabled: false,
+      linuxdo_oauth_enabled: true,
+      oidc_oauth_enabled: true,
+      oidc_only_enabled: true,
+    })
+
+    expect(wrapper.find('[data-testid="oidc-oauth"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="linuxdo-oauth"]').exists()).toBe(false)
+    expect(wrapper.find('form').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('auth.oauthOrContinue')
+    expect(wrapper.text()).not.toContain('auth.dontHaveAccount')
   })
 })

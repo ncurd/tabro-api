@@ -32,6 +32,8 @@ func (h *SettingHandler) GetPublicSettings(c *gin.Context) {
 	}
 
 	response.Success(c, dto.PublicSettings{
+		InternalOnly:                     settings.InternalOnly,
+		AccountCenterURL:                 settings.AccountCenterURL,
 		RegistrationEnabled:              settings.RegistrationEnabled,
 		EmailVerifyEnabled:               settings.EmailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist: settings.RegistrationEmailSuffixWhitelist,
@@ -56,6 +58,7 @@ func (h *SettingHandler) GetPublicSettings(c *gin.Context) {
 		CustomMenuItems:                  dto.ParseUserVisibleMenuItems(settings.CustomMenuItems),
 		CustomEndpoints:                  dto.ParseCustomEndpoints(settings.CustomEndpoints),
 		LinuxDoOAuthEnabled:              settings.LinuxDoOAuthEnabled,
+		OIDCOnlyEnabled:                  settings.OIDCOnlyEnabled,
 		OIDCOAuthEnabled:                 settings.OIDCOAuthEnabled,
 		OIDCOAuthProviderName:            settings.OIDCOAuthProviderName,
 		BackendModeEnabled:               settings.BackendModeEnabled,

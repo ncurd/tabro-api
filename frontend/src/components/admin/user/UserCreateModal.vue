@@ -10,7 +10,14 @@
         <label class="input-label">{{ t('admin.users.email') }}</label>
         <input v-model="form.email" type="email" required class="input" :placeholder="t('admin.users.enterEmail')" />
       </div>
-      <div>
+      <label class="flex cursor-pointer items-start gap-3 rounded-lg border border-gray-200 p-3 dark:border-dark-600">
+        <input v-model="form.api_only" type="checkbox" class="mt-1" />
+        <span>
+          <span class="block font-medium text-gray-900 dark:text-white">{{ t('admin.users.apiOnly') }}</span>
+          <span class="block text-sm text-gray-500 dark:text-dark-400">{{ t('admin.users.apiOnlyHint') }}</span>
+        </span>
+      </label>
+      <div v-if="!form.api_only">
         <label class="input-label">{{ t('admin.users.password') }}</label>
         <div class="flex gap-2">
           <div class="relative flex-1">
@@ -57,18 +64,20 @@ import Icon from '@/components/icons/Icon.vue'
 const props = defineProps<{ show: boolean }>()
 const emit = defineEmits(['close', 'success']); const { t } = useI18n()
 
-const form = reactive({ email: '', password: '', username: '', notes: '', balance: 0, concurrency: 1 })
+const form = reactive({ email: '', password: '', api_only: false, username: '', notes: '', balance: 0, concurrency: 1 })
 
 const { loading, submit } = useForm({
   form,
   submitFn: async (data) => {
-    await adminAPI.users.create(data)
+    const { password, ...withoutPassword } = data
+    await adminAPI.users.create(data.api_only ? withoutPassword : { ...withoutPassword, password })
     emit('success'); emit('close')
   },
   successMsg: t('admin.users.userCreated')
 })
 
-watch(() => props.show, (v) => { if(v) Object.assign(form, { email: '', password: '', username: '', notes: '', balance: 0, concurrency: 1 }) })
+watch(() => props.show, (v) => { if(v) Object.assign(form, { email: '', password: '', api_only: false, username: '', notes: '', balance: 0, concurrency: 1 }) })
+watch(() => form.api_only, (apiOnly) => { if (apiOnly) form.password = '' })
 
 const generateRandomPassword = () => {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%^&*'

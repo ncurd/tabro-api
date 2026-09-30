@@ -153,6 +153,11 @@ func (s *SettingService) GetFrontendURL(ctx context.Context) string {
 
 // GetPublicSettings 获取公开设置（无需登录）
 func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings, error) {
+	internalOnly := s.cfg != nil && s.cfg.Deployment.InternalOnly
+	accountCenterURL := ""
+	if s.cfg != nil {
+		accountCenterURL = s.cfg.Deployment.AccountCenterURL
+	}
 	keys := []string{
 		SettingKeyRegistrationEnabled,
 		SettingKeyEmailVerifyEnabled,
@@ -180,6 +185,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeyLinuxDoConnectEnabled,
 		SettingKeyBackendModeEnabled,
 		SettingPaymentEnabled,
+		SettingKeyOIDCOnlyEnabled,
 		SettingKeyOIDCConnectEnabled,
 		SettingKeyOIDCConnectProviderName,
 		SettingKeyBalanceLowNotifyEnabled,
@@ -212,6 +218,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 	if oidcProviderName == "" {
 		oidcProviderName = "OIDC"
 	}
+	oidcOnlyEnabled := settings[SettingKeyOIDCOnlyEnabled] == "true"
 
 	// Password reset requires email verification to be enabled
 	emailVerifyEnabled := settings[SettingKeyEmailVerifyEnabled] == "true"
@@ -230,11 +237,13 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 	}
 
 	return &PublicSettings{
-		RegistrationEnabled:              settings[SettingKeyRegistrationEnabled] == "true",
+		InternalOnly:                     internalOnly,
+		AccountCenterURL:                 accountCenterURL,
+		RegistrationEnabled:              !internalOnly && settings[SettingKeyRegistrationEnabled] == "true",
 		EmailVerifyEnabled:               emailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist: registrationEmailSuffixWhitelist,
 		PromoCodeEnabled:                 settings[SettingKeyPromoCodeEnabled] != "false", // 默认启用
-		PasswordResetEnabled:             passwordResetEnabled,
+		PasswordResetEnabled:             !internalOnly && !oidcOnlyEnabled && passwordResetEnabled,
 		InvitationCodeEnabled:            settings[SettingKeyInvitationCodeEnabled] == "true",
 		TotpEnabled:                      settings[SettingKeyTotpEnabled] == "true",
 		TurnstileEnabled:                 settings[SettingKeyTurnstileEnabled] == "true",
@@ -247,14 +256,15 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		DocURL:                           settings[SettingKeyDocURL],
 		HomeContent:                      settings[SettingKeyHomeContent],
 		HideCcsImportButton:              settings[SettingKeyHideCcsImportButton] == "true",
-		PurchaseSubscriptionEnabled:      settings[SettingKeyPurchaseSubscriptionEnabled] == "true",
+		PurchaseSubscriptionEnabled:      !internalOnly && settings[SettingKeyPurchaseSubscriptionEnabled] == "true",
 		PurchaseSubscriptionURL:          strings.TrimSpace(settings[SettingKeyPurchaseSubscriptionURL]),
 		TableDefaultPageSize:             tableDefaultPageSize,
 		TablePageSizeOptions:             tablePageSizeOptions,
 		CustomMenuItems:                  settings[SettingKeyCustomMenuItems],
 		CustomEndpoints:                  settings[SettingKeyCustomEndpoints],
-		LinuxDoOAuthEnabled:              linuxDoEnabled,
-		BackendModeEnabled:               settings[SettingKeyBackendModeEnabled] == "true",
+		LinuxDoOAuthEnabled:              !internalOnly && !oidcOnlyEnabled && linuxDoEnabled,
+		OIDCOnlyEnabled:                  oidcOnlyEnabled,
+		BackendModeEnabled:               internalOnly || settings[SettingKeyBackendModeEnabled] == "true",
 		PaymentEnabled:                   settings[SettingPaymentEnabled] == "true",
 		OIDCOAuthEnabled:                 oidcEnabled,
 		OIDCOAuthProviderName:            oidcProviderName,
@@ -286,6 +296,8 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 
 	// Return a struct that matches the frontend's expected format
 	return &struct {
+		InternalOnly                     bool            `json:"internal_only"`
+		AccountCenterURL                 string          `json:"account_center_url,omitempty"`
 		RegistrationEnabled              bool            `json:"registration_enabled"`
 		EmailVerifyEnabled               bool            `json:"email_verify_enabled"`
 		RegistrationEmailSuffixWhitelist []string        `json:"registration_email_suffix_whitelist"`
@@ -310,6 +322,7 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		CustomMenuItems                  json.RawMessage `json:"custom_menu_items"`
 		CustomEndpoints                  json.RawMessage `json:"custom_endpoints"`
 		LinuxDoOAuthEnabled              bool            `json:"linuxdo_oauth_enabled"`
+		OIDCOnlyEnabled                  bool            `json:"oidc_only_enabled"`
 		BackendModeEnabled               bool            `json:"backend_mode_enabled"`
 		PaymentEnabled                   bool            `json:"payment_enabled"`
 		OIDCOAuthEnabled                 bool            `json:"oidc_oauth_enabled"`
@@ -320,6 +333,8 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		BalanceLowNotifyThreshold        float64         `json:"balance_low_notify_threshold"`
 		BalanceLowNotifyRechargeURL      string          `json:"balance_low_notify_recharge_url"`
 	}{
+		InternalOnly:                     settings.InternalOnly,
+		AccountCenterURL:                 settings.AccountCenterURL,
 		RegistrationEnabled:              settings.RegistrationEnabled,
 		EmailVerifyEnabled:               settings.EmailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist: settings.RegistrationEmailSuffixWhitelist,
@@ -344,6 +359,7 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		CustomMenuItems:                  filterUserVisibleMenuItems(settings.CustomMenuItems),
 		CustomEndpoints:                  safeRawJSONArray(settings.CustomEndpoints),
 		LinuxDoOAuthEnabled:              settings.LinuxDoOAuthEnabled,
+		OIDCOnlyEnabled:                  settings.OIDCOnlyEnabled,
 		BackendModeEnabled:               settings.BackendModeEnabled,
 		PaymentEnabled:                   settings.PaymentEnabled,
 		OIDCOAuthEnabled:                 settings.OIDCOAuthEnabled,
@@ -537,6 +553,7 @@ func (s *SettingService) UpdateSettings(ctx context.Context, settings *SystemSet
 	}
 
 	// Generic OIDC OAuth 登录
+	updates[SettingKeyOIDCOnlyEnabled] = strconv.FormatBool(settings.OIDCOnlyEnabled)
 	updates[SettingKeyOIDCConnectEnabled] = strconv.FormatBool(settings.OIDCConnectEnabled)
 	updates[SettingKeyOIDCConnectProviderName] = settings.OIDCConnectProviderName
 	updates[SettingKeyOIDCConnectClientID] = settings.OIDCConnectClientID
@@ -706,6 +723,9 @@ func (s *SettingService) validateDefaultSubscriptionGroups(ctx context.Context, 
 
 // IsRegistrationEnabled 检查是否开放注册
 func (s *SettingService) IsRegistrationEnabled(ctx context.Context) bool {
+	if s.cfg != nil && s.cfg.Deployment.InternalOnly {
+		return false
+	}
 	value, err := s.settingRepo.GetValue(ctx, SettingKeyRegistrationEnabled)
 	if err != nil {
 		// 安全默认：如果设置不存在或查询出错，默认关闭注册
@@ -714,9 +734,26 @@ func (s *SettingService) IsRegistrationEnabled(ctx context.Context) bool {
 	return value == "true"
 }
 
+// IsOIDCOnlyEnabled determines whether password and non-OIDC login paths are disabled.
+// Read each time so a setting change takes effect immediately on every instance.
+func (s *SettingService) IsOIDCOnlyEnabled(ctx context.Context) bool {
+	value, err := s.settingRepo.GetValue(ctx, SettingKeyOIDCOnlyEnabled)
+	if errors.Is(err, ErrSettingNotFound) {
+		return false // Existing installations default to local login being available.
+	}
+	if err != nil {
+		slog.Warn("failed to get oidc_only_enabled setting", "error", err)
+		return true // A temporary storage error must not re-open local login.
+	}
+	return value == "true"
+}
+
 // IsBackendModeEnabled checks if backend mode is enabled
 // Uses in-process atomic.Value cache with 60s TTL, zero-lock hot path
 func (s *SettingService) IsBackendModeEnabled(ctx context.Context) bool {
+	if s.cfg != nil && s.cfg.Deployment.InternalOnly {
+		return true
+	}
 	if cached, ok := backendModeCache.Load().(*cachedBackendMode); ok && cached != nil {
 		if time.Now().UnixNano() < cached.expiresAt {
 			return cached.value
@@ -949,6 +986,7 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyCustomMenuItems:                  "[]",
 		SettingKeyCustomEndpoints:                  "[]",
 		SettingKeyOIDCConnectEnabled:               "false",
+		SettingKeyOIDCOnlyEnabled:                  "false",
 		SettingKeyOIDCConnectProviderName:          "OIDC",
 		SettingKeyDefaultConcurrency:               strconv.Itoa(s.cfg.Default.UserConcurrency),
 		SettingKeyDefaultBalance:                   strconv.FormatFloat(s.cfg.Default.UserBalance, 'f', 8, 64),
@@ -990,6 +1028,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	emailVerifyEnabled := settings[SettingKeyEmailVerifyEnabled] == "true"
 	result := &SystemSettings{
 		RegistrationEnabled:              settings[SettingKeyRegistrationEnabled] == "true",
+		OIDCOnlyEnabled:                  settings[SettingKeyOIDCOnlyEnabled] == "true",
 		EmailVerifyEnabled:               emailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist: ParseRegistrationEmailSuffixWhitelist(settings[SettingKeyRegistrationEmailSuffixWhitelist]),
 		PromoCodeEnabled:                 settings[SettingKeyPromoCodeEnabled] != "false", // 默认启用

@@ -402,9 +402,21 @@ func (b *stripeMockBackend) CallStreaming(string, string, string, stripe.ParamsC
 	return fmt.Errorf("streaming calls are not expected in Stripe provider tests")
 }
 
-func (b *stripeMockBackend) CallRaw(string, string, string, []byte, *stripe.Params, stripe.LastResponseSetter) error {
+func (b *stripeMockBackend) CallRaw(method, path, _ string, body []byte, _ *stripe.Params, result stripe.LastResponseSetter) error {
 	b.t.Helper()
-	return fmt.Errorf("raw calls are not expected in Stripe provider tests")
+	values, err := url.ParseQuery(string(body))
+	if err != nil {
+		return err
+	}
+	if u, err := url.Parse(path); err == nil {
+		for key, v := range u.Query() {
+			values[key] = v
+		}
+		path = u.Path
+	}
+	response := b.handler(method, path, values)
+	result.SetLastResponse(&stripe.APIResponse{Header: http.Header{}, RawJSON: []byte(response), Status: "200 OK", StatusCode: http.StatusOK})
+	return json.Unmarshal([]byte(response), result)
 }
 
 func (b *stripeMockBackend) CallMultipart(string, string, string, string, *bytes.Buffer, *stripe.Params, stripe.LastResponseSetter) error {
@@ -444,4 +456,22 @@ func (w *stripeTestResponseWriter) Write(body []byte) (int, error) {
 
 func (w *stripeTestResponseWriter) WriteHeader(statusCode int) {
 	w.status = statusCode
+}
+
+func TestStripeUnknownRefundRecoversExactIntentByReadOnlyQuery(t *testing.T) {
+	provider := newTestStripeProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodGet, r.Method)
+		require.Equal(t, "/v1/refunds", r.URL.Path)
+		require.Equal(t, "pi_test", r.URL.Query().Get("payment_intent"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"object":"list","has_more":false,"data":[{"id":"re_other","amount":500,"payment_intent":"pi_test","status":"succeeded","metadata":{"billing_refund_intent":"other"}},{"id":"re_match","amount":200,"payment_intent":"pi_test","status":"succeeded","metadata":{"billing_refund_intent":"stable-intent"}}]}`)
+	})
+	response, err := provider.QueryRefundRequest(context.Background(), payment.RefundRequest{RefundID: "stable-intent", TradeNo: "pi_test", Amount: "2.00"})
+	require.NoError(t, err)
+	require.Equal(t, "re_match", response.RefundID)
+	require.Equal(t, payment.ProviderStatusSuccess, response.Status)
+	_, err = provider.QueryRefundRequest(context.Background(), payment.RefundRequest{RefundID: "stable-intent", TradeNo: "pi_test", Amount: "3.00"})
+	require.ErrorContains(t, err, "mismatch")
+	_, err = provider.QueryRefundRequest(context.Background(), payment.RefundRequest{RefundID: "missing", TradeNo: "pi_test", Amount: "2.00"})
+	require.ErrorContains(t, err, "unresolved")
 }

@@ -26,6 +26,9 @@ async function bootstrap() {
   // This must happen after pinia is installed but before router and i18n
   const appStore = useAppStore()
   appStore.initFromInjectedConfig()
+	// Static deployments have no injected settings; resolve deployment policy
+	// before the first route can render a user wallet or registration screen.
+	if (!appStore.cachedPublicSettings) await appStore.fetchPublicSettings()
 
   // Set document title immediately after config is loaded
   if (appStore.siteName && appStore.siteName !== 'Tabro') {

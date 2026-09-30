@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	bc "github.com/Wei-Shaw/sub2api/internal/billingcenter"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -636,6 +637,9 @@ func (s *BillingCacheService) QueueUpdateAPIKeyRateLimitUsage(apiKeyID int64, co
 // 余额模式：检查缓存余额 > 0
 // 订阅模式：检查缓存用量未超过限额（Group限额从参数传入）
 func (s *BillingCacheService) CheckBillingEligibility(ctx context.Context, user *User, apiKey *APIKey, group *Group, subscription *UserSubscription) error {
+	if bc.IsCentral(ctx) {
+		return nil
+	}
 	// 简易模式：跳过所有计费检查
 	if s.cfg.RunMode == config.RunModeSimple {
 		return nil

@@ -251,6 +251,35 @@ func TestGatewayOAuthResourceServerAcceptsDedicatedAudienceAndStoresSafeRequestI
 	require.Zero(t, fixture.repo.getByKeyCalls, "a verified bearer JWT must not be looked up as an API key")
 }
 
+func TestGatewayOAuthResourceServerAllowsAPIOnlyUserWithoutGatewaySession(t *testing.T) {
+	fixture := newGatewayMiddlewareOAuthFixture(t)
+	fixture.cfg.RunMode = config.RunModeStandard
+	fixture.repo.boundKey.User.APIOnly = true
+	fixture.repo.boundKey.User.Balance = 10
+	token := fixture.sign(t, fixture.claims())
+
+	router := gin.New()
+	router.Use(gin.HandlerFunc(NewGatewayAuthMiddleware(fixture.apiKeys, nil, nil, fixture.cfg)))
+	router.POST("/v1/chat/completions", func(c *gin.Context) {
+		key, ok := GetAPIKeyFromContext(c)
+		require.True(t, ok)
+		require.Equal(t, fixture.repo.boundKey.ID, key.ID)
+		subject, ok := GetAuthSubjectFromContext(c)
+		require.True(t, ok)
+		require.Equal(t, fixture.repo.boundKey.UserID, subject.UserID)
+		c.Status(http.StatusNoContent)
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusNoContent, rec.Code)
+	require.Equal(t, 1, fixture.repo.identityLookups)
+	require.Zero(t, fixture.repo.getByKeyCalls, "the caller has no gateway session or API key secret")
+}
+
 func TestGatewayOAuthResourceServerMapsAudienceAndScopeFailures(t *testing.T) {
 	tests := []struct {
 		name                string

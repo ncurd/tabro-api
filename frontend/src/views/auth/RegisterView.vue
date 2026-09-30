@@ -1,6 +1,11 @@
 <template>
   <AuthLayout>
-    <div class="space-y-6">
+    <div v-if="oidcOnlyEnabled" class="space-y-6 text-center">
+      <h2 class="text-2xl font-bold text-gray-900 dark:text-white">{{ t('auth.oidcOnlyTitle') }}</h2>
+      <p class="text-sm text-gray-600 dark:text-gray-300">{{ t('auth.oidcOnlyMessage') }}</p>
+      <router-link to="/login" class="btn btn-primary inline-flex">{{ t('auth.backToLogin') }}</router-link>
+    </div>
+    <div v-else-if="settingsLoaded" class="space-y-6">
       <!-- Title -->
       <div class="text-center">
         <h2 class="text-2xl font-bold text-gray-900 dark:text-white">
@@ -287,7 +292,7 @@
     </div>
 
     <!-- Footer -->
-    <template #footer>
+    <template v-if="settingsLoaded && !oidcOnlyEnabled" #footer>
       <p class="text-gray-500 dark:text-dark-400">
         {{ t('auth.alreadyHaveAccount') }}
         <router-link
@@ -336,6 +341,7 @@ const showPassword = ref<boolean>(false)
 
 // Public settings
 const registrationEnabled = ref<boolean>(true)
+const oidcOnlyEnabled = ref<boolean>(appStore.cachedPublicSettings?.oidc_only_enabled ?? false)
 const emailVerifyEnabled = ref<boolean>(false)
 const promoCodeEnabled = ref<boolean>(true)
 const invitationCodeEnabled = ref<boolean>(false)
@@ -399,12 +405,13 @@ onMounted(async () => {
     linuxdoOAuthEnabled.value = settings.linuxdo_oauth_enabled
     oidcOAuthEnabled.value = settings.oidc_oauth_enabled
     oidcOAuthProviderName.value = settings.oidc_oauth_provider_name || 'OIDC'
+    oidcOnlyEnabled.value = settings.oidc_only_enabled ?? false
     registrationEmailSuffixWhitelist.value = normalizeRegistrationEmailSuffixWhitelist(
       settings.registration_email_suffix_whitelist || []
     )
 
     // Read promo code from URL parameter only if promo code is enabled
-    if (promoCodeEnabled.value) {
+    if (!oidcOnlyEnabled.value && promoCodeEnabled.value) {
       const promoParam = route.query.promo as string
       if (promoParam) {
         formData.promo_code = promoParam
@@ -654,6 +661,8 @@ function validateForm(): boolean {
 // ==================== Form Handlers ====================
 
 async function handleRegister(): Promise<void> {
+  if (oidcOnlyEnabled.value) return
+
   // Clear previous error
   errorMessage.value = ''
 

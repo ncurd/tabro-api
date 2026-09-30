@@ -1,6 +1,6 @@
 <template>
   <AuthLayout>
-    <div class="space-y-6">
+    <div v-if="settingsLoaded" class="space-y-6">
       <!-- Title -->
       <div class="text-center">
         <h2 class="text-2xl font-bold text-gray-900 dark:text-white">
@@ -11,12 +11,19 @@
         </p>
       </div>
 
+      <p v-if="appStore.cachedPublicSettings?.internal_only" class="text-center text-sm text-gray-600 dark:text-gray-300">
+        {{ t('auth.internalOperationsOnly') }}
+        <a :href="appStore.cachedPublicSettings.account_center_url" class="font-medium text-primary-600 hover:underline">
+          {{ t('auth.accountCenter') }}
+        </a>
+      </p>
+
       <div
-        v-if="(!backendModeEnabled && linuxdoOAuthEnabled) || oidcOAuthEnabled"
+        v-if="(!backendModeEnabled && !oidcOnlyEnabled && linuxdoOAuthEnabled) || oidcOAuthEnabled"
         class="space-y-4"
       >
         <LinuxDoOAuthSection
-          v-if="!backendModeEnabled && linuxdoOAuthEnabled"
+          v-if="!backendModeEnabled && !oidcOnlyEnabled && linuxdoOAuthEnabled"
           :disabled="isLoading"
           :show-divider="false"
         />
@@ -26,7 +33,7 @@
           :provider-name="oidcOAuthProviderName"
           :show-divider="false"
         />
-        <div class="flex items-center gap-3">
+        <div v-if="!oidcOnlyEnabled" class="flex items-center gap-3">
           <div class="h-px flex-1 bg-gray-200 dark:bg-dark-700"></div>
           <span class="text-xs text-gray-500 dark:text-dark-400">
             {{ t('auth.oauthOrContinue') }}
@@ -36,7 +43,7 @@
       </div>
 
       <!-- Login Form -->
-      <form @submit.prevent="handleLogin" class="space-y-5">
+      <form v-if="!oidcOnlyEnabled" @submit.prevent="handleLogin" class="space-y-5">
         <!-- Email Input -->
         <div>
           <label for="email" class="input-label">
@@ -172,7 +179,7 @@
     </div>
 
     <!-- Footer -->
-    <template v-if="!backendModeEnabled" #footer>
+    <template v-if="settingsLoaded && !backendModeEnabled && !oidcOnlyEnabled" #footer>
       <p class="text-gray-500 dark:text-dark-400">
         {{ t('auth.dontHaveAccount') }}
         <router-link
@@ -225,13 +232,15 @@ const errorMessage = ref<string>('')
 const showPassword = ref<boolean>(false)
 
 // Public settings
-const turnstileEnabled = ref<boolean>(false)
-const turnstileSiteKey = ref<string>('')
-const linuxdoOAuthEnabled = ref<boolean>(false)
-const backendModeEnabled = ref<boolean>(false)
-const oidcOAuthEnabled = ref<boolean>(false)
-const oidcOAuthProviderName = ref<string>('OIDC')
-const passwordResetEnabled = ref<boolean>(false)
+const settingsLoaded = ref<boolean>(Boolean(appStore.cachedPublicSettings))
+const oidcOnlyEnabled = ref<boolean>(appStore.cachedPublicSettings?.oidc_only_enabled ?? false)
+const turnstileEnabled = ref<boolean>(appStore.cachedPublicSettings?.turnstile_enabled ?? false)
+const turnstileSiteKey = ref<string>(appStore.cachedPublicSettings?.turnstile_site_key || '')
+const linuxdoOAuthEnabled = ref<boolean>(appStore.cachedPublicSettings?.linuxdo_oauth_enabled ?? false)
+const backendModeEnabled = ref<boolean>(appStore.cachedPublicSettings?.backend_mode_enabled ?? false)
+const oidcOAuthEnabled = ref<boolean>(appStore.cachedPublicSettings?.oidc_oauth_enabled ?? false)
+const oidcOAuthProviderName = ref<string>(appStore.cachedPublicSettings?.oidc_oauth_provider_name || 'OIDC')
+const passwordResetEnabled = ref<boolean>(appStore.cachedPublicSettings?.password_reset_enabled ?? false)
 
 // Turnstile
 const turnstileRef = ref<InstanceType<typeof TurnstileWidget> | null>(null)
@@ -273,10 +282,12 @@ onMounted(async () => {
     backendModeEnabled.value = settings.backend_mode_enabled
     oidcOAuthEnabled.value = settings.oidc_oauth_enabled
     oidcOAuthProviderName.value = settings.oidc_oauth_provider_name || 'OIDC'
-    backendModeEnabled.value = settings.backend_mode_enabled
+    oidcOnlyEnabled.value = settings.oidc_only_enabled ?? false
     passwordResetEnabled.value = settings.password_reset_enabled
   } catch (error) {
     console.error('Failed to load public settings:', error)
+  } finally {
+    settingsLoaded.value = true
   }
 })
 
@@ -337,6 +348,8 @@ function validateForm(): boolean {
 // ==================== Form Handlers ====================
 
 async function handleLogin(): Promise<void> {
+  if (oidcOnlyEnabled.value) return
+
   // Clear previous error
   errorMessage.value = ''
 

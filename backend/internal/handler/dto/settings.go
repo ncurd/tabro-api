@@ -53,6 +53,7 @@ type SystemSettings struct {
 	LinuxDoConnectClientSecretConfigured bool   `json:"linuxdo_connect_client_secret_configured"`
 	LinuxDoConnectRedirectURL            string `json:"linuxdo_connect_redirect_url"`
 
+	OIDCOnlyEnabled                   bool   `json:"oidc_only_enabled"`
 	OIDCConnectEnabled                bool   `json:"oidc_connect_enabled"`
 	OIDCConnectProviderName           string `json:"oidc_connect_provider_name"`
 	OIDCConnectClientID               string `json:"oidc_connect_client_id"`
@@ -168,6 +169,8 @@ type DefaultSubscriptionSetting struct {
 }
 
 type PublicSettings struct {
+	InternalOnly                     bool             `json:"internal_only"`
+	AccountCenterURL                 string           `json:"account_center_url,omitempty"`
 	RegistrationEnabled              bool             `json:"registration_enabled"`
 	EmailVerifyEnabled               bool             `json:"email_verify_enabled"`
 	RegistrationEmailSuffixWhitelist []string         `json:"registration_email_suffix_whitelist"`
@@ -192,6 +195,7 @@ type PublicSettings struct {
 	CustomMenuItems                  []CustomMenuItem `json:"custom_menu_items"`
 	CustomEndpoints                  []CustomEndpoint `json:"custom_endpoints"`
 	LinuxDoOAuthEnabled              bool             `json:"linuxdo_oauth_enabled"`
+	OIDCOnlyEnabled                  bool             `json:"oidc_only_enabled"`
 	OIDCOAuthEnabled                 bool             `json:"oidc_oauth_enabled"`
 	OIDCOAuthProviderName            string           `json:"oidc_oauth_provider_name"`
 	SoraClientEnabled                bool             `json:"sora_client_enabled"`

@@ -136,7 +136,6 @@ func (a *Alipay) createTrade(client *alipay.Client, req payment.CreatePaymentReq
 	return &payment.CreatePaymentResponse{
 		TradeNo: req.OrderID,
 		PayURL:  payURL.String(),
-		QRCode:  payURL.String(),
 	}, nil
 }
 
@@ -172,10 +171,12 @@ func (a *Alipay) QueryOrder(ctx context.Context, tradeNo string) (*payment.Query
 	}
 
 	return &payment.QueryOrderResponse{
-		TradeNo: result.TradeNo,
-		Status:  status,
-		Amount:  amount,
-		PaidAt:  result.SendPayDate,
+		TradeNo:     result.TradeNo,
+		Status:      status,
+		Amount:      amount,
+		ExactAmount: result.TotalAmount,
+		Currency:    "CNY",
+		PaidAt:      result.SendPayDate,
 	}, nil
 }
 
@@ -195,6 +196,9 @@ func (a *Alipay) VerifyNotification(ctx context.Context, rawBody string, _ map[s
 	if err != nil {
 		return nil, fmt.Errorf("alipay verify notification: %w", err)
 	}
+	if err := a.validateNotificationMerchant(notification.AppId, notification.SellerId); err != nil {
+		return nil, err
+	}
 
 	status := payment.ProviderStatusFailed
 	if notification.TradeStatus == alipay.TradeStatusSuccess || notification.TradeStatus == alipay.TradeStatusFinished {
@@ -207,12 +211,26 @@ func (a *Alipay) VerifyNotification(ctx context.Context, rawBody string, _ map[s
 	}
 
 	return &payment.PaymentNotification{
-		TradeNo: notification.TradeNo,
-		OrderID: notification.OutTradeNo,
-		Amount:  amount,
-		Status:  status,
-		RawData: rawBody,
+		TradeNo:     notification.TradeNo,
+		OrderID:     notification.OutTradeNo,
+		Amount:      amount,
+		ExactAmount: notification.TotalAmount,
+		Currency:    "CNY",
+		Status:      status,
+		RawData:     rawBody,
 	}, nil
+}
+
+func (a *Alipay) validateNotificationMerchant(appID, sellerID string) error {
+	if appID == "" || appID != a.config["appId"] {
+		return fmt.Errorf("alipay notification app_id does not match merchant application")
+	}
+	// sellerId is the merchant's Alipay user ID, distinct from appId. Existing
+	// installations may not have stored it; compare it only when configured.
+	if expected := a.config["sellerId"]; expected != "" && sellerID != expected {
+		return fmt.Errorf("alipay notification seller_id does not match merchant")
+	}
+	return nil
 }
 
 // Refund requests a refund through Alipay.
@@ -222,11 +240,15 @@ func (a *Alipay) Refund(ctx context.Context, req payment.RefundRequest) (*paymen
 		return nil, err
 	}
 
+	refundID := req.RefundID
+	if refundID == "" {
+		refundID = fmt.Sprintf("%s-refund-%d", req.OrderID, time.Now().UnixNano())
+	}
 	result, err := client.TradeRefund(ctx, alipay.TradeRefund{
 		OutTradeNo:   req.OrderID,
 		RefundAmount: req.Amount,
 		RefundReason: req.Reason,
-		OutRequestNo: fmt.Sprintf("%s-refund-%d", req.OrderID, time.Now().UnixNano()),
+		OutRequestNo: refundID,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("alipay TradeRefund: %w", err)
@@ -237,9 +259,11 @@ func (a *Alipay) Refund(ctx context.Context, req payment.RefundRequest) (*paymen
 		refundStatus = payment.ProviderStatusSuccess
 	}
 
-	refundID := result.TradeNo
-	if refundID == "" {
-		refundID = req.OrderID + alipayRefundSuffix
+	if req.RefundID == "" {
+		refundID = result.TradeNo
+		if refundID == "" {
+			refundID = req.OrderID + alipayRefundSuffix
+		}
 	}
 
 	return &payment.RefundResponse{
@@ -277,3 +301,28 @@ var (
 	_ payment.Provider           = (*Alipay)(nil)
 	_ payment.CancelableProvider = (*Alipay)(nil)
 )
+
+// An absent refund_status is ambiguous in Alipay's query contract. Never
+// release the central hold merely because the refund is not visible yet.
+func (a *Alipay) QueryRefundRequest(ctx context.Context, request payment.RefundRequest) (*payment.RefundResponse, error) {
+	client, err := a.getClient()
+	if err != nil {
+		return nil, err
+	}
+	result, err := client.TradeFastPayRefundQuery(ctx, alipay.TradeFastPayRefundQuery{OutTradeNo: request.OrderID, OutRequestNo: request.RefundID})
+	if err != nil {
+		return nil, err
+	}
+	if result.RefundStatus != "REFUND_SUCCESS" {
+		return nil, fmt.Errorf("alipay refund outcome unresolved")
+	}
+	got, err := payment.YuanToFen(result.RefundAmount)
+	if err != nil {
+		return nil, err
+	}
+	expected, err := payment.YuanToFen(request.Amount)
+	if err != nil || got != expected || result.OutRequestNo != request.RefundID || result.OutTradeNo != request.OrderID || result.TradeNo != request.TradeNo {
+		return nil, fmt.Errorf("alipay refund query mismatch")
+	}
+	return &payment.RefundResponse{RefundID: request.RefundID, Status: payment.ProviderStatusSuccess}, nil
+}

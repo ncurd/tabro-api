@@ -5,6 +5,8 @@ import "testing"
 func TestDefaultModels_ContainsLatestOpenAIModels(t *testing.T) {
 	want := []string{
 		"gpt-6-astra",
+		"gpt-6-sol",
+		"gpt-6-luna",
 		"gpt-5.6",
 		"gpt-5.6-sol",
 		"gpt-5.6-terra",
@@ -44,5 +46,16 @@ func TestDefaultModels_ContainsLatestOpenAIModels(t *testing.T) {
 	}
 	if latest.Created != 1788393600 || latest.DisplayName != "GPT-6 Astra" {
 		t.Fatalf("unexpected gpt-6-astra metadata: %+v", latest)
+	}
+}
+
+func TestDefaultModels_GPT6SolAndLunaMetadata(t *testing.T) {
+	for _, model := range DefaultModels {
+		if model.ID != "gpt-6-sol" && model.ID != "gpt-6-luna" {
+			continue
+		}
+		if model.Created != 1790035200 || model.OwnedBy != "openai" {
+			t.Fatalf("unexpected model metadata: %+v", model)
+		}
 	}
 }

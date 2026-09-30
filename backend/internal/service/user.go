@@ -7,15 +7,17 @@ import (
 )
 
 type User struct {
-	ID            int64
-	Email         string
-	Username      string
-	Notes         string
-	PasswordHash  string
-	Role          string
-	Balance       float64
-	Concurrency   int
-	Status        string
+	ID           int64
+	Email        string
+	Username     string
+	Notes        string
+	PasswordHash string
+	Role         string
+	Balance      float64
+	Concurrency  int
+	Status       string
+	// APIOnly blocks gateway web sessions while leaving direct model API access available.
+	APIOnly       bool
 	AllowedGroups []int64
 	TokenVersion  int64 // Incremented on password change to invalidate existing tokens
 	CreatedAt     time.Time

@@ -17,7 +17,7 @@ vi.mock('@/composables/useClipboard', () => ({
 import UseKeyModal from '../UseKeyModal.vue'
 
 describe('UseKeyModal', () => {
-  it('renders GPT-6 Astra with the expected limits and variants in OpenCode config', async () => {
+  it('renders GPT-6 Astra/Sol/Luna with the expected limits and variants in OpenCode config', async () => {
     const wrapper = mount(UseKeyModal, {
       props: {
         show: true,
@@ -67,7 +67,9 @@ describe('UseKeyModal', () => {
         max: {}
       }
     })
-    for (const model of ['gpt-5.6', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna']) {
+    for (const model of ['gpt-6-sol', 'gpt-6-luna', 'gpt-5.6', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna']) {
+      expect(config.provider.openai.models[model].limit).toEqual({ context: 1050000, output: 128000 })
+      expect(config.provider.openai.models[model].options).toEqual({ store: false })
       expect(config.provider.openai.models[model].variants).toEqual({
         none: {},
         low: {},
@@ -82,6 +84,8 @@ describe('UseKeyModal', () => {
     }
     expect(codeBlock.text()).toContain('"name": "GPT-5.4 Mini"')
     expect(codeBlock.text()).toContain('"name": "GPT-5.4 Nano"')
+    expect(codeBlock.text()).toContain('"name": "GPT-6 Sol"')
+    expect(codeBlock.text()).toContain('"name": "GPT-6 Luna"')
     expect(codeBlock.text()).toContain('"name": "GPT-5.6 Sol"')
     expect(codeBlock.text()).toContain('"name": "GPT-5.6 Terra"')
     expect(codeBlock.text()).toContain('"name": "GPT-5.6 Luna"')

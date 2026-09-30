@@ -32,6 +32,13 @@ func (s *PaymentService) getOrderProviderInstance(ctx context.Context, o *dbent.
 }
 
 func (s *PaymentService) RequestRefund(ctx context.Context, oid, uid int64, reason string) error {
+	mode, authorityErr := s.legacyPaymentAuthority(ctx, uid)
+	if authorityErr != nil {
+		return authorityErr
+	}
+	if mode != "local" && mode != "shadow" {
+		return centralPaymentFrozenError(mode)
+	}
 	o, err := s.validateRefundRequest(ctx, oid, uid)
 	if err != nil {
 		return err
@@ -86,6 +93,13 @@ func (s *PaymentService) PrepareRefund(ctx context.Context, oid int64, amt float
 	o, err := s.entClient.PaymentOrder.Get(ctx, oid)
 	if err != nil {
 		return nil, nil, infraerrors.NotFound("NOT_FOUND", "order not found")
+	}
+	mode, authorityErr := s.legacyPaymentAuthority(ctx, o.UserID)
+	if authorityErr != nil {
+		return nil, nil, authorityErr
+	}
+	if mode != "local" && mode != "shadow" {
+		return nil, nil, centralPaymentFrozenError(mode)
 	}
 	ok := []string{OrderStatusCompleted, OrderStatusRefundRequested, OrderStatusRefundFailed}
 	if !psSliceContains(ok, o.Status) {

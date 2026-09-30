@@ -88,6 +88,8 @@ func (s *MediaGenerationService) ReconcileVideoJobs(ctx context.Context) error {
 			if err == nil {
 				if job.Kind == MediaJobKindVideoGeneration {
 					updated, err = s.RefreshVideoJob(taskCtx, job, account)
+				} else if job.Kind == MediaJobKindAudioSpeech && job.Provider == MediaProviderAzureSpeech && !isCompletedMediaJob(job.Status) {
+					updated, err = s.RefreshAudioSpeechJob(taskCtx, job, account)
 				} else {
 					err = s.recordMediaUsage(taskCtx, job)
 					updated = job

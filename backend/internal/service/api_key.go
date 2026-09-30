@@ -8,10 +8,13 @@ import (
 
 // API Key status constants
 const (
-	StatusAPIKeyActive         = "active"
-	StatusAPIKeyDisabled       = "disabled"
-	StatusAPIKeyQuotaExhausted = "quota_exhausted"
-	StatusAPIKeyExpired        = "expired"
+	StatusAPIKeyActive = "active"
+	// Older gateway binaries reject this status, so an Auth-only key can never
+	// become locally billed during a rolling rollback.
+	StatusAPIKeyAuthBillingOnly = "auth_billing_only"
+	StatusAPIKeyDisabled        = "disabled"
+	StatusAPIKeyQuotaExhausted  = "quota_exhausted"
+	StatusAPIKeyExpired         = "expired"
 )
 
 // Rate limit window durations
@@ -35,10 +38,13 @@ type APIKey struct {
 	GroupID     *int64
 	Status      string
 	OIDCManaged bool
-	OIDCIssuer  string
-	OIDCSubject string
-	IPWhitelist []string
-	IPBlacklist []string
+	// AuthBillingOnly prevents this automatically provisioned identity from ever
+	// falling back to local balance billing when Auth billing is unavailable.
+	AuthBillingOnly bool
+	OIDCIssuer      string
+	OIDCSubject     string
+	IPWhitelist     []string
+	IPBlacklist     []string
 	// 预编译的 IP 规则，用于认证热路径避免重复 ParseIP/ParseCIDR。
 	CompiledIPWhitelist *ip.CompiledIPRules `json:"-"`
 	CompiledIPBlacklist *ip.CompiledIPRules `json:"-"`

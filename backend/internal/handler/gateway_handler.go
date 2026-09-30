@@ -984,6 +984,19 @@ func (h *GatewayHandler) Usage(c *gin.Context) {
 			modelStats = stats
 		}
 	}
+	if apiKey.AuthBillingOnly {
+		// Auth owns the payer and funds for this identity. The gateway can
+		// report its own usage, but its local wallet is not a balance source.
+		resp := gin.H{"mode": "auth_billing", "isValid": true, "billingAuthority": "auth"}
+		if usageData != nil {
+			resp["usage"] = usageData
+		}
+		if modelStats != nil {
+			resp["model_stats"] = modelStats
+		}
+		c.JSON(http.StatusOK, resp)
+		return
+	}
 
 	// 判断模式: key 有总额度或速率限制 → quota_limited，否则 → unrestricted
 	isQuotaLimited := apiKey.Quota > 0 || apiKey.HasRateLimits()

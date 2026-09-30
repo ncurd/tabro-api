@@ -165,20 +165,24 @@ func (e *EasyPay) QueryOrder(ctx context.Context, tradeNo string) (*payment.Quer
 		return nil, fmt.Errorf("easypay query: %w", err)
 	}
 	var resp struct {
-		Code   int    `json:"code"`
-		Msg    string `json:"msg"`
-		Status int    `json:"status"`
-		Money  string `json:"money"`
+		Code    int    `json:"code"`
+		Msg     string `json:"msg"`
+		Status  int    `json:"status"`
+		Money   string `json:"money"`
+		TradeNo string `json:"trade_no"`
 	}
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return nil, fmt.Errorf("easypay parse query: %w", err)
+	}
+	if resp.Code != easypayCodeSuccess {
+		return nil, fmt.Errorf("easypay query was not successful")
 	}
 	status := payment.ProviderStatusPending
 	if resp.Status == easypayStatusPaid {
 		status = payment.ProviderStatusPaid
 	}
 	amount, _ := strconv.ParseFloat(resp.Money, 64)
-	return &payment.QueryOrderResponse{TradeNo: tradeNo, Status: status, Amount: amount}, nil
+	return &payment.QueryOrderResponse{TradeNo: resp.TradeNo, Status: status, Amount: amount, ExactAmount: resp.Money, Currency: "CNY"}, nil
 }
 
 func (e *EasyPay) VerifyNotification(_ context.Context, rawBody string, _ map[string]string) (*payment.PaymentNotification, error) {
@@ -205,7 +209,7 @@ func (e *EasyPay) VerifyNotification(_ context.Context, rawBody string, _ map[st
 	amount, _ := strconv.ParseFloat(params["money"], 64)
 	return &payment.PaymentNotification{
 		TradeNo: params["trade_no"], OrderID: params["out_trade_no"],
-		Amount: amount, Status: status, RawData: rawBody,
+		Amount: amount, ExactAmount: params["money"], Currency: "CNY", Status: status, RawData: rawBody,
 	}, nil
 }
 

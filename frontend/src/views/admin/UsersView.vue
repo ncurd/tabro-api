@@ -292,10 +292,13 @@
             </div>
           </template>
 
-          <template #cell-role="{ value }">
-            <span :class="['badge', value === 'admin' ? 'badge-purple' : 'badge-gray']">
-              {{ t('admin.users.roles.' + value) }}
-            </span>
+          <template #cell-role="{ row }">
+            <div class="flex flex-wrap gap-1">
+              <span :class="['badge', row.role === 'admin' ? 'badge-purple' : 'badge-gray']">
+                {{ t('admin.users.roles.' + row.role) }}
+              </span>
+              <span v-if="row.api_only" class="badge badge-primary">{{ t('admin.users.apiOnlyBadge') }}</span>
+            </div>
           </template>
 
           <template #cell-groups="{ row }">

@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -78,19 +80,29 @@ func (h *PaymentWebhookHandler) handleNotify(c *gin.Context, providerKey string)
 	// This is needed when multiple instances of the same provider exist (e.g. multiple EasyPay accounts).
 	outTradeNo := extractOutTradeNo(rawBody, providerKey)
 
-	provider, err := h.paymentService.GetWebhookProvider(c.Request.Context(), providerKey, outTradeNo)
-	if err != nil {
-		slog.Warn("[Payment Webhook] provider not found", "provider", providerKey, "outTradeNo", outTradeNo, "error", err)
-		writeSuccessResponse(c, providerKey)
-		return
-	}
-
 	headers := make(map[string]string)
 	for k := range c.Request.Header {
 		headers[strings.ToLower(k)] = c.GetHeader(k)
 	}
 
-	notification, err := provider.VerifyNotification(c.Request.Context(), rawBody, headers)
+	var notification *payment.PaymentNotification
+	var err error
+	if providerKey == payment.TypeWxpay {
+		var candidates []service.WebhookProviderCandidate
+		candidates, err = h.paymentService.GetWxpayWebhookProviders(c.Request.Context())
+		if err == nil {
+			notification, err = verifyWxpayCandidates(c.Request.Context(), candidates, rawBody, headers,
+				func(orderID, instanceID string) error {
+					return h.paymentService.MatchWebhookProviderInstance(c.Request.Context(), providerKey, orderID, instanceID)
+				})
+		}
+	} else {
+		var provider payment.Provider
+		provider, err = h.paymentService.GetWebhookProvider(c.Request.Context(), providerKey, outTradeNo)
+		if err == nil {
+			notification, err = provider.VerifyNotification(c.Request.Context(), rawBody, headers)
+		}
+	}
 	if err != nil {
 		truncatedBody := rawBody
 		if len(truncatedBody) > webhookLogTruncateLen {
@@ -117,11 +129,32 @@ func (h *PaymentWebhookHandler) handleNotify(c *gin.Context, providerKey string)
 	writeSuccessResponse(c, providerKey)
 }
 
+// The order reference is encrypted in a WeChat callback. Try each configured
+// merchant's official signature verifier and API v3 decryptor, then bind the
+// verified order back to the exact merchant instance frozen at checkout.
+func verifyWxpayCandidates(ctx context.Context, candidates []service.WebhookProviderCandidate, rawBody string,
+	headers map[string]string, match func(orderID, instanceID string) error) (*payment.PaymentNotification, error) {
+	for _, candidate := range candidates {
+		notification, err := candidate.Provider.VerifyNotification(ctx, rawBody, headers)
+		if err != nil {
+			continue
+		}
+		if notification == nil {
+			return nil, nil // Authenticated non-payment event.
+		}
+		if err := match(notification.OrderID, candidate.InstanceID); err != nil {
+			return nil, fmt.Errorf("wxpay verified merchant does not own order: %w", err)
+		}
+		return notification, nil
+	}
+	return nil, fmt.Errorf("no configured wxpay merchant verified the notification")
+}
+
 // extractOutTradeNo parses the webhook body to find the out_trade_no.
 // This allows looking up the correct provider instance before verification.
 func extractOutTradeNo(rawBody, providerKey string) string {
 	switch providerKey {
-	case payment.TypeEasyPay:
+	case payment.TypeEasyPay, payment.TypeAlipay:
 		values, err := url.ParseQuery(rawBody)
 		if err == nil {
 			return values.Get("out_trade_no")
@@ -132,30 +165,18 @@ func extractOutTradeNo(rawBody, providerKey string) string {
 		}
 		return gjson.Get(rawBody, "data.object.client_reference_id").String()
 	}
-	// For other providers (Stripe, Alipay direct, WxPay direct), the registry
-	// typically has only one instance, so no instance lookup is needed.
+	// WeChat's out_trade_no is inside the signed, encrypted resource.
 	return ""
 }
 
-// wxpaySuccessResponse is the JSON response expected by WeChat Pay webhook.
-type wxpaySuccessResponse struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-}
-
-// WeChat Pay webhook success response constants.
-const (
-	wxpaySuccessCode    = "SUCCESS"
-	wxpaySuccessMessage = "成功"
-)
-
 // writeSuccessResponse sends the provider-specific success response.
-// WeChat Pay requires JSON {"code":"SUCCESS","message":"成功"};
+// WeChat Pay accepts an empty HTTP 204 response;
 // Stripe expects an empty 200; others accept plain text "success".
 func writeSuccessResponse(c *gin.Context, providerKey string) {
 	switch providerKey {
 	case payment.TypeWxpay:
-		c.JSON(http.StatusOK, wxpaySuccessResponse{Code: wxpaySuccessCode, Message: wxpaySuccessMessage})
+		c.Status(http.StatusNoContent)
+		c.Writer.WriteHeaderNow()
 	case payment.TypeStripe:
 		c.String(http.StatusOK, "")
 	default:

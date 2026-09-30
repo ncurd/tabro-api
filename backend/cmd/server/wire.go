@@ -98,6 +98,8 @@ func provideCleanup(
 	backupSvc *service.BackupService,
 	paymentOrderExpiry *service.PaymentOrderExpiryService,
 	mediaGeneration *service.MediaGenerationService,
+	gatewayBilling *service.GatewayBillingCoordinator,
+	centralPayments *service.PaymentService,
 ) func() {
 	return func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -112,6 +114,12 @@ func provideCleanup(
 		// Drain media work before stopping its billing dependencies.
 		if mediaGeneration != nil {
 			mediaGeneration.Stop()
+		}
+		if gatewayBilling != nil {
+			gatewayBilling.Stop()
+		}
+		if centralPayments != nil {
+			centralPayments.Stop()
 		}
 		parallelSteps := []cleanupStep{
 			{"OpsScheduledReportService", func() error {

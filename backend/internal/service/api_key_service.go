@@ -90,6 +90,12 @@ type oidcGatewayIdentityRepository interface {
 	BindOIDCIdentity(ctx context.Context, id int64, issuer, subject string) error
 }
 
+// This repository operation creates the technical user and bound key in one
+// transaction. The external identity is never resolved through email.
+type oidcGatewayAutoProvisionRepository interface {
+	AutoProvisionOIDCGatewayIdentity(ctx context.Context, issuer, subject, keyValue string) (*APIKey, error)
+}
+
 // APIKeyRateLimitData holds rate limit usage and window state for an API key.
 type APIKeyRateLimitData struct {
 	Usage5h       float64
@@ -204,6 +210,8 @@ type RateLimitCacheInvalidator interface {
 }
 
 type APIKeyService struct {
+	// GatewayBilling is configured once at bootstrap and never mutated at runtime.
+	GatewayBilling        *GatewayBillingCoordinator
 	apiKeyRepo            APIKeyRepository
 	userRepo              UserRepository
 	groupRepo             GroupRepository
@@ -216,6 +224,7 @@ type APIKeyService struct {
 	authCfg               apiKeyAuthCacheConfig
 	authGroup             singleflight.Group
 	oidcGatewayKeyGroup   singleflight.Group
+	oidcIdentityGroup     singleflight.Group
 	lastUsedTouchL1       sync.Map // keyID -> nextAllowedAt(time.Time)
 	lastUsedTouchSF       singleflight.Group
 }

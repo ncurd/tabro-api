@@ -50,6 +50,9 @@ func (APIKey) Fields() []ent.Field {
 		field.Bool("oidc_managed").
 			Default(false).
 			Comment("Internal billing identity for signed OIDC access tokens"),
+		field.Bool("auth_billing_only").
+			Default(false).
+			Comment("Automatically provisioned OIDC identity; Auth is the only billing authority"),
 		field.String("oidc_issuer").
 			MaxLen(512).
 			Optional().

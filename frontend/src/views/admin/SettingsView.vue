@@ -16,7 +16,7 @@
               :key="tab.key"
               type="button"
               :class="['settings-tab', activeTab === tab.key && 'settings-tab-active']"
-              @click="activeTab = tab.key"
+              @click="selectSettingsTab(tab.key)"
             >
               <span class="settings-tab-icon">
                 <Icon :name="tab.icon" size="sm" />
@@ -1146,6 +1146,21 @@
                 </p>
               </div>
               <Toggle v-model="form.oidc_connect_enabled" />
+            </div>
+
+            <div class="flex items-center justify-between gap-4 border-t border-gray-100 pt-4 dark:border-dark-700">
+              <div>
+                <label class="font-medium text-gray-900 dark:text-white">{{ t('admin.settings.oidc.onlyEnabled') }}</label>
+                <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('admin.settings.oidc.onlyEnabledHint') }}</p>
+                <p v-if="!oidcOnlyCanEnable && !form.oidc_only_enabled" class="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                  {{ t('admin.settings.oidc.onlyPrerequisite') }}
+                </p>
+              </div>
+              <Toggle
+                v-model="form.oidc_only_enabled"
+                data-testid="oidc-only-toggle"
+                :disabled="!form.oidc_only_enabled && !oidcOnlyCanEnable"
+              />
             </div>
 
             <div
@@ -2363,8 +2378,14 @@
         </div><!-- /Tab: General -->
 
         <!-- Tab: Email -->
-<!-- Tab: Payment -->
-        <div v-show="activeTab === 'payment'" class="space-y-6">
+        <div v-if="activeTab === 'payment'" class="card p-6" role="status">
+          <h2 class="text-lg font-semibold text-gray-900 dark:text-white">{{ t('purchase.notConfiguredTitle') }}</h2>
+          <p class="mt-2 text-sm text-gray-600 dark:text-gray-300">{{ t('purchase.notConfiguredDesc') }}</p>
+          <RouterLink to="/admin/orders" class="btn btn-secondary mt-4 inline-flex">{{ t('nav.orderManagement') }}</RouterLink>
+        </div>
+
+<!-- Historical payment controls remain in source for reconciliation, but are not rendered for new configuration. -->
+        <div v-if="legacyPaymentSettingsVisible" class="space-y-6">
 
         <!-- Payment System Settings -->
         <div class="card">
@@ -2835,7 +2856,7 @@
         </div>
 
         <!-- Save Button -->
-        <div v-show="activeTab !== 'backup'" class="flex justify-end">
+        <div v-show="activeTab !== 'backup' && activeTab !== 'payment'" class="flex justify-end">
           <button type="submit" :disabled="saving || loadFailed" class="btn btn-primary">
             <svg v-if="saving" class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
               <circle
@@ -2859,6 +2880,7 @@
 
       <!-- Provider dialogs placed outside the settings form to prevent form submission bubbling -->
       <PaymentProviderDialog
+        v-if="legacyPaymentSettingsVisible"
         ref="providerDialogRef"
         :show="showProviderDialog"
         :saving="providerSaving"
@@ -2870,7 +2892,7 @@
         @close="showProviderDialog = false"
         @save="handleSaveProvider"
       />
-      <ConfirmDialog :show="showDeleteProviderDialog" :title="t('admin.settings.payment.deleteProvider')" :message="t('admin.settings.payment.deleteProviderConfirm')" :confirm-text="t('common.delete')" danger @confirm="handleDeleteProvider" @cancel="showDeleteProviderDialog = false" />
+      <ConfirmDialog v-if="legacyPaymentSettingsVisible" :show="showDeleteProviderDialog" :title="t('admin.settings.payment.deleteProvider')" :message="t('admin.settings.payment.deleteProviderConfirm')" :confirm-text="t('common.delete')" danger @confirm="handleDeleteProvider" @cancel="showDeleteProviderDialog = false" />
     </div>
   </AppLayout>
 </template>
@@ -2878,6 +2900,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute } from 'vue-router'
 import { adminAPI } from '@/api'
 import type {
   SystemSettings,
@@ -2906,6 +2929,7 @@ import { availableLocales, setLocale } from '@/i18n'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { useAppStore } from '@/stores'
 import { useAdminSettingsStore } from '@/stores/adminSettings'
+import { adminPaymentConfigurationDestination } from '@/router/paymentMigration'
 import {
   isRegistrationEmailSuffixDomainValid,
   normalizeRegistrationEmailSuffixDomain,
@@ -2916,9 +2940,11 @@ import {
 const { t, locale } = useI18n()
 const appStore = useAppStore()
 const adminSettingsStore = useAdminSettingsStore()
+const route = useRoute()
 
 type SettingsTab = 'general' | 'security' | 'users' | 'gateway' | 'payment' | 'email' | 'backup'
-const activeTab = ref<SettingsTab>('general')
+const activeTab = ref<SettingsTab>(route.query.tab === 'payment' ? 'payment' : 'general')
+const legacyPaymentSettingsVisible = false
 const settingsTabs = [
   { key: 'general'  as SettingsTab, icon: 'home'   as const },
   { key: 'security' as SettingsTab, icon: 'shield' as const },
@@ -2928,6 +2954,16 @@ const settingsTabs = [
   { key: 'email'    as SettingsTab, icon: 'mail'   as const },
   { key: 'backup'   as SettingsTab, icon: 'database' as const },
 ]
+function selectSettingsTab(tab: SettingsTab): void {
+  if (tab === 'payment') {
+    const destination = adminPaymentConfigurationDestination('/admin/settings', appStore.cachedPublicSettings, tab)
+    if (destination) {
+      window.location.replace(destination)
+      return
+    }
+  }
+  activeTab.value = tab
+}
 const { copyToClipboard } = useClipboard()
 const interfaceLanguageOptions = availableLocales
 const interfaceLanguageChanging = ref(false)
@@ -3079,6 +3115,7 @@ const form = reactive<SettingsForm>({
   linuxdo_connect_redirect_url: '',
   // Generic OIDC OAuth 登录
   oidc_connect_enabled: false,
+  oidc_only_enabled: false,
   oidc_connect_provider_name: 'OIDC',
   oidc_connect_client_id: '',
   oidc_connect_client_secret: '',
@@ -3510,11 +3547,26 @@ async function handleInterfaceLanguageChange(event: Event) {
   }
 }
 
+const oidcOnlyCanEnable = ref(false)
+
+function hasSavedOIDCConfiguration(settings: SystemSettings): boolean {
+  const requiredFields = [
+    settings.oidc_connect_client_id,
+    settings.oidc_connect_issuer_url,
+    settings.oidc_connect_redirect_url,
+    settings.oidc_connect_frontend_redirect_url
+  ]
+  return settings.oidc_connect_enabled === true
+    && requiredFields.every((field) => typeof field === 'string' && field.trim().length > 0)
+    && (settings.oidc_connect_token_auth_method === 'none' || settings.oidc_connect_client_secret_configured === true)
+}
+
 async function loadSettings() {
   loading.value = true
   loadFailed.value = false
   try {
     const settings = await adminAPI.settings.getSettings()
+    oidcOnlyCanEnable.value = hasSavedOIDCConfiguration(settings)
     settings.payment_load_balance_strategy = settings.payment_load_balance_strategy || 'round-robin'
     // Only assign non-null values from backend (null means unconfigured, keep defaults)
     for (const [key, value] of Object.entries(settings)) {
@@ -3586,6 +3638,10 @@ function removeDefaultSubscription(index: number) {
 async function saveSettings() {
   saving.value = true
   try {
+    if (form.oidc_only_enabled && !form.oidc_connect_enabled) {
+      appStore.showError(t('admin.settings.oidc.onlyRequiresOIDC'))
+      return
+    }
     const normalizedTableDefaultPageSize = Math.floor(Number(form.table_default_page_size))
     if (
       !Number.isInteger(normalizedTableDefaultPageSize) ||
@@ -3699,6 +3755,7 @@ async function saveSettings() {
       linuxdo_connect_client_secret: form.linuxdo_connect_client_secret || undefined,
       linuxdo_connect_redirect_url: form.linuxdo_connect_redirect_url,
       oidc_connect_enabled: form.oidc_connect_enabled,
+      oidc_only_enabled: form.oidc_only_enabled,
       oidc_connect_provider_name: form.oidc_connect_provider_name,
       oidc_connect_client_id: form.oidc_connect_client_id,
       oidc_connect_client_secret: form.oidc_connect_client_secret || undefined,
@@ -3733,27 +3790,6 @@ async function saveSettings() {
       enable_fingerprint_unification: form.enable_fingerprint_unification,
       enable_metadata_passthrough: form.enable_metadata_passthrough,
       enable_cch_signing: form.enable_cch_signing,
-      // Payment configuration
-      payment_enabled: form.payment_enabled,
-      payment_min_amount: Number(form.payment_min_amount) || 0,
-      payment_max_amount: Number(form.payment_max_amount) || 0,
-      payment_daily_limit: Number(form.payment_daily_limit) || 0,
-      payment_max_pending_orders: Number(form.payment_max_pending_orders) || 0,
-      payment_order_timeout_minutes: Number(form.payment_order_timeout_minutes) || 0,
-      payment_balance_disabled: form.payment_balance_disabled,
-      payment_balance_recharge_multiplier: Number(form.payment_balance_recharge_multiplier) || 1,
-      payment_recharge_fee_rate: Number(form.payment_recharge_fee_rate) || 0,
-      payment_enabled_types: form.payment_enabled_types,
-      payment_load_balance_strategy: form.payment_load_balance_strategy,
-      payment_product_name_prefix: form.payment_product_name_prefix,
-      payment_product_name_suffix: form.payment_product_name_suffix,
-      payment_help_image_url: form.payment_help_image_url,
-      payment_help_text: form.payment_help_text,
-      payment_cancel_rate_limit_enabled: form.payment_cancel_rate_limit_enabled,
-      payment_cancel_rate_limit_max: Number(form.payment_cancel_rate_limit_max) || 10,
-      payment_cancel_rate_limit_window: Number(form.payment_cancel_rate_limit_window) || 1,
-      payment_cancel_rate_limit_unit: form.payment_cancel_rate_limit_unit,
-      payment_cancel_rate_limit_window_mode: form.payment_cancel_rate_limit_window_mode,
       // Balance & quota notification
       balance_low_notify_enabled: form.balance_low_notify_enabled,
       balance_low_notify_threshold: Number(form.balance_low_notify_threshold) || 0,
@@ -3764,6 +3800,7 @@ async function saveSettings() {
     }
 
     const updated = await adminAPI.settings.updateSettings(payload)
+    oidcOnlyCanEnable.value = hasSavedOIDCConfiguration(updated)
     for (const [key, value] of Object.entries(updated)) {
       if (value !== null && value !== undefined) {
         (form as Record<string, unknown>)[key] = value
@@ -3793,7 +3830,15 @@ async function saveSettings() {
       appStore.showSuccess(t('admin.settings.settingsSaved'))
     }
   } catch (error: unknown) {
-    appStore.showError(extractApiErrorMessage(error, t('admin.settings.failedToSave')))
+    const reason = error && typeof error === 'object' && 'reason' in error
+      ? String(error.reason)
+      : ''
+    const oidcOnlyErrors: Record<string, string> = {
+      OIDC_ADMIN_SESSION_REQUIRED: t('admin.settings.oidc.onlyAdminSessionRequired'),
+      OIDC_CONFIG_CHANGE_REQUIRES_MODE_OFF: t('admin.settings.oidc.onlyConfigChangeRequiresModeOff'),
+      OIDC_REQUIRED_FOR_ONLY_MODE: t('admin.settings.oidc.onlyRequiresOIDC')
+    }
+    appStore.showError(oidcOnlyErrors[reason] || extractApiErrorMessage(error, t('admin.settings.failedToSave')))
   } finally {
     saving.value = false
   }
@@ -4307,7 +4352,6 @@ onMounted(() => {
   loadStreamTimeoutSettings()
   loadRectifierSettings()
   loadBetaPolicySettings()
-  loadProviders()
 })
 </script>
 

@@ -33,6 +33,8 @@ const (
 	FieldStatus = "status"
 	// FieldOidcManaged holds the string denoting the oidc_managed field in the database.
 	FieldOidcManaged = "oidc_managed"
+	// FieldAuthBillingOnly holds the string denoting the auth_billing_only field in the database.
+	FieldAuthBillingOnly = "auth_billing_only"
 	// FieldOidcIssuer holds the string denoting the oidc_issuer field in the database.
 	FieldOidcIssuer = "oidc_issuer"
 	// FieldOidcSubject holds the string denoting the oidc_subject field in the database.
@@ -110,6 +112,7 @@ var Columns = []string{
 	FieldGroupID,
 	FieldStatus,
 	FieldOidcManaged,
+	FieldAuthBillingOnly,
 	FieldOidcIssuer,
 	FieldOidcSubject,
 	FieldLastUsedAt,
@@ -163,6 +166,8 @@ var (
 	StatusValidator func(string) error
 	// DefaultOidcManaged holds the default value on creation for the "oidc_managed" field.
 	DefaultOidcManaged bool
+	// DefaultAuthBillingOnly holds the default value on creation for the "auth_billing_only" field.
+	DefaultAuthBillingOnly bool
 	// OidcIssuerValidator is a validator for the "oidc_issuer" field. It is called by the builders before save.
 	OidcIssuerValidator func(string) error
 	// OidcSubjectValidator is a validator for the "oidc_subject" field. It is called by the builders before save.
@@ -236,6 +241,11 @@ func ByStatus(opts ...sql.OrderTermOption) OrderOption {
 // ByOidcManaged orders the results by the oidc_managed field.
 func ByOidcManaged(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldOidcManaged, opts...).ToFunc()
+}
+
+// ByAuthBillingOnly orders the results by the auth_billing_only field.
+func ByAuthBillingOnly(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAuthBillingOnly, opts...).ToFunc()
 }
 
 // ByOidcIssuer orders the results by the oidc_issuer field.

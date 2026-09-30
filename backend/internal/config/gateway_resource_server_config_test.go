@@ -18,6 +18,7 @@ func TestLoadGatewayResourceServerDefaults(t *testing.T) {
 	require.NoError(t, err)
 	rs := cfg.Gateway.ResourceServer
 	require.False(t, rs.Enabled)
+	require.False(t, rs.AutoProvision)
 	require.Equal(t, "tabro-llm", rs.Audience)
 	require.Equal(t, "llm.invoke", rs.RequiredScopes)
 	require.Empty(t, rs.AllowedClientIDs)
@@ -39,6 +40,7 @@ func TestLoadGatewayResourceServerFromYAML(t *testing.T) {
 gateway:
   resource_server:
     enabled: true
+    auto_provision: false
     issuer_url: "https://identity.example.com/realms/production"
     discovery_url: "https://identity.example.com/.well-known/openid-configuration"
     jwks_url: "https://identity.example.com/oauth2/jwks"
@@ -63,6 +65,7 @@ gateway:
 
 	rs := cfg.Gateway.ResourceServer
 	require.True(t, rs.Enabled)
+	require.False(t, rs.AutoProvision)
 	require.Equal(t, "https://identity.example.com/realms/production", rs.IssuerURL)
 	require.Equal(t, "https://identity.example.com/.well-known/openid-configuration", rs.DiscoveryURL)
 	require.Equal(t, "https://identity.example.com/oauth2/jwks", rs.JWKSURL)
@@ -98,6 +101,7 @@ func TestDeployConfigExampleContainsCompleteFailClosedResourceServerPolicy(t *te
 
 	keys := []string{
 		"enabled",
+		"auto_provision",
 		"issuer_url",
 		"discovery_url",
 		"jwks_url",
@@ -121,6 +125,7 @@ func TestDeployConfigExampleContainsCompleteFailClosedResourceServerPolicy(t *te
 	var rs GatewayResourceServerConfig
 	require.NoError(t, example.UnmarshalKey("gateway.resource_server", &rs))
 	require.False(t, rs.Enabled)
+	require.False(t, rs.AutoProvision)
 	require.Empty(t, rs.IssuerURL)
 	require.Empty(t, rs.AllowedClientIDs)
 	require.True(t, rs.TokenExchange.RequireActor)
@@ -156,6 +161,36 @@ func TestValidateGatewayResourceServerConfig(t *testing.T) {
 
 	t.Run("valid", func(t *testing.T) {
 		require.NoError(t, newValidConfig(t).Validate())
+	})
+	t.Run("automatic provisioning requires resource server", func(t *testing.T) {
+		cfg := newValidConfig(t)
+		cfg.Gateway.ResourceServer.Enabled = false
+		cfg.Gateway.ResourceServer.AutoProvision = true
+		require.ErrorContains(t, cfg.Validate(), "auto_provision requires resource_server.enabled=true")
+	})
+	t.Run("automatic provisioning requires central billing", func(t *testing.T) {
+		cfg := newValidConfig(t)
+		cfg.Gateway.ResourceServer.AutoProvision = true
+		require.ErrorContains(t, cfg.Validate(), "auto_provision requires billing_center.enabled=true")
+	})
+	t.Run("automatic provisioning with central billing", func(t *testing.T) {
+		cfg := newValidConfig(t)
+		cfg.Gateway.ResourceServer.AutoProvision = true
+		cfg.BillingCenter = BillingCenterConfig{Enabled: true, BaseURL: "https://auth.example", TokenURL: "https://auth.example/connect/token", ProducerClientID: "gateway-billing", ClientSecret: "test-only", TimeoutSeconds: 15}
+		cfg.Gateway.ResourceServer.RequireTenant = true
+		cfg.Gateway.ResourceServer.TokenExchange.RequireActor = true
+		cfg.Gateway.ResourceServer.TokenExchange.MaxDelegationDepth = 1
+		require.NoError(t, cfg.Validate())
+	})
+	t.Run("automatic provisioning requires tenant and single actor", func(t *testing.T) {
+		cfg := newValidConfig(t)
+		cfg.Gateway.ResourceServer.AutoProvision = true
+		cfg.BillingCenter = BillingCenterConfig{Enabled: true, BaseURL: "https://auth.example", TokenURL: "https://auth.example/connect/token", ProducerClientID: "gateway-billing", ClientSecret: "test-only", TimeoutSeconds: 15}
+		require.ErrorContains(t, cfg.Validate(), "require_tenant=true")
+		cfg.Gateway.ResourceServer.RequireTenant = true
+		require.ErrorContains(t, cfg.Validate(), "token_exchange.require_actor=true")
+		cfg.Gateway.ResourceServer.TokenExchange.RequireActor = true
+		require.ErrorContains(t, cfg.Validate(), "token_exchange.max_delegation_depth=1")
 	})
 
 	tests := []struct {

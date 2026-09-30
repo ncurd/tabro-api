@@ -42,6 +42,30 @@ func TestAdminService_CreateUser_Success(t *testing.T) {
 	require.Equal(t, user, repo.created[0])
 }
 
+func TestAdminService_CreateUser_APIOnlyHasUnreturnedPassword(t *testing.T) {
+	repo := &userRepoStub{nextID: 11}
+	svc := &adminServiceImpl{userRepo: repo}
+
+	user, err := svc.CreateUser(context.Background(), &CreateUserInput{
+		Email: "api-only@test.com", APIOnly: true, Password: "known-password",
+	})
+	require.NoError(t, err)
+	require.True(t, user.APIOnly)
+	require.Equal(t, StatusActive, user.Status)
+	require.NotEmpty(t, user.PasswordHash)
+	require.False(t, user.CheckPassword("known-password"))
+	require.Len(t, repo.created, 1)
+}
+
+func TestAdminService_CreateUser_RequiresPasswordForWebLogin(t *testing.T) {
+	repo := &userRepoStub{}
+	svc := &adminServiceImpl{userRepo: repo}
+
+	_, err := svc.CreateUser(context.Background(), &CreateUserInput{Email: "web@test.com"})
+	require.Error(t, err)
+	require.Empty(t, repo.created)
+}
+
 func TestAdminService_CreateUser_EmailExists(t *testing.T) {
 	repo := &userRepoStub{createErr: ErrEmailExists}
 	svc := &adminServiceImpl{userRepo: repo}

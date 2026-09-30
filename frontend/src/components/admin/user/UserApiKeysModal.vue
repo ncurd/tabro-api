@@ -7,6 +7,28 @@
         </div>
         <div><p class="font-medium text-gray-900 dark:text-white">{{ user.email }}</p><p class="text-sm text-gray-500 dark:text-dark-400">{{ user.username }}</p></div>
       </div>
+      <form v-if="user.role !== 'admin'" class="space-y-3 rounded-xl border border-gray-200 p-4 dark:border-dark-600" @submit.prevent="provisionOIDCIdentity">
+        <div>
+          <h3 class="font-medium text-gray-900 dark:text-white">{{ t('admin.users.provisionOIDCIdentity') }}</h3>
+          <p class="mt-1 text-sm text-gray-500 dark:text-dark-400">{{ t('admin.users.provisionOIDCIdentityHint') }}</p>
+          <p v-if="oidcGatewayKey" class="mt-1 text-sm text-primary-600 dark:text-primary-400">
+            {{ t('admin.users.oidcGatewayKeyPresent', { id: oidcGatewayKey.id }) }}
+          </p>
+        </div>
+        <div class="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label class="input-label" for="oidc-identity-issuer">{{ t('admin.users.oidcIssuer') }}</label>
+            <input id="oidc-identity-issuer" v-model.trim="oidcIdentity.issuer" type="url" required class="input" :placeholder="t('admin.users.oidcIssuerPlaceholder')" />
+          </div>
+          <div>
+            <label class="input-label" for="oidc-identity-subject">{{ t('admin.users.oidcSubject') }}</label>
+            <input id="oidc-identity-subject" v-model.trim="oidcIdentity.subject" type="text" required class="input" :placeholder="t('admin.users.oidcSubjectPlaceholder')" />
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary" :disabled="provisioning">
+          {{ provisioning ? t('admin.users.provisioningOIDCIdentity') : t('admin.users.provisionOIDCIdentityAction') }}
+        </button>
+      </form>
       <div v-if="loading" class="flex justify-center py-8"><svg class="h-8 w-8 animate-spin text-primary-500" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg></div>
       <div v-else-if="apiKeys.length === 0" class="py-8 text-center"><p class="text-sm text-gray-500">{{ t('admin.users.noApiKeys') }}</p></div>
       <div v-else ref="scrollContainerRef" class="max-h-96 space-y-3 overflow-y-auto" @scroll="closeGroupSelector">
@@ -119,6 +141,8 @@ const appStore = useAppStore()
 const apiKeys = ref<ApiKey[]>([])
 const allGroups = ref<AdminGroup[]>([])
 const loading = ref(false)
+const provisioning = ref(false)
+const oidcIdentity = ref({ issuer: '', subject: '' })
 const updatingKeyIds = ref(new Set<number>())
 const groupSelectorKeyId = ref<number | null>(null)
 const dropdownPosition = ref<{ top: number; left: number } | null>(null)
@@ -130,6 +154,7 @@ const selectedKeyForGroup = computed(() => {
   if (groupSelectorKeyId.value === null) return null
   return apiKeys.value.find((k) => k.id === groupSelectorKeyId.value) || null
 })
+const oidcGatewayKey = computed(() => apiKeys.value.find((key) => key.oidc_managed))
 
 const setGroupButtonRef = (keyId: number, el: Element | ComponentPublicInstance | null) => {
   if (el instanceof HTMLElement) {
@@ -141,6 +166,7 @@ const setGroupButtonRef = (keyId: number, el: Element | ComponentPublicInstance 
 
 watch(() => props.show, (v) => {
   if (v && props.user) {
+    oidcIdentity.value = { issuer: '', subject: '' }
     load()
     loadGroups()
   } else {
@@ -159,6 +185,23 @@ const load = async () => {
     console.error('Failed to load API keys:', error)
   } finally {
     loading.value = false
+  }
+}
+
+const provisionOIDCIdentity = async () => {
+  if (!props.user || provisioning.value) return
+  provisioning.value = true
+  try {
+    await adminAPI.apiKeys.provisionOIDCGatewayIdentity(props.user.id, {
+      issuer: oidcIdentity.value.issuer,
+      subject: oidcIdentity.value.subject
+    })
+    await load()
+    appStore.showSuccess(t('admin.users.oidcIdentityProvisioned'))
+  } catch (error: any) {
+    appStore.showError(error?.response?.data?.detail || error?.response?.data?.message || t('admin.users.oidcIdentityProvisionFailed'))
+  } finally {
+    provisioning.value = false
   }
 }
 
