@@ -17,7 +17,7 @@ vi.mock('@/composables/useClipboard', () => ({
 import UseKeyModal from '../UseKeyModal.vue'
 
 describe('UseKeyModal', () => {
-  it('renders GPT-6 Astra/Sol/Luna with the expected limits and variants in OpenCode config', async () => {
+  it('renders GPT-6.1 Sol and GPT-6 Astra/Sol/Luna with the expected limits and variants in OpenCode config', async () => {
     const wrapper = mount(UseKeyModal, {
       props: {
         show: true,
@@ -50,6 +50,23 @@ describe('UseKeyModal', () => {
     const codeBlock = wrapper.find('pre code')
     expect(codeBlock.exists()).toBe(true)
     const config = JSON.parse(codeBlock.text())
+    expect(config.provider.openai.models['gpt-6.1-sol']).toEqual({
+      name: 'GPT-6.1 Sol',
+      limit: {
+        context: 1050000,
+        output: 128000
+      },
+      options: {
+        store: false
+      },
+      variants: {
+        low: {},
+        medium: {},
+        high: {},
+        xhigh: {},
+        max: {}
+      }
+    })
     expect(config.provider.openai.models['gpt-6-astra']).toEqual({
       name: 'GPT-6 Astra',
       limit: {

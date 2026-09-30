@@ -304,6 +304,19 @@ func (s *BillingService) initFallbackPricing() {
 		LongContextInputMultiplier:         openAIGPTLongContextInputMultiplier,
 		LongContextOutputMultiplier:        openAIGPTLongContextOutputMultiplier,
 	}
+	s.fallbackPrices["gpt-6.1-sol"] = &ModelPricing{
+		InputPricePerToken:                 2e-6,   // $2 per MTok
+		InputPricePerTokenPriority:         4e-6,   // $4 per MTok
+		OutputPricePerToken:                10e-6,  // $10 per MTok
+		OutputPricePerTokenPriority:        20e-6,  // $20 per MTok
+		CacheCreationPricePerToken:         2.5e-6, // $2.50 per MTok
+		CacheCreationPricePerTokenPriority: 5e-6,   // $5 per MTok
+		CacheReadPricePerToken:             0.1e-6, // $0.10 per MTok
+		CacheReadPricePerTokenPriority:     0.2e-6, // $0.20 per MTok
+		LongContextInputThreshold:          openAIGPTLongContextInputThreshold,
+		LongContextInputMultiplier:         openAIGPTLongContextInputMultiplier,
+		LongContextOutputMultiplier:        openAIGPTLongContextOutputMultiplier,
+	}
 	s.fallbackPrices["gpt-6-luna"] = &ModelPricing{
 		InputPricePerToken:                 0.1e-6,
 		InputPricePerTokenPriority:         2e-07,
@@ -476,13 +489,13 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	}
 
 	// OpenAI 仅匹配已知 GPT/Codex 族，避免未知 OpenAI 型号误计价。
-	if strings.Contains(modelLower, "gpt-6-astra") || strings.Contains(modelLower, "gpt-6-sol") || strings.Contains(modelLower, "gpt-6-luna") || strings.Contains(modelLower, "gpt-5") || strings.Contains(modelLower, "codex") {
+	if strings.Contains(modelLower, "gpt-6-astra") || strings.Contains(modelLower, "gpt-6.1-sol") || strings.Contains(modelLower, "gpt-6-sol") || strings.Contains(modelLower, "gpt-6-luna") || strings.Contains(modelLower, "gpt-5") || strings.Contains(modelLower, "codex") {
 		if strings.TrimSpace(modelLower) == "gpt-5.1" {
 			return s.fallbackPrices["gpt-5.1"]
 		}
 		normalized := normalizeCodexModel(modelLower)
 		switch normalized {
-		case "gpt-6-astra", "gpt-6-sol", "gpt-6-luna":
+		case "gpt-6-astra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna":
 			return s.fallbackPrices[normalized]
 		case "gpt-5.6-luna":
 			return s.fallbackPrices["gpt-5.6-luna"]
@@ -851,7 +864,7 @@ func (s *BillingService) shouldApplySessionLongContextPricing(tokens UsageTokens
 
 func isOpenAIGPTLongContextModel(model string) bool {
 	normalized := normalizeCodexModel(strings.TrimSpace(strings.ToLower(model)))
-	return normalized == "gpt-6-astra" || normalized == "gpt-6-sol" || normalized == "gpt-6-luna" || normalized == "gpt-5.4" || strings.HasPrefix(normalized, "gpt-5.6")
+	return normalized == "gpt-6-astra" || normalized == "gpt-6.1-sol" || normalized == "gpt-6-sol" || normalized == "gpt-6-luna" || normalized == "gpt-5.4" || strings.HasPrefix(normalized, "gpt-5.6")
 }
 
 // CalculateCostWithConfig 使用配置中的默认倍率计算费用

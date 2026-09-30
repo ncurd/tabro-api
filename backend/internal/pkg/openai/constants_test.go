@@ -4,6 +4,7 @@ import "testing"
 
 func TestDefaultModels_ContainsLatestOpenAIModels(t *testing.T) {
 	want := []string{
+		"gpt-6.1-sol",
 		"gpt-6-astra",
 		"gpt-6-sol",
 		"gpt-6-luna",
@@ -41,11 +42,11 @@ func TestDefaultModels_ContainsLatestOpenAIModels(t *testing.T) {
 	}
 
 	latest := DefaultModels[0]
-	if latest.ID != "gpt-6-astra" {
-		t.Fatalf("expected gpt-6-astra to be the first default model, got %q", latest.ID)
+	if latest.ID != "gpt-6.1-sol" {
+		t.Fatalf("expected gpt-6.1-sol to be the first default model, got %q", latest.ID)
 	}
-	if latest.Created != 1788393600 || latest.DisplayName != "GPT-6 Astra" {
-		t.Fatalf("unexpected gpt-6-astra metadata: %+v", latest)
+	if latest.Created != 1790640000 || latest.DisplayName != "GPT-6.1 Sol" || latest.OwnedBy != "openai" {
+		t.Fatalf("unexpected gpt-6.1-sol metadata: %+v", latest)
 	}
 }
 

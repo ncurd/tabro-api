@@ -329,6 +329,7 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 		{name: "gemini unknown no fallback", model: "gemini-2.0-pro", expectNilPricing: true},
 		{name: "openai gpt5.1", model: "gpt-5.1", expectedInput: 1.25e-6},
 		{name: "openai gpt6 astra", model: "gpt-6-astra-max", expectedInput: 10e-6},
+		{name: "openai gpt6.1 sol", model: "gpt-6.1-sol-high", expectedInput: 2e-6},
 		{name: "openai gpt5.6", model: "gpt-5.6", expectedInput: 4e-6},
 		{name: "openai gpt5.6 sol", model: "gpt-5.6-sol-high", expectedInput: 4e-6},
 		{name: "openai gpt5.6 terra", model: "gpt-5.6-terra", expectedInput: 2e-6},
@@ -635,6 +636,20 @@ func TestCalculateCostWithServiceTier_OpenAIFastUsesPriorityPricing(t *testing.T
 	require.NoError(t, err)
 
 	require.InDelta(t, priorityCost.TotalCost, fastCost.TotalCost, 1e-10)
+}
+
+func TestCalculateCost_GPT61SolUsesIndependentCachePrice(t *testing.T) {
+	svc := newTestBillingService()
+	tokens := UsageTokens{InputTokens: 100, OutputTokens: 50, CacheReadTokens: 1000}
+	newCost, err := svc.CalculateCost("gpt-6.1-sol", tokens, 1)
+	require.NoError(t, err)
+	oldCost, err := svc.CalculateCost("gpt-6-sol", tokens, 1)
+	require.NoError(t, err)
+	require.InDelta(t, 0.1e-6*1000, newCost.CacheReadCost, 1e-10)
+	require.InDelta(t, 0.2e-6*1000, oldCost.CacheReadCost, 1e-10)
+	fastCost, err := svc.CalculateCostWithServiceTier("gpt-6.1-sol", tokens, 1, "fast")
+	require.NoError(t, err)
+	require.InDelta(t, newCost.TotalCost*2, fastCost.TotalCost, 1e-10)
 }
 
 func TestCalculateCostWithServiceTier_GPT6AstraPriorityLongContext(t *testing.T) {

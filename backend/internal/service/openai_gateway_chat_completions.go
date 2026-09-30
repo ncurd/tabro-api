@@ -65,6 +65,14 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	// derive a stable seed from the final upstream model family.
 	billingModel := resolveOpenAIForwardModel(account, originalModel, defaultMappedModel)
 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
+	effort := chatReq.ReasoningEffort
+	if effort == "" {
+		effort = gjson.GetBytes(body, "reasoning.effort").String()
+	}
+	if err := validateGPT61SolReasoning(originalModel, upstreamModel, effort); err != nil {
+		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return nil, err
+	}
 
 	promptCacheKey = strings.TrimSpace(promptCacheKey)
 	compatPromptCacheInjected := false

@@ -24,7 +24,7 @@ func TestAccountAvailableOpenAIModels_RespectsAuthenticationLifecycle(t *testing
 			account := &Account{Platform: PlatformOpenAI, Type: accountType}
 			ids := accountCatalogModelIDs(account.AvailableOpenAIModels())
 			for _, model := range []string{
-				"gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5",
+				"gpt-6.1-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5",
 				"gpt-image-2.5-sunburst", "gpt-image-2.5-flare",
 			} {
 				require.Contains(t, ids, model)

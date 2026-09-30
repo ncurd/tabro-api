@@ -19,6 +19,8 @@ import (
 func TestBillingTextNoMaxUsesKnownCatalogAndEnforceableField(t *testing.T) {
 	s := &GatewayBillingCoordinator{}
 	for _, tc := range []struct{ path, model, field string }{
+		{"/v1/responses", "gpt-6.1-sol", "max_output_tokens"},
+		{"/v1/messages", "gpt-6.1-sol-high", "max_tokens"},
 		{"/v1/responses", "gpt-6-sol", "max_output_tokens"},
 		{"/v1/chat/completions", "gpt-6-luna", "max_completion_tokens"},
 		{"/v1/messages", "claude-opus-5-5", "max_tokens"},
@@ -40,6 +42,22 @@ func TestBillingTextNoMaxUsesKnownCatalogAndEnforceableField(t *testing.T) {
 	unchanged, err := s.BoundRequest("/v1/videos", raw)
 	require.NoError(t, err)
 	require.Equal(t, raw, unchanged)
+}
+
+func TestBillingTextGPT61SolRejectsUnsupportedReasoningBeforeReserve(t *testing.T) {
+	for _, tc := range []struct{ path, body string }{
+		{"/v1/responses", `{"model":"gpt-6.1-sol","reasoning":{"effort":"none"}}`},
+		{"/v1/responses", `{"model":"gpt-6.1-sol","reasoning_effort":"none","reasoning":{"effort":"low"}}`},
+		{"/v1/chat/completions", `{"model":"gpt-6.1-sol","reasoning_effort":"minimal"}`},
+		{"/v1/messages", `{"model":"gpt-6.1-sol","output_config":{"effort":"none"}}`},
+		{"/v1/messages", `{"model":"gpt-6.1-sol-none"}`},
+		{"/v1/responses", `{"model":"gpt-6.1-sol-minimal"}`},
+	} {
+		_, err := (&GatewayBillingCoordinator{}).BoundRequest(tc.path, []byte(tc.body))
+		require.ErrorContains(t, err, "not supported", tc.body)
+	}
+	_, err := (&GatewayBillingCoordinator{}).BoundRequest("/v1/responses", []byte(`{"model":"gpt-6-sol","reasoning":{"effort":"none"}}`))
+	require.NoError(t, err, "the older GPT-6 Sol still supports none")
 }
 
 func TestBillingTextSmallCodexLimitStillReservesHardCap(t *testing.T) {
@@ -64,6 +82,8 @@ func TestBillingTextSmallCodexLimitStillReservesHardCap(t *testing.T) {
 
 func TestBillingTextUnknownConflictingOrExcessiveCapsFailClosed(t *testing.T) {
 	for _, body := range []string{
+		`{"model":"gpt-6.1-sol-invented","max_output_tokens":5}`,
+		`{"model":"gpt-6.1-sol","max_output_tokens":128001}`,
 		`{"model":"gpt-6-sol-invented","max_output_tokens":5}`,
 		`{"model":"gpt-6-sol","max_output_tokens":128001}`,
 		`{"model":"gpt-6-sol","max_output_tokens":2.5}`,

@@ -60,6 +60,25 @@ var (
 		SupportsPromptCaching:               true,
 		SupportsServiceTier:                 true,
 	}
+	openAIGPT61SolFallbackPricing = &LiteLLMModelPricing{
+		MaxInputTokens:                      922000,
+		MaxOutputTokens:                     128000,
+		InputCostPerToken:                   2e-06,   // $2 per MTok
+		InputCostPerTokenPriority:           4e-06,   // $4 per MTok
+		OutputCostPerToken:                  1e-05,   // $10 per MTok
+		OutputCostPerTokenPriority:          2e-05,   // $20 per MTok
+		CacheCreationInputTokenCost:         2.5e-06, // $2.50 per MTok
+		CacheCreationInputTokenCostPriority: 5e-06,   // $5 per MTok
+		CacheReadInputTokenCost:             1e-07,   // $0.10 per MTok
+		CacheReadInputTokenCostPriority:     2e-07,   // $0.20 per MTok
+		LongContextInputTokenThreshold:      272000,
+		LongContextInputCostMultiplier:      2.0,
+		LongContextOutputCostMultiplier:     1.5,
+		LiteLLMProvider:                     "openai",
+		Mode:                                "chat",
+		SupportsPromptCaching:               true,
+		SupportsServiceTier:                 true,
+	}
 	openAIGPT6LunaFallbackPricing = &LiteLLMModelPricing{
 		MaxInputTokens:                      922000,
 		MaxOutputTokens:                     128000,
@@ -1269,7 +1288,7 @@ func isAnthropicOpus5Model(model string) bool {
 // 2. gpt-5.2-codex -> gpt-5.2（去掉后缀如 -codex, -mini, -max 等）
 // 3. gpt-5.2-20251222 -> gpt-5.2（去掉日期版本号）
 // 4. gpt-5.3-codex -> gpt-5.2-codex
-// 5. gpt-6-astra/sol/luna* -> 各自的官方静态兜底价
+// 5. gpt-6-astra/6.1-sol/6-sol/6-luna* -> 各自的官方静态兜底价
 // 6. gpt-5.6* -> 业务静态兜底价
 // 7. gpt-5.4* -> 业务静态兜底价
 // 8. 最终回退到 DefaultTestModel (gpt-5.1-codex)
@@ -1290,6 +1309,7 @@ func (s *PricingService) matchOpenAIModel(model string) *LiteLLMModelPricing {
 		pricing *LiteLLMModelPricing
 	}{
 		{"gpt-6-astra", openAIGPT6AstraFallbackPricing},
+		{"gpt-6.1-sol", openAIGPT61SolFallbackPricing},
 		{"gpt-6-sol", openAIGPT6SolFallbackPricing},
 		{"gpt-6-luna", openAIGPT6LunaFallbackPricing},
 	} {

@@ -37,6 +37,7 @@ func TestFallbackPricingFile_ContainsLatestOpenAIAndAnthropicModels(t *testing.T
 
 	for _, model := range []string{
 		"gpt-6-astra",
+		"gpt-6.1-sol",
 		"gpt-6-sol",
 		"gpt-6-luna",
 		"gpt-5.6",
@@ -82,6 +83,7 @@ func TestFallbackPricingFile_NewModelsUseOfficialPricing(t *testing.T) {
 		cacheWrite1h float64
 	}{
 		{model: "gpt-6-astra", input: 10e-6, output: 50e-6, cacheWrite: 12.5e-6, cacheRead: 1e-6},
+		{model: "gpt-6.1-sol", input: 2e-6, output: 10e-6, cacheWrite: 2.5e-6, cacheRead: 0.1e-6},
 		{model: "gpt-6-sol", input: 2e-6, output: 10e-6, cacheWrite: 2.5e-6, cacheRead: 0.2e-6},
 		{model: "gpt-6-luna", input: 0.1e-6, output: 0.5e-6, cacheWrite: 0.125e-6, cacheRead: 0.01e-6},
 		{model: "gpt-5.6", input: 4e-6, output: 20e-6, cacheWrite: 5e-6, cacheRead: 0.4e-6},
@@ -725,11 +727,13 @@ func TestGetModelPricing_UnknownModelKeepsHistoricalFallback(t *testing.T) {
 	require.Same(t, legacy, svc.GetModelPricing("gpt-unknown-custom-model"))
 }
 
-func TestGetModelPricing_GPT6SolAndLunaKeepIndependentPricing(t *testing.T) {
+func TestGetModelPricing_GPT6NamedModelsKeepIndependentPricing(t *testing.T) {
+	require.NotEqual(t, openAIGPT6SolFallbackPricing.CacheReadInputTokenCost, openAIGPT61SolFallbackPricing.CacheReadInputTokenCost)
 	for _, tt := range []struct {
 		model   string
 		pricing *LiteLLMModelPricing
 	}{
+		{"gpt-6.1-sol", openAIGPT61SolFallbackPricing},
 		{"gpt-6-sol", openAIGPT6SolFallbackPricing},
 		{"gpt-6-luna", openAIGPT6LunaFallbackPricing},
 	} {

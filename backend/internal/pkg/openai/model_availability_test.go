@@ -18,7 +18,7 @@ func TestModelsForAccount_RespectsRetirementScope(t *testing.T) {
 				t.Errorf("oauth=%v has incorrect availability for %s", oauth, retiredOnOAuth)
 			}
 		}
-		for _, current := range []string{"gpt-6-astra", "gpt-5.6-luna", "gpt-5.5", "gpt-image-1.5", "gpt-image-2.5-flare", DefaultTestModel} {
+		for _, current := range []string{"gpt-6.1-sol", "gpt-6-astra", "gpt-5.6-luna", "gpt-5.5", "gpt-image-1.5", "gpt-image-2.5-flare", DefaultTestModel} {
 			if !ids[current] {
 				t.Errorf("oauth=%v lost currently available model %s", oauth, current)
 			}

@@ -1,10 +1,14 @@
 package service
 
 import (
+	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 )
+
+var ErrUnsupportedGPT61SolReasoning = errors.New("unsupported gpt-6.1-sol reasoning effort")
 
 func NormalizeOpenAICompatRequestedModel(model string) string {
 	trimmed := strings.TrimSpace(model)
@@ -87,6 +91,9 @@ func splitOpenAICompatReasoningModel(model string) (normalizedModel string, reas
 
 	normalizedModel = normalizeCodexModel(modelID)
 	last := strings.NewReplacer("-", "", "_", "", " ", "").Replace(parts[len(parts)-1])
+	if isGPT61SolModelFamily(modelID) && (last == "none" || last == "minimal") {
+		return trimmed, "", false
+	}
 	switch last {
 	case "none":
 		reasoningEffort = "none"
@@ -132,8 +139,35 @@ func openAIReasoningEffortToClaudeOutputEffortForModel(effort, model string) str
 
 func supportsIndependentOpenAIReasoningEfforts(model string) bool {
 	model = strings.ToLower(strings.TrimSpace(model))
-	return strings.Contains(model, "gpt-6-astra") || strings.Contains(model, "gpt-6-sol") ||
+	return strings.Contains(model, "gpt-6.1-sol") || strings.Contains(model, "gpt-6-astra") || strings.Contains(model, "gpt-6-sol") ||
 		strings.Contains(model, "gpt-6-luna") || strings.Contains(model, "gpt-5.6")
+}
+
+func isGPT61SolModelFamily(model string) bool {
+	model = strings.ToLower(strings.TrimSpace(model))
+	if lastSlash := strings.LastIndex(model, "/"); lastSlash >= 0 {
+		model = model[lastSlash+1:]
+	}
+	return model == "gpt-6.1-sol" || strings.HasPrefix(model, "gpt-6.1-sol-") ||
+		model == "gpt 6.1 sol" || strings.HasPrefix(model, "gpt 6.1 sol ")
+}
+
+func validateGPT61SolReasoning(requestedModel, targetModel, effort string) error {
+	modelID := strings.ToLower(strings.TrimSpace(requestedModel))
+	if lastSlash := strings.LastIndex(modelID, "/"); lastSlash >= 0 {
+		modelID = modelID[lastSlash+1:]
+	}
+	modelID = strings.NewReplacer("_", "-", " ", "-").Replace(modelID)
+	if modelID == "gpt-6.1-sol-none" || modelID == "gpt-6.1-sol-minimal" {
+		return fmt.Errorf("%w: reasoning effort %q is not supported by gpt-6.1-sol", ErrUnsupportedGPT61SolReasoning, strings.TrimPrefix(modelID, "gpt-6.1-sol-"))
+	}
+	if isGPT61SolModelFamily(targetModel) {
+		effort = strings.ToLower(strings.TrimSpace(effort))
+		if effort == "none" || effort == "minimal" {
+			return fmt.Errorf("%w: reasoning effort %q is not supported by gpt-6.1-sol", ErrUnsupportedGPT61SolReasoning, effort)
+		}
+	}
+	return nil
 }
 
 func supportsOpenAINoneReasoningEffort(model string) bool {

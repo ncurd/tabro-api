@@ -234,6 +234,13 @@ func TestApplyCodexOAuthTransform_EmptyInput(t *testing.T) {
 
 func TestNormalizeCodexModel_Gpt53(t *testing.T) {
 	cases := map[string]string{
+		"gpt-6.1-sol":               "gpt-6.1-sol",
+		"gpt-6.1-sol-max":           "gpt-6.1-sol",
+		"openai/gpt-6.1-sol-xhigh":  "gpt-6.1-sol",
+		"GPT 6.1 Sol":               "gpt-6.1-sol",
+		"gpt 6.1 sol high":          "gpt-6.1-sol",
+		"gpt-6.1-sol-none":          "gpt-6.1-sol-none",
+		"gpt-6.1-sol-minimal":       "gpt-6.1-sol-minimal",
 		"gpt-6-astra":               "gpt-6-astra",
 		"gpt-6-astra-max":           "gpt-6-astra",
 		"openai/gpt-6-astra-xhigh":  "gpt-6-astra",

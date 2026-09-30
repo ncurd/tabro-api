@@ -1873,6 +1873,14 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	originalBody := body
 	reqModel, reqStream, promptCacheKey := extractOpenAIRequestMetaFromBody(body)
 	originalModel := reqModel
+	reqEffort := gjson.GetBytes(body, "reasoning.effort").String()
+	if reqEffort == "" {
+		reqEffort = gjson.GetBytes(body, "reasoning_effort").String()
+	}
+	if err := validateGPT61SolReasoning(reqModel, reqModel, reqEffort); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "invalid_request_error", "message": err.Error()}})
+		return nil, err
+	}
 
 	isCodexCLI := openai.IsCodexOfficialClientByHeaders(c.GetHeader("User-Agent"), c.GetHeader("originator")) || (s.cfg != nil && s.cfg.Gateway.ForceCodexCLI)
 	wsDecision := s.getOpenAIWSProtocolResolver().Resolve(account)
@@ -2019,6 +2027,15 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 				delete(text, "verbosity")
 			}
 		}
+	}
+	if reasoning, ok := reqBody["reasoning"].(map[string]any); ok {
+		if effort, ok := reasoning["effort"].(string); ok && effort != "" {
+			reqEffort = effort
+		}
+	}
+	if err := validateGPT61SolReasoning(originalModel, upstreamModel, reqEffort); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "invalid_request_error", "message": err.Error()}})
+		return nil, err
 	}
 
 	// 规范化 reasoning.effort 参数（minimal -> none），与上游允许值对齐。

@@ -6,6 +6,12 @@ import (
 )
 
 var codexModelMap = map[string]string{
+	"gpt-6.1-sol":                "gpt-6.1-sol",
+	"gpt-6.1-sol-low":            "gpt-6.1-sol",
+	"gpt-6.1-sol-medium":         "gpt-6.1-sol",
+	"gpt-6.1-sol-high":           "gpt-6.1-sol",
+	"gpt-6.1-sol-xhigh":          "gpt-6.1-sol",
+	"gpt-6.1-sol-max":            "gpt-6.1-sol",
 	"gpt-6-sol":                  "gpt-6-sol",
 	"gpt-6-sol-none":             "gpt-6-sol",
 	"gpt-6-sol-low":              "gpt-6-sol",
@@ -291,6 +297,19 @@ func normalizeCodexModel(model string) string {
 	}
 
 	normalized := strings.ToLower(modelID)
+	if normalized == "gpt 6.1 sol" {
+		return "gpt-6.1-sol"
+	}
+	for _, effort := range []string{"low", "medium", "high", "xhigh", "max"} {
+		if normalized == "gpt 6.1 sol "+effort {
+			return "gpt-6.1-sol"
+		}
+	}
+	// Keep unsupported GPT-6.1 Sol aliases intact so they cannot silently
+	// fall back to a different model or turn an unsupported effort into one.
+	if strings.HasPrefix(normalized, "gpt-6.1-sol-") || strings.HasPrefix(normalized, "gpt 6.1 sol ") {
+		return modelID
+	}
 
 	if strings.Contains(normalized, "gpt-6-sol") || strings.Contains(normalized, "gpt 6 sol") {
 		return "gpt-6-sol"

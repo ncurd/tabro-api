@@ -21,7 +21,7 @@
 
 | 场景 | 模型示例 |
 |------|----------|
-| OpenAI / Codex 兼容 | `gpt-6-astra`、`gpt-6-sol`、`gpt-6-luna`、`gpt-5.6` |
+| OpenAI / Codex 兼容 | `gpt-6.1-sol`、`gpt-6-astra`、`gpt-6-sol`、`gpt-6-luna`、`gpt-5.6` |
 | Claude / Anthropic 兼容 | `claude-fable-5-1`、`claude-opus-5-5`、`claude-opus-5` |
 | Antigravity Claude | `claude-fable-5`、`claude-opus-4-6-thinking` |
 
@@ -49,7 +49,7 @@ VS Code 的 BYOK 模型通过 **Chat: Manage Language Models** 管理。官方�
 
 ### OpenAI Responses 示例
 
-用于 Tabro 的 OpenAI 兼容入口，推荐给 `gpt-6-astra`、`gpt-5.6` 等模型。
+用于 Tabro 的 OpenAI 兼容入口，推荐给 `gpt-6.1-sol`、`gpt-6-astra`、`gpt-5.6` 等模型。
 
 ```json
 [
@@ -60,8 +60,8 @@ VS Code 的 BYOK 模型通过 **Chat: Manage Language Models** 管理。官方�
     "apiType": "responses",
     "models": [
       {
-        "id": "gpt-6-astra",
-        "name": "Tabro GPT-6 Astra",
+        "id": "gpt-6.1-sol",
+        "name": "Tabro GPT-6.1 Sol",
         "url": "https://tabro.example.com/v1/responses",
         "toolCalling": true,
         "vision": true,
@@ -188,7 +188,9 @@ export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 
 Codex CLI / IDE 扩展共用 `~/.codex/config.toml`。Tabro 推荐使用 Responses API。
 
-使用 GPT-6 时，将下面的 `model` 和 `review_model` 改为 `gpt-6-astra`、`gpt-6-sol` 或 `gpt-6-luna`，并可将 `model_reasoning_effort` 设为 `low`、`medium`、`high`、`xhigh` 或 `max`。Sol 和 Luna 还支持 `none`。
+使用 GPT-6 时，将下面的 `model` 和 `review_model` 改为 `gpt-6.1-sol`、`gpt-6-astra`、`gpt-6-sol` 或 `gpt-6-luna`，并可将 `model_reasoning_effort` 设为 `low`、`medium`、`high`、`xhigh` 或 `max`。旧版 GPT-6 Sol 和 GPT-6 Luna 还支持 `none`；GPT-6.1 Sol 不支持 `none` 或 `minimal`。
+
+GPT-6.1 Sol 使用工具调用时应走 Responses API。OpenAI 原生 Chat Completions 只支持不带工具的请求；本网关的 OpenAI 兼容 Chat Completions 路径会转成 Responses 后调用上游。
 
 `~/.codex/config.toml`：
 

@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -31,6 +32,9 @@ func TestNormalizeOpenAICompatRequestedModel(t *testing.T) {
 		{name: "gpt 5.6 tier alias strips high", input: "gpt-5.6-terra-high", want: "gpt-5.6-terra"},
 		{name: "gpt 5.6 alias strips none", input: "gpt-5.6-luna-none", want: "gpt-5.6-luna"},
 		{name: "gpt 6 astra strips max", input: "gpt-6-astra-max", want: "gpt-6-astra"},
+		{name: "gpt 6.1 sol strips max", input: "gpt-6.1-sol-max", want: "gpt-6.1-sol"},
+		{name: "gpt 6.1 sol keeps unsupported none", input: "gpt-6.1-sol-none", want: "gpt-6.1-sol-none"},
+		{name: "gpt 6.1 sol keeps unsupported minimal", input: "gpt-6.1-sol-minimal", want: "gpt-6.1-sol-minimal"},
 		{name: "codex max model stays intact", input: "gpt-5.1-codex-max", want: "gpt-5.1-codex-max"},
 		{name: "non openai model unchanged", input: "claude-opus-4-6", want: "claude-opus-4-6"},
 	}
@@ -38,6 +42,36 @@ func TestNormalizeOpenAICompatRequestedModel(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			require.Equal(t, tt.want, NormalizeOpenAICompatRequestedModel(tt.input))
+		})
+	}
+}
+
+func TestValidateGPT61SolReasoning(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name      string
+		requested string
+		target    string
+		effort    string
+		wantError bool
+	}{
+		{name: "valid max", requested: "gpt-6.1-sol-max", target: "gpt-6.1-sol", effort: "max"},
+		{name: "valid mapped high", requested: "custom", target: "gpt-6.1-sol", effort: "high"},
+		{name: "unsupported none alias", requested: "openai/gpt-6.1-sol-none", target: "gpt-5.6-sol", wantError: true},
+		{name: "unsupported minimal alias", requested: "gpt-6.1-sol_minimal", target: "gpt-5.6-sol", wantError: true},
+		{name: "unsupported explicit none", requested: "custom", target: "gpt-6.1-sol", effort: "none", wantError: true},
+		{name: "unsupported explicit minimal", requested: "custom", target: "gpt-6.1-sol", effort: "minimal", wantError: true},
+		{name: "old gpt 6 sol none remains valid", requested: "gpt-6-sol-none", target: "gpt-6-sol", effort: "none"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateGPT61SolReasoning(tc.requested, tc.target, tc.effort)
+			if tc.wantError {
+				require.ErrorContains(t, err, "not supported by gpt-6.1-sol")
+				require.True(t, errors.Is(err, ErrUnsupportedGPT61SolReasoning))
+			} else {
+				require.NoError(t, err)
+			}
 		})
 	}
 }
@@ -71,6 +105,8 @@ func TestApplyOpenAICompatModelNormalization(t *testing.T) {
 			wantModel  string
 			wantEffort string
 		}{
+			{model: "gpt-6.1-sol-xhigh", wantModel: "gpt-6.1-sol", wantEffort: "xhigh"},
+			{model: "gpt-6.1-sol-max", wantModel: "gpt-6.1-sol", wantEffort: "max"},
 			{model: "gpt-6-astra-xhigh", wantModel: "gpt-6-astra", wantEffort: "xhigh"},
 			{model: "gpt-6-astra-max", wantModel: "gpt-6-astra", wantEffort: "max"},
 			{model: "gpt-5.6-xhigh", wantModel: "gpt-5.6-sol", wantEffort: "xhigh"},
@@ -88,6 +124,15 @@ func TestApplyOpenAICompatModelNormalization(t *testing.T) {
 			require.NotNil(t, req.OutputConfig)
 			require.Equal(t, tc.wantEffort, req.OutputConfig.Effort)
 		}
+	})
+
+	t.Run("gpt 6.1 sol unsupported none alias stays unmodified", func(t *testing.T) {
+		req := &apicompat.AnthropicRequest{Model: "gpt-6.1-sol-none"}
+
+		applyOpenAICompatModelNormalization(req)
+
+		require.Equal(t, "gpt-6.1-sol-none", req.Model)
+		require.Nil(t, req.OutputConfig)
 	})
 
 	t.Run("gpt 5.6 none is not replaced by default high", func(t *testing.T) {

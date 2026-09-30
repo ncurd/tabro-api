@@ -899,6 +899,8 @@ func TestAnthropicToResponses_ReasoningEffortCompatibility(t *testing.T) {
 		effort string
 		want   string
 	}{
+		{name: "gpt 6.1 sol xhigh", model: "gpt-6.1-sol", effort: "xhigh", want: "xhigh"},
+		{name: "gpt 6.1 sol max", model: "gpt-6.1-sol", effort: "max", want: "max"},
 		{name: "gpt 6 astra xhigh", model: "gpt-6-astra", effort: "xhigh", want: "xhigh"},
 		{name: "gpt 6 astra max", model: "gpt-6-astra", effort: "max", want: "max"},
 		{name: "gpt 5.6 xhigh", model: "gpt-5.6", effort: "xhigh", want: "xhigh"},
@@ -922,6 +924,27 @@ func TestAnthropicToResponses_ReasoningEffortCompatibility(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, resp.Reasoning)
 			assert.Equal(t, tt.want, resp.Reasoning.Effort)
+		})
+	}
+}
+
+func TestAnthropicToResponses_GPT61SolReasoningDefaultsAndUnsupportedEfforts(t *testing.T) {
+	req := &AnthropicRequest{
+		Model:     "gpt-6.1-sol",
+		MaxTokens: 1024,
+		Messages:  []AnthropicMessage{{Role: "user", Content: json.RawMessage(`"Hello"`)}},
+	}
+
+	resp, err := AnthropicToResponses(req)
+	require.NoError(t, err)
+	require.NotNil(t, resp.Reasoning)
+	assert.Equal(t, "medium", resp.Reasoning.Effort)
+
+	for _, effort := range []string{"none", "minimal"} {
+		t.Run(effort, func(t *testing.T) {
+			req.OutputConfig = &AnthropicOutputConfig{Effort: effort}
+			_, err := AnthropicToResponses(req)
+			require.ErrorContains(t, err, "not supported by gpt-6.1-sol")
 		})
 	}
 }

@@ -51,3 +51,9 @@ func TestGatewayBillingMissingAuthAccountIsNotReportedAsOutage(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, status)
 	require.Equal(t, "BILLING_ACCOUNT_NOT_READY", code)
 }
+
+func TestGatewayBillingUnsupportedGPT61SolReasoningIsClientError(t *testing.T) {
+	status, code, _ := gatewayBillingError(service.ErrUnsupportedGPT61SolReasoning)
+	require.Equal(t, http.StatusBadRequest, status)
+	require.Equal(t, "INVALID_MODEL_REASONING", code)
+}

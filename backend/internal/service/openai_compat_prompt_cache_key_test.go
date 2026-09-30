@@ -14,6 +14,9 @@ func mustRawJSON(t *testing.T, s string) json.RawMessage {
 }
 
 func TestShouldAutoInjectPromptCacheKeyForCompat(t *testing.T) {
+	require.True(t, shouldAutoInjectPromptCacheKeyForCompat("gpt-6.1-sol"))
+	require.True(t, shouldAutoInjectPromptCacheKeyForCompat("gpt-6.1-sol-xhigh"))
+	require.False(t, shouldAutoInjectPromptCacheKeyForCompat("gpt-6.1-sol-none"))
 	require.True(t, shouldAutoInjectPromptCacheKeyForCompat("gpt-6-sol"))
 	require.True(t, shouldAutoInjectPromptCacheKeyForCompat("gpt-6-sol-none"))
 	require.True(t, shouldAutoInjectPromptCacheKeyForCompat("gpt-6-luna"))

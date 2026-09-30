@@ -106,8 +106,9 @@ func textBillingQuoteRequest(path, operationID string, body []byte, prices ...*P
 	return q, nil
 }
 
-// TextModelCapabilities comes from an exact catalog entry. Fuzzy price matching
-// must never be used to promise an upper usage limit for an unknown model.
+// TextModelCapabilities comes from an exact catalog entry or an explicit
+// compatibility alias. Fuzzy price matching must never promise an upper usage
+// limit for an unknown model.
 type TextModelCapabilities struct {
 	MaxInputTokens   int64
 	MaxOutputTokens  int64
@@ -116,6 +117,11 @@ type TextModelCapabilities struct {
 
 func (s *PricingService) GetTextModelCapabilities(model string) (TextModelCapabilities, bool) {
 	model = strings.ToLower(strings.TrimSpace(model))
+	// Reasoning aliases are accepted only when the compatibility adapter has an
+	// explicit mapping to this exact model. Unknown suffixes remain unbounded.
+	if normalized, _, ok := splitOpenAICompatReasoningModel(model); ok && normalized == "gpt-6.1-sol" {
+		model = normalized
+	}
 	var pricing *LiteLLMModelPricing
 	if s != nil {
 		s.mu.RLock()
@@ -130,6 +136,8 @@ func (s *PricingService) GetTextModelCapabilities(model string) (TextModelCapabi
 	switch model {
 	case "gpt-6-astra":
 		fallback = openAIGPT6AstraFallbackPricing
+	case "gpt-6.1-sol":
+		fallback = openAIGPT61SolFallbackPricing
 	case "gpt-6-sol":
 		fallback = openAIGPT6SolFallbackPricing
 	case "gpt-6-luna":
@@ -193,6 +201,28 @@ func boundTextRequest(path string, body []byte, pricing *PricingService) ([]byte
 	var model string
 	if json.Unmarshal(payload["model"], &model) != nil || model == "" {
 		return nil, 0, errors.New("model is required")
+	}
+	efforts := []string{""}
+	for _, name := range []string{"reasoning_effort", "reasoning", "output_config"} {
+		raw := payload[name]
+		if name == "reasoning_effort" {
+			var effort string
+			if json.Unmarshal(raw, &effort) == nil && effort != "" {
+				efforts = append(efforts, effort)
+			}
+		} else {
+			var options struct {
+				Effort string `json:"effort"`
+			}
+			if json.Unmarshal(raw, &options) == nil && options.Effort != "" {
+				efforts = append(efforts, options.Effort)
+			}
+		}
+	}
+	for _, effort := range efforts {
+		if err := validateGPT61SolReasoning(model, normalizeCodexModel(model), effort); err != nil {
+			return nil, 0, err
+		}
 	}
 	capability, known := pricing.GetTextModelCapabilities(model)
 	if !known {

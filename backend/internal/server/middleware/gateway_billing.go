@@ -27,6 +27,9 @@ func ProvideGatewayAuthMiddleware(keys *service.APIKeyService, subscriptions *se
 }
 
 func gatewayBillingError(err error) (int, string, string) {
+	if errors.Is(err, service.ErrUnsupportedGPT61SolReasoning) {
+		return 400, "INVALID_MODEL_REASONING", "GPT-6.1 Sol does not support this reasoning effort"
+	}
 	var remote *bc.RemoteError
 	if errors.As(err, &remote) {
 		switch remote.Status {
