@@ -65,7 +65,7 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 		apiKey, oidcPrincipal, err := resolveGatewayCredential(c.Request.Context(), apiKeyString, credential.fromAuthorization, apiKeyService, resourceServer)
 		if err != nil {
 			if errors.Is(err, service.ErrGatewayOIDCScopeDenied) {
-				requiredScopes := gatewayRequiredScopeChallenge(cfg)
+				requiredScopes := gatewayResourceScopeChallenge(c.Request.Context(), resourceServer, cfg)
 				c.Header("WWW-Authenticate", `Bearer error="insufficient_scope", scope="`+requiredScopes+`"`)
 				AbortWithError(c, 403, "INSUFFICIENT_SCOPE", "Token does not grant the required gateway scope")
 				return

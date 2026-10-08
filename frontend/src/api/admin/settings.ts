@@ -11,6 +11,49 @@ export interface DefaultSubscriptionSetting {
   validity_days: number
 }
 
+export interface OIDCBillingCenterConfig {
+  enabled: boolean
+  base_url: string
+  token_url: string
+  producer_client_id: string
+  client_secret: string
+  timeout_seconds: number
+  insecure_local: boolean
+}
+
+export interface OIDCBillingResourceServerConfig {
+  enabled: boolean
+  auto_provision: boolean
+  issuer_url: string
+  discovery_url: string
+  jwks_url: string
+  audience: string
+  required_scopes: string
+  allowed_client_ids: string
+  allowed_signing_algs: string
+  clock_skew_seconds: number
+  jwks_cache_ttl_seconds: number
+  tenant_claim: string
+  require_tenant: boolean
+  token_exchange: {
+    require_actor: boolean
+    actor_claim: string
+    allowed_actor_client_ids: string
+    max_delegation_depth: number
+  }
+}
+
+export interface OIDCBillingConnectionRequest {
+  billing_center: OIDCBillingCenterConfig
+  resource_server: OIDCBillingResourceServerConfig
+}
+
+export interface OIDCBillingConnection extends OIDCBillingConnectionRequest {
+  client_secret_configured: boolean
+  source: 'database' | 'config'
+  oidc_billing_supported: boolean
+}
+
 /**
  * System settings interface
  */
@@ -286,6 +329,23 @@ export async function getSettings(): Promise<SystemSettings> {
  */
 export async function updateSettings(settings: UpdateSettingsRequest): Promise<SystemSettings> {
   const { data } = await apiClient.put<SystemSettings>('/admin/settings', settings)
+  return data
+}
+
+export async function getOIDCBillingConnection(): Promise<OIDCBillingConnection> {
+  const { data } = await apiClient.get<OIDCBillingConnection>('/admin/settings/oidc-billing-connection')
+  return data
+}
+
+export async function updateOIDCBillingConnection(connection: OIDCBillingConnectionRequest): Promise<OIDCBillingConnection> {
+  const { data } = await apiClient.put<OIDCBillingConnection>('/admin/settings/oidc-billing-connection', connection)
+  return data
+}
+
+export async function setupOIDCBillingConnection(clientSecret: string): Promise<OIDCBillingConnection> {
+  const { data } = await apiClient.post<OIDCBillingConnection>('/admin/settings/oidc-billing-connection/setup', {
+    client_secret: clientSecret
+  })
   return data
 }
 
@@ -581,6 +641,9 @@ export async function resetWebSearchUsage(
 export const settingsAPI = {
   getSettings,
   updateSettings,
+  getOIDCBillingConnection,
+  updateOIDCBillingConnection,
+  setupOIDCBillingConnection,
   testSmtpConnection,
   sendTestEmail,
   getAdminApiKey,

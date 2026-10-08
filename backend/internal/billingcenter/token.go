@@ -84,12 +84,31 @@ func (s *ClientCredentialsTokenSource) Token(ctx context.Context) (string, error
 		return "", errors.New("billing OAuth credentials rejected")
 	}
 	var result struct {
-		AccessToken string `json:"access_token"`
-		TokenType   string `json:"token_type"`
-		ExpiresIn   int64  `json:"expires_in"`
+		AccessToken string          `json:"access_token"`
+		TokenType   string          `json:"token_type"`
+		ExpiresIn   int64           `json:"expires_in"`
+		Scope       json.RawMessage `json:"scope"`
 	}
-	if err = json.NewDecoder(io.LimitReader(response.Body, 65536)).Decode(&result); err != nil || result.AccessToken == "" || !strings.EqualFold(result.TokenType, "Bearer") || result.ExpiresIn <= 0 || result.ExpiresIn > 86400 {
+	body, err := io.ReadAll(io.LimitReader(response.Body, 65537))
+	if err != nil || len(body) > 65536 || json.Unmarshal(body, &result) != nil || result.AccessToken == "" || !strings.EqualFold(result.TokenType, "Bearer") || result.ExpiresIn <= 0 || result.ExpiresIn > 86400 {
 		return "", errors.New("invalid billing token response")
+	}
+	// RFC 6749 allows scope to be omitted when it is identical to the requested
+	// set. An explicit reduced grant cannot authorize the billing lifecycle.
+	if len(result.Scope) > 0 {
+		var scopeValue string
+		if json.Unmarshal(result.Scope, &scopeValue) != nil {
+			return "", errors.New("invalid billing token response")
+		}
+		granted := make(map[string]bool)
+		for _, scope := range strings.Fields(scopeValue) {
+			granted[scope] = true
+		}
+		for _, scope := range s.config.Scopes {
+			if !granted[scope] {
+				return "", errors.New("billing OAuth permissions rejected")
+			}
+		}
 	}
 	lifetime := time.Duration(result.ExpiresIn) * time.Second
 	skew := 30 * time.Second

@@ -4,11 +4,29 @@
 
 ## 启用与资金权威
 
-`billing_center.enabled` 启用 Auth 计费连接器。旧有本地用户是否已经迁移到中心，仍由数据库 route 决定；启用连接器不会自动搬钱或建立邮箱映射。配置关闭时，已经迁移的账户仍拒绝收费请求，不能转回本地余额。`draining`、`frozen`、`fenced` 拒绝新收费工作。
+`billing_center.enabled` 启用 Auth 计费连接器。后台「系统设置 → OIDC 登录 → Auth 计费连接配置」保存的数据库配置优先于部署 YAML 中的 `billing_center` 与 `gateway.resource_server` 初始配置，对新请求和计费 worker 动态生效；后台不配置 `billing_center.payments`，历史支付适配器仍使用独立的部署配置与凭据。旧有本地用户是否已经迁移到中心，仍由数据库 route 决定；启用连接器不会自动搬钱或建立邮箱映射。配置关闭时，已经迁移的账户仍拒绝收费请求，不能转回本地余额。`draining`、`frozen`、`fenced` 拒绝新收费工作。
+
+### 后台简化接入 tabro-auth
+
+先在 Auth 完成一次部署配置：启用 `OpenIddict:Tabro:Billing:Enabled`，登记独立的 `tabro-api-gateway` producer，为其设置专用密钥、`credit_amount` meter，以及 `billing.reserve billing.dispatch billing.extend billing.settle billing.release billing.read` 权限。`AllowedAppIds` 应包含实际模型调用应用（默认 `tabro-agent`）；需要旧 API Key 接入时另包含 `legacy-api-key`。保留 Auth 已有的其他 producer 和应用授权。仅在 Auth 客户端管理中创建普通 OIDC 客户端，不能替代这项 producer 配置。具体模板见 `tabro-auth/docs/examples/billing-config/auth-cnprod.billing.json.template`。
+
+API 管理后台按以下顺序操作：
+
+1. 保存 OIDC 登录配置并开启「仅 OIDC」。已有登录客户端 `tabro-llm` 及其登录密钥保持原配置。
+2. 在「Auth 计费连接配置」填写 `tabro-api-gateway` 的专用计费密钥，点击「验证并配置」。服务地址直接使用已保存的 OIDC issuer；未保存的页面输入不参与验证。已有同一 issuer、同一 producer 的密钥可留空保留。
+3. 验证成功后，手动打开全局「启用 OIDC 计费」，设置计费倍数和每日结算时间，再保存系统设置。默认倍数为 `1`，每天北京时间 `00:00` 结算。
+
+自动配置先读取已保存 issuer 的 OIDC discovery，核对返回的 issuer 完全一致，并要求 discovery 和 Token 地址使用同源 HTTPS，拒绝重定向；随后通过专用计费凭据申请包含上述六项权限的服务 Token。只有检查成功才保存连接配置，不保存或回显 Token，也不修改登录客户端或自动打开全局计费开关。该检查验证连接及服务凭据，不代替实际请求的 Auth 账户、资金和 Quote/Reserve 授权。
+
+高级参数默认折叠。自动配置使用 `audience=tabro-llm`、`llm.invoke`、必需的 `tenant_id` 与 `act`，委托深度为 `1`，不会通过关闭租户或 Actor 校验来简化接入。模型应用和 Actor 白名单默认均为 `tabro-agent`；同一 issuer 已有的非空白名单会保留。网页登录客户端 ID 不会自动加入这些白名单；增加调用应用时须同时在 Auth 授权。
+
+普通 API Key 仍需在 Auth 登记 credential binding 并配置中心资金路由。仅完成 OIDC 网页登录、按邮箱找到同一用户或打开计费开关，都不能替代该登记。无需逐用户登记的自动模式使用 Auth 签发、经过网关校验的模型 access token；网页登录 JWT 或 ID token 不能冒充模型调用凭据。
+
+专用密钥轮换时先同步 Auth 的 producer 凭据与部署配置，再在同一计费身份下重新验证保存；runtime 会使用新配置，已预扣调用继续沿用冻结责任与金额。切换 producer、Auth 服务地址或 issuer，则须先停用全局计费并完成待结账操作，再关闭连接器并切换；有未结 operation 时服务拒绝关闭或改换计费身份。保存与准入的并发保护目前在单 API 实例内生效，多实例部署切换身份还须协调所有实例的收费准入，不能依赖单个实例的锁。
 
 ### 仅 OIDC 模式下的每日计费
 
-后台「系统设置 → OIDC 登录」增加 OIDC 计费开关。先保存并验证仅 OIDC 登录模式；配置有效的 `billing_center` 连接器并启用 `gateway.resource_server`，且网页登录与网关使用同一个 issuer，才允许开启。`oidc_billing_supported` 表示部署配置具备接入能力，不是 OIDC 标准声明，也不是 Auth 在线健康检查；实际调用仍必须通过 Auth 的 Quote、Reserve、Dispatch 授权。
+后台「系统设置 → OIDC 登录」提供 OIDC 计费开关。先保存并验证仅 OIDC 登录模式；通过上述简化接入或高级配置启用有效的 `billing_center` 连接器和 `gateway.resource_server`，且网页登录与网关使用同一个 issuer，才允许开启。`oidc_billing_supported` 表示当前生效的连接配置具备接入能力，不是 OIDC 标准声明，也不是持续的 Auth 在线健康检查；实际调用仍必须通过 Auth 的 Quote、Reserve、Dispatch 授权。
 
 | 设置 | 默认值 | 作用 |
 |---|---|---|

@@ -94,6 +94,10 @@ type GatewayResourceServer struct {
 	// signing-key rotation gets one immediate refresh opportunity.
 	unknownKIDRefreshAfter time.Time
 	refresh                singleflight.Group
+	live                   bool
+	liveMu                 sync.Mutex
+	liveConnection         OIDCBillingConnectionConfig
+	liveServer             *GatewayResourceServer
 }
 
 func NewGatewayResourceServer(cfg *config.Config, apiKeyService *APIKeyService) *GatewayResourceServer {
@@ -108,6 +112,7 @@ func NewGatewayResourceServer(cfg *config.Config, apiKeyService *APIKeyService) 
 	if apiKeyService != nil && apiKeyService.GatewayBilling != nil {
 		server.settings = apiKeyService.GatewayBilling.settings
 	}
+	server.live = server.settings != nil
 	return server
 }
 
@@ -150,6 +155,12 @@ func gatewayOIDCHardenedHTTPClient(client *http.Client, issuer string) *http.Cli
 }
 
 func (s *GatewayResourceServer) Enabled() bool {
+	if s != nil && s.live {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		server, err := s.currentResourceServer(ctx)
+		return err == nil && server.cfg.Enabled
+	}
 	return s != nil && s.cfg.Enabled
 }
 
@@ -157,6 +168,13 @@ func (s *GatewayResourceServer) Enabled() bool {
 // stable (iss, sub) identity. The local key is a routing/usage record; Auth is
 // the billing authority whenever automatic provisioning is enabled.
 func (s *GatewayResourceServer) Authenticate(ctx context.Context, rawToken string) (*APIKey, *GatewayOIDCPrincipal, error) {
+	if s != nil && s.live {
+		server, err := s.currentResourceServer(ctx)
+		if err != nil {
+			return nil, nil, ErrGatewayOIDCUnavailable
+		}
+		return server.Authenticate(ctx, rawToken)
+	}
 	principal, err := s.Verify(ctx, rawToken)
 	if err != nil {
 		return nil, nil, err
@@ -207,6 +225,13 @@ func (s *GatewayResourceServer) Authenticate(ctx context.Context, rawToken strin
 
 // Verify performs the complete OAuth Resource Server validation policy.
 func (s *GatewayResourceServer) Verify(ctx context.Context, rawToken string) (*GatewayOIDCPrincipal, error) {
+	if s != nil && s.live {
+		server, err := s.currentResourceServer(ctx)
+		if err != nil {
+			return nil, ErrGatewayOIDCUnavailable
+		}
+		return server.Verify(ctx, rawToken)
+	}
 	if s == nil || !s.cfg.Enabled {
 		return nil, ErrGatewayOIDCTokenInvalid
 	}

@@ -150,8 +150,11 @@ gateway:
   # oidc_connect below: oidc_connect signs users into the Tabro UI, while this
   # block validates access tokens whose aud is the LLM gateway itself.
   # LLM 网关 OAuth Resource Server。不要复用 Tabro API/UI 的 audience。
-  # This trust policy is YAML-only. GATEWAY_RESOURCE_SERVER_* environment
-  # overrides are rejected so issuer and identity allowlists stay reviewable.
+  # This is the initial trust policy. Administrators can override the connection
+  # in Settings > OIDC > Auth billing connection. Environment overrides remain
+  # rejected so issuer and identity allowlists stay reviewable.
+  # Tabro 后台简化接入沿用已保存的 OIDC issuer，验证专用计费密钥后使用
+  # tenant_id/act 必需、单层委托的模板；此 YAML 仅为未保存后台配置时的初始策略。
   resource_server:
     # Safe default. Enable only after issuer/JWKS, identity binding, and
     # application allowlists are configured.
@@ -1021,7 +1024,12 @@ pricing:
 # =============================================================================
 # Auth Billing Center connector. Account authority is selected by database
 # mappings and fenced migration, never by toggling this connector switch.
-# Use BILLING_CENTER_CLIENT_SECRET to inject the producer secret at runtime.
+# Configure this connector in the administrator OIDC settings, or use this YAML
+# as its initial configuration. Saved administrator settings take precedence.
+# 简化接入只需 tabro-api-gateway 专用密钥，验证成功后另行开启全局计费开关。
+# OIDC 登录客户端与密钥不变；Auth producer 仍需一次部署配置。
+# payments 不包含在后台连接配置中，继续使用独立的部署配置与凭据。
+# Use BILLING_CENTER_CLIENT_SECRET for the YAML producer secret.
 billing_center:
   enabled: false
   base_url: "https://auth.example.com"

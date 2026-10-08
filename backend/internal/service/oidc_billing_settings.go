@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 )
 
@@ -79,8 +78,10 @@ func (p OIDCBillingPolicy) NextSettlementAt(at time.Time) (time.Time, error) {
 // IsOIDCBillingSupported describes the configured connector capability, not a
 // live probe or an assertion about the billing authority's availability.
 func (s *SettingService) IsOIDCBillingSupported() bool {
-	return s != nil && s.cfg != nil && s.cfg.BillingCenter.Enabled && s.cfg.BillingCenter.Validate() == nil &&
-		s.cfg.Gateway.ResourceServer.Enabled && config.ValidateAbsoluteHTTPURL(strings.TrimSpace(s.cfg.Gateway.ResourceServer.IssuerURL)) == nil
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	connection, err := s.GetOIDCBillingConnectionConfig(ctx)
+	return err == nil && oidcBillingConnectionSupported(connection)
 }
 
 func oidcBillingPolicyFromSettings(values map[string]string) (OIDCBillingPolicy, error) {
@@ -102,7 +103,7 @@ func oidcBillingPolicyFromSettings(values map[string]string) (OIDCBillingPolicy,
 	return p, p.Validate()
 }
 
-func (s *SettingService) validateOIDCBillingPrerequisites(p OIDCBillingPolicy, oidcOnly, oidcEnabled bool, issuer string) error {
+func (s *SettingService) validateOIDCBillingPrerequisites(ctx context.Context, p OIDCBillingPolicy, oidcOnly, oidcEnabled bool, issuer string) error {
 	if err := p.Validate(); err != nil {
 		return err
 	}
@@ -112,10 +113,14 @@ func (s *SettingService) validateOIDCBillingPrerequisites(p OIDCBillingPolicy, o
 	if !oidcOnly || !oidcEnabled {
 		return infraerrors.BadRequest("OIDC_BILLING_REQUIRES_ONLY_MODE", "OIDC billing requires OIDC-only mode and OIDC login to remain enabled")
 	}
-	if !s.IsOIDCBillingSupported() {
+	connection, err := s.GetOIDCBillingConnectionConfig(ctx)
+	if err != nil {
+		return err
+	}
+	if !oidcBillingConnectionSupported(connection) {
 		return infraerrors.BadRequest("OIDC_BILLING_NOT_SUPPORTED", "OIDC billing requires a valid enabled billing-center connector and gateway OIDC resource server")
 	}
-	if strings.TrimSpace(issuer) != strings.TrimSpace(s.cfg.Gateway.ResourceServer.IssuerURL) {
+	if strings.TrimSpace(issuer) != strings.TrimSpace(connection.ResourceServer.IssuerURL) {
 		return infraerrors.BadRequest("OIDC_BILLING_ISSUER_MISMATCH", "OIDC login and gateway billing must use the same issuer")
 	}
 	return nil
@@ -150,7 +155,7 @@ func (s *SettingService) GetOIDCBillingPolicy(ctx context.Context) (OIDCBillingP
 	if raw := strings.TrimSpace(values[SettingKeyOIDCConnectIssuerURL]); raw != "" {
 		issuer = raw
 	}
-	return p, s.validateOIDCBillingPrerequisites(p, values[SettingKeyOIDCOnlyEnabled] == "true", oidcEnabled, issuer)
+	return p, s.validateOIDCBillingPrerequisites(ctx, p, values[SettingKeyOIDCOnlyEnabled] == "true", oidcEnabled, issuer)
 }
 
 // IsOIDCBillingEnabled is for guarding local financial features. A read failure
@@ -169,7 +174,7 @@ func (s *SettingService) IsOIDCBillingEnabled(ctx context.Context) bool {
 	return value == "true"
 }
 
-func (s *SettingService) normalizeOIDCBillingSettings(settings *SystemSettings) error {
+func (s *SettingService) normalizeOIDCBillingSettings(ctx context.Context, settings *SystemSettings) error {
 	// Existing callers that predate these fields provide zero values while off.
 	if settings.OIDCBillingRateMultiplier == 0 && !settings.OIDCBillingEnabled {
 		settings.OIDCBillingRateMultiplier = DefaultOIDCBillingRateMultiplier
@@ -185,5 +190,5 @@ func (s *SettingService) normalizeOIDCBillingSettings(settings *SystemSettings) 
 	if strings.TrimSpace(issuer) == "" && s.cfg != nil {
 		issuer = s.cfg.OIDC.IssuerURL
 	}
-	return s.validateOIDCBillingPrerequisites(p, settings.OIDCOnlyEnabled, settings.OIDCConnectEnabled, issuer)
+	return s.validateOIDCBillingPrerequisites(ctx, p, settings.OIDCOnlyEnabled, settings.OIDCConnectEnabled, issuer)
 }

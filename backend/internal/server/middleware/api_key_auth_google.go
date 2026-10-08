@@ -55,7 +55,7 @@ func gatewayAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, sub
 		apiKey, oidcPrincipal, err := resolveGatewayCredential(c.Request.Context(), apiKeyString, credential.fromAuthorization, apiKeyService, resourceServer)
 		if err != nil {
 			if errors.Is(err, service.ErrGatewayOIDCScopeDenied) {
-				requiredScopes := gatewayRequiredScopeChallenge(cfg)
+				requiredScopes := gatewayResourceScopeChallenge(c.Request.Context(), resourceServer, cfg)
 				c.Header("WWW-Authenticate", `Bearer error="insufficient_scope", scope="`+requiredScopes+`"`)
 				abortWithGoogleError(c, 403, "Token does not grant the required gateway scope")
 				return

@@ -391,6 +391,9 @@ func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	{
 		adminSettings.GET("", h.Admin.Setting.GetSettings)
 		adminSettings.PUT("", h.Admin.Setting.UpdateSettings)
+		adminSettings.GET("/oidc-billing-connection", h.Admin.Setting.GetOIDCBillingConnectionSettings)
+		adminSettings.PUT("/oidc-billing-connection", h.Admin.Setting.UpdateOIDCBillingConnectionSettings)
+		adminSettings.POST("/oidc-billing-connection/setup", h.Admin.Setting.SetupOIDCBillingConnectionSettings)
 		adminSettings.POST("/test-smtp", h.Admin.Setting.TestSMTPConnection)
 		adminSettings.POST("/send-test-email", h.Admin.Setting.SendTestEmail)
 		// Admin API Key 管理

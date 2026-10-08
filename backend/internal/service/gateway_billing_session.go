@@ -27,6 +27,9 @@ func GatewayBillingSessionFromContext(ctx context.Context) *GatewayBillingSessio
 }
 
 func (s *GatewayBillingCoordinator) Session(route GatewayBillingRoute, principal *GatewayOIDCPrincipal, proof string, binding *GatewayBillingCredential, key *APIKey) *GatewayBillingSession {
+	if route.runtime != nil && route.runtime != s {
+		return route.runtime.Session(route, principal, proof, binding, key)
+	}
 	return &GatewayBillingSession{Mode: route.Mode, Finish: s.Finish, ValidateModel: s.ValidateBillingModelCaps, Prepare: func(ctx context.Context, id string, body []byte) (*bc.Execution, []byte, error) {
 		bounded := body
 		var err error

@@ -17,6 +17,16 @@ func (s *GatewayBillingCoordinator) Credential(ctx context.Context, apiKeyID, us
 	if s == nil {
 		return nil, nil
 	}
+	if s.runtime != nil {
+		current, err := s.current(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return current.Credential(ctx, apiKeyID, userID)
+	}
+	if s.repo == nil {
+		return nil, bc.ErrState
+	}
 	return s.repo.GetBillingCredential(ctx, apiKeyID, userID)
 }
 func (c *GatewayBillingCredential) Principal() *GatewayOIDCPrincipal {

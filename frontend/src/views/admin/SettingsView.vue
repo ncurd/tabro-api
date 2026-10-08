@@ -1170,7 +1170,7 @@
                   <label class="font-medium text-gray-900 dark:text-white">{{ t('admin.settings.oidc.billingEnabled') }}</label>
                   <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('admin.settings.oidc.billingHint') }}</p>
                   <p v-if="!oidcBillingCanEnable" class="mt-1 text-xs text-amber-600 dark:text-amber-400">
-                    {{ t('admin.settings.oidc.billingPrerequisite') }}
+                    {{ oidcBillingPrerequisite }}
                   </p>
                 </div>
                 <Toggle
@@ -1195,6 +1195,159 @@
                   <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.oidc.billingTimezoneHint') }}</p>
                 </div>
               </div>
+            </div>
+
+            <div class="space-y-4 border-t border-gray-100 pt-4 dark:border-dark-700" data-testid="oidc-billing-connection">
+              <div>
+                <h3 class="font-medium text-gray-900 dark:text-white">{{ t('admin.settings.oidc.connectionTitle') }}</h3>
+                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ t('admin.settings.oidc.connectionHint') }}</p>
+              </div>
+              <p v-if="billingConnectionLoading" class="text-sm text-gray-500">{{ t('common.loading') }}</p>
+              <div v-else-if="billingConnectionLoadFailed" class="flex items-center justify-between gap-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
+                <span>{{ t('admin.settings.oidc.connectionLoadFailed') }}</span>
+                <button type="button" class="btn btn-secondary shrink-0" data-testid="oidc-billing-connection-retry" @click="loadBillingConnection">{{ t('admin.settings.oidc.connectionRetry') }}</button>
+              </div>
+              <template v-else>
+                <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                  <div>
+                    <label for="billing-auth-url" class="input-label">{{ t('admin.settings.oidc.connectionAuthUrl') }}</label>
+                    <input id="billing-auth-url" :value="savedOIDCIssuerURL" type="text" readonly class="input bg-gray-50 font-mono text-sm dark:bg-dark-800" :placeholder="t('admin.settings.oidc.connectionSavedOIDCRequired')" />
+                  </div>
+                  <div>
+                    <label for="billing-client-secret" class="input-label">{{ t('admin.settings.oidc.connectionClientSecret') }}</label>
+                    <input id="billing-client-secret" v-model="billingConnection.billing_center.client_secret" type="password" autocomplete="new-password" class="input font-mono text-sm" :placeholder="billingConnection.client_secret_configured ? t('admin.settings.oidc.clientSecretConfiguredPlaceholder') : t('admin.settings.oidc.clientSecretPlaceholder')" />
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ billingConnection.client_secret_configured ? t('admin.settings.oidc.connectionSetupSecretConfiguredHint') : t('admin.settings.oidc.connectionSetupSecretHint') }}</p>
+                  </div>
+                </div>
+                <div class="flex flex-wrap items-center gap-3">
+                  <button type="button" class="btn btn-primary" data-testid="oidc-billing-connection-setup" :disabled="billingConnectionSaving || billingConnectionSettingUp || !savedOIDCIssuerURL" @click="setupBillingConnection">
+                    {{ billingConnectionSettingUp ? t('admin.settings.oidc.connectionVerifying') : t('admin.settings.oidc.connectionSetup') }}
+                  </button>
+                  <p v-if="billingConnectionVerified" class="text-xs text-green-600 dark:text-green-400" role="status">{{ t('admin.settings.oidc.connectionVerifiedHint') }}</p>
+                  <p v-else-if="!savedOIDCIssuerURL" class="text-xs text-amber-600 dark:text-amber-400">{{ t('admin.settings.oidc.connectionSavedOIDCRequired') }}</p>
+                </div>
+                <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.oidc.connectionAPIKeyHint') }}</p>
+                <details class="rounded-lg border border-gray-200 p-4 dark:border-dark-700" data-testid="oidc-billing-connection-advanced">
+                  <summary class="cursor-pointer text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.settings.oidc.connectionAdvanced') }}</summary>
+                  <p class="mt-3 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.oidc.connectionDefaultClientHint') }}</p>
+                  <div class="mt-4 space-y-4">
+                    <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                      <div class="flex items-center justify-between gap-4 rounded-lg border border-gray-200 p-3 dark:border-dark-700">
+                        <label class="font-medium text-gray-900 dark:text-white">{{ t('admin.settings.oidc.connectionEnabled') }}</label>
+                        <Toggle v-model="billingConnection.billing_center.enabled" data-testid="oidc-billing-connector-toggle" />
+                      </div>
+                      <div class="flex items-center justify-between gap-4 rounded-lg border border-gray-200 p-3 dark:border-dark-700">
+                        <label class="font-medium text-gray-900 dark:text-white">{{ t('admin.settings.oidc.resourceServerEnabled') }}</label>
+                        <Toggle v-model="billingConnection.resource_server.enabled" data-testid="oidc-billing-resource-toggle" />
+                      </div>
+                    </div>
+                    <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                      <div>
+                        <label for="billing-base-url" class="input-label">{{ t('admin.settings.oidc.connectionBaseUrl') }}</label>
+                        <input id="billing-base-url" v-model.trim="billingConnection.billing_center.base_url" type="url" class="input font-mono text-sm" placeholder="https://auth.example.com" />
+                      </div>
+                      <div>
+                        <label for="billing-token-url" class="input-label">{{ t('admin.settings.oidc.connectionTokenUrl') }}</label>
+                        <input id="billing-token-url" v-model.trim="billingConnection.billing_center.token_url" type="url" class="input font-mono text-sm" placeholder="https://auth.example.com/connect/token" />
+                      </div>
+                      <div>
+                        <label for="billing-producer-client-id" class="input-label">{{ t('admin.settings.oidc.connectionClientId') }}</label>
+                        <input id="billing-producer-client-id" v-model.trim="billingConnection.billing_center.producer_client_id" type="text" class="input font-mono text-sm" />
+                        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.oidc.connectionClientHint') }}</p>
+                      </div>
+                      <div>
+                        <label for="billing-resource-issuer" class="input-label">{{ t('admin.settings.oidc.issuerUrl') }}</label>
+                        <input id="billing-resource-issuer" v-model.trim="billingConnection.resource_server.issuer_url" type="url" class="input font-mono text-sm" />
+                        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.oidc.connectionIssuerHint') }}</p>
+                      </div>
+                      <div>
+                        <label for="billing-resource-audience" class="input-label">{{ t('admin.settings.oidc.connectionAudience') }}</label>
+                        <input id="billing-resource-audience" v-model.trim="billingConnection.resource_server.audience" type="text" class="input font-mono text-sm" />
+                      </div>
+                      <div>
+                        <label for="billing-required-scopes" class="input-label">{{ t('admin.settings.oidc.connectionScopes') }}</label>
+                        <input id="billing-required-scopes" v-model.trim="billingConnection.resource_server.required_scopes" type="text" class="input font-mono text-sm" placeholder="llm.invoke" />
+                      </div>
+                      <div>
+                        <label for="billing-allowed-clients" class="input-label">{{ t('admin.settings.oidc.connectionAllowedClients') }}</label>
+                        <input id="billing-allowed-clients" v-model.trim="billingConnection.resource_server.allowed_client_ids" type="text" class="input font-mono text-sm" />
+                        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.oidc.connectionListHint') }}</p>
+                      </div>
+                      <div>
+                        <label for="billing-allowed-actors" class="input-label">{{ t('admin.settings.oidc.connectionAllowedActors') }}</label>
+                        <input id="billing-allowed-actors" v-model.trim="billingConnection.resource_server.token_exchange.allowed_actor_client_ids" type="text" class="input font-mono text-sm" />
+                        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.oidc.connectionActorHint') }}</p>
+                      </div>
+                    </div>
+                    <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                      <div>
+                        <label for="billing-timeout" class="input-label">{{ t('admin.settings.oidc.connectionTimeout') }}</label>
+                        <input id="billing-timeout" v-model.number="billingConnection.billing_center.timeout_seconds" type="number" min="0" max="60" class="input" />
+                      </div>
+                      <div>
+                        <label for="billing-resource-discovery" class="input-label">{{ t('admin.settings.oidc.discoveryUrl') }}</label>
+                        <input id="billing-resource-discovery" v-model.trim="billingConnection.resource_server.discovery_url" type="url" class="input font-mono text-sm" :placeholder="t('admin.settings.oidc.discoveryUrlPlaceholder')" />
+                      </div>
+                      <div>
+                        <label for="billing-resource-jwks" class="input-label">{{ t('admin.settings.oidc.jwksUrl') }}</label>
+                        <input id="billing-resource-jwks" v-model.trim="billingConnection.resource_server.jwks_url" type="url" class="input font-mono text-sm" :placeholder="t('admin.settings.oidc.connectionOptionalEndpoint')" />
+                      </div>
+                      <div>
+                        <label for="billing-signing-algs" class="input-label">{{ t('admin.settings.oidc.allowedSigningAlgs') }}</label>
+                        <input id="billing-signing-algs" v-model.trim="billingConnection.resource_server.allowed_signing_algs" type="text" class="input font-mono text-sm" placeholder="RS256,ES256,PS256" />
+                      </div>
+                      <div>
+                        <label for="billing-clock-skew" class="input-label">{{ t('admin.settings.oidc.clockSkewSeconds') }}</label>
+                        <input id="billing-clock-skew" v-model.number="billingConnection.resource_server.clock_skew_seconds" type="number" min="0" max="600" class="input" />
+                      </div>
+                      <div>
+                        <label for="billing-jwks-cache-ttl" class="input-label">{{ t('admin.settings.oidc.connectionJWKSCache') }}</label>
+                        <input id="billing-jwks-cache-ttl" v-model.number="billingConnection.resource_server.jwks_cache_ttl_seconds" type="number" min="1" class="input" />
+                      </div>
+                      <div>
+                        <label for="billing-tenant-claim" class="input-label">{{ t('admin.settings.oidc.connectionTenantClaim') }}</label>
+                        <input id="billing-tenant-claim" v-model.trim="billingConnection.resource_server.tenant_claim" type="text" class="input font-mono text-sm" />
+                      </div>
+                      <div>
+                        <label for="billing-actor-claim" class="input-label">{{ t('admin.settings.oidc.connectionActorClaim') }}</label>
+                        <input id="billing-actor-claim" v-model.trim="billingConnection.resource_server.token_exchange.actor_claim" type="text" class="input font-mono text-sm" />
+                      </div>
+                      <div>
+                        <label for="billing-delegation-depth" class="input-label">{{ t('admin.settings.oidc.connectionDelegationDepth') }}</label>
+                        <input id="billing-delegation-depth" v-model.number="billingConnection.resource_server.token_exchange.max_delegation_depth" type="number" min="1" max="8" class="input" />
+                      </div>
+                      <div class="flex items-center justify-between gap-4">
+                        <label class="input-label">{{ t('admin.settings.oidc.connectionRequireTenant') }}</label>
+                        <Toggle v-model="billingConnection.resource_server.require_tenant" data-testid="oidc-billing-require-tenant-toggle" />
+                      </div>
+                      <div class="flex items-center justify-between gap-4">
+                        <label class="input-label">{{ t('admin.settings.oidc.connectionRequireActor') }}</label>
+                        <Toggle v-model="billingConnection.resource_server.token_exchange.require_actor" data-testid="oidc-billing-require-actor-toggle" />
+                      </div>
+                      <div class="space-y-1">
+                        <div class="flex items-center justify-between gap-4">
+                          <label class="input-label">{{ t('admin.settings.oidc.connectionAutoProvision') }}</label>
+                          <Toggle v-model="billingConnection.resource_server.auto_provision" data-testid="oidc-billing-auto-provision-toggle" />
+                        </div>
+                        <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.oidc.connectionAutoProvisionHint') }}</p>
+                      </div>
+                      <div class="space-y-1">
+                        <div class="flex items-center justify-between gap-4">
+                          <label class="input-label">{{ t('admin.settings.oidc.connectionInsecureLocal') }}</label>
+                          <Toggle v-model="billingConnection.billing_center.insecure_local" />
+                        </div>
+                        <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.oidc.connectionInsecureLocalHint') }}</p>
+                      </div>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-3">
+                      <button type="button" class="btn btn-primary" data-testid="oidc-billing-connection-save" :disabled="billingConnectionSaving || billingConnectionSettingUp" @click="saveBillingConnection">
+                        {{ billingConnectionSaving ? t('admin.settings.saving') : t('admin.settings.oidc.connectionSave') }}
+                      </button>
+                      <p v-if="billingConnectionSaved" class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.oidc.connectionSavedHint') }}</p>
+                    </div>
+                  </div>
+                </details>
+              </template>
             </div>
 
             <div
@@ -2939,6 +3092,8 @@ import { adminAPI } from '@/api'
 import type {
   SystemSettings,
   UpdateSettingsRequest,
+  OIDCBillingConnection,
+  OIDCBillingConnectionRequest,
   DefaultSubscriptionSetting,
   WebSearchEmulationConfig,
   WebSearchProviderConfig,
@@ -3588,8 +3743,172 @@ async function handleInterfaceLanguageChange(event: Event) {
 
 const oidcOnlyCanEnable = ref(false)
 const savedOIDCOnlyEnabled = ref(false)
+const savedOIDCIssuerURL = ref('')
 const oidcBillingCanEnable = computed(() => savedOIDCOnlyEnabled.value
   && form.oidc_only_enabled && form.oidc_connect_enabled && form.oidc_billing_supported)
+const oidcBillingPrerequisite = computed(() => !savedOIDCOnlyEnabled.value || !form.oidc_only_enabled || !form.oidc_connect_enabled
+  ? t('admin.settings.oidc.billingRequiresOnly')
+  : t('admin.settings.oidc.billingRequiresConnection'))
+
+const billingConnectionLoading = ref(true)
+const billingConnectionLoadFailed = ref(false)
+const billingConnectionSaving = ref(false)
+const billingConnectionSaved = ref(false)
+const billingConnectionSettingUp = ref(false)
+const billingConnectionVerified = ref(false)
+const billingConnection = ref<OIDCBillingConnection>({
+  billing_center: {
+    enabled: false, base_url: '', token_url: '', producer_client_id: 'tabro-api-gateway',
+    client_secret: '', timeout_seconds: 15, insecure_local: false
+  },
+  resource_server: {
+    enabled: false, auto_provision: false, issuer_url: '', discovery_url: '', jwks_url: '',
+    audience: 'tabro-llm', required_scopes: 'llm.invoke', allowed_client_ids: '',
+    allowed_signing_algs: 'RS256,ES256,PS256', clock_skew_seconds: 120,
+    jwks_cache_ttl_seconds: 300, tenant_claim: 'tenant_id', require_tenant: false,
+    token_exchange: { require_actor: true, actor_claim: 'act', allowed_actor_client_ids: '', max_delegation_depth: 4 }
+  },
+  client_secret_configured: false,
+  source: 'config',
+  oidc_billing_supported: false
+})
+
+function applyBillingConnection(connection: OIDCBillingConnection) {
+  billingConnection.value = {
+    ...connection,
+    billing_center: { ...connection.billing_center, client_secret: '' },
+    resource_server: {
+      ...connection.resource_server,
+      issuer_url: connection.resource_server.issuer_url || form.oidc_connect_issuer_url,
+      token_exchange: { ...connection.resource_server.token_exchange }
+    }
+  }
+  form.oidc_billing_supported = connection.oidc_billing_supported
+}
+
+async function loadBillingConnection() {
+  billingConnectionLoading.value = true
+  billingConnectionLoadFailed.value = false
+  try {
+    applyBillingConnection(await adminAPI.settings.getOIDCBillingConnection())
+  } catch {
+    billingConnectionLoadFailed.value = true
+  } finally {
+    billingConnectionLoading.value = false
+  }
+}
+
+function validBillingEndpoint(raw: string, insecureLocal: boolean): boolean {
+  try {
+    const endpoint = new URL(raw)
+    const local = endpoint.hostname === 'localhost' || endpoint.hostname === '[::1]' || /^127(?:\.\d{1,3}){3}$/.test(endpoint.hostname)
+    return !!endpoint.hostname && !endpoint.username && !endpoint.password && !endpoint.search && !endpoint.hash
+      && (endpoint.protocol === 'https:' || endpoint.protocol === 'http:' && insecureLocal && local)
+  } catch {
+    return false
+  }
+}
+
+function validResourceEndpoint(raw: string, issuer?: string): boolean {
+  try {
+    const endpoint = new URL(raw)
+    return !!endpoint.hostname && !endpoint.username && !endpoint.password && !endpoint.hash
+      && ['http:', 'https:'].includes(endpoint.protocol)
+      && (!issuer || !issuer.startsWith('https:') || endpoint.protocol === 'https:')
+  } catch {
+    return false
+  }
+}
+
+function billingConnectionValidationError(): string | null {
+  const { billing_center: center, resource_server: resource } = billingConnection.value
+  const entries = (value: string) => value.split(/[\s,;]+/).filter(Boolean)
+  const integerInRange = (value: number, min: number, max: number) => Number.isInteger(value) && value >= min && value <= max
+  if (center.enabled) {
+    if (!center.producer_client_id.trim() || !center.client_secret.trim() && !billingConnection.value.client_secret_configured) return 'connectionCredentialsRequired'
+    if (!validBillingEndpoint(center.base_url, center.insecure_local) || !validBillingEndpoint(center.token_url, center.insecure_local)) return 'connectionEndpointsInvalid'
+    if (!integerInRange(center.timeout_seconds, 0, 60)) return 'connectionTimeoutInvalid'
+  }
+  if (resource.enabled) {
+    if (!validResourceEndpoint(resource.issuer_url) || new URL(resource.issuer_url).search
+      || resource.discovery_url && !validResourceEndpoint(resource.discovery_url, resource.issuer_url)
+      || resource.jwks_url && !validResourceEndpoint(resource.jwks_url, resource.issuer_url)) return 'connectionResourceUrlsInvalid'
+    if (!resource.audience || !entries(resource.required_scopes).length || !entries(resource.allowed_client_ids).length) return 'connectionResourceRequired'
+    if (entries(resource.required_scopes).some(scope => /[^\x21-\x7e]|["\\]/.test(scope))) return 'connectionScopesInvalid'
+    const algorithms = entries(resource.allowed_signing_algs)
+    if (!algorithms.length || algorithms.some(algorithm => !['RS256', 'ES256', 'PS256'].includes(algorithm))) return 'connectionAlgorithmsInvalid'
+    if (!integerInRange(resource.clock_skew_seconds, 0, 600) || !Number.isInteger(resource.jwks_cache_ttl_seconds) || resource.jwks_cache_ttl_seconds <= 0) return 'connectionCacheInvalid'
+    if (resource.require_tenant && !resource.tenant_claim) return 'connectionTenantRequired'
+    if (!resource.token_exchange.actor_claim || !integerInRange(resource.token_exchange.max_delegation_depth, 1, 8)
+      || resource.token_exchange.require_actor && !entries(resource.token_exchange.allowed_actor_client_ids).length) return 'connectionActorRequired'
+  }
+  if (resource.auto_provision && (!center.enabled || !resource.enabled || !resource.require_tenant
+    || !resource.token_exchange.require_actor || resource.token_exchange.max_delegation_depth !== 1)) return 'connectionAutoProvisionInvalid'
+  return null
+}
+
+async function saveBillingConnection() {
+  if (billingConnectionLoading.value || billingConnectionLoadFailed.value || billingConnectionSaving.value || billingConnectionSettingUp.value) return
+  const validationError = billingConnectionValidationError()
+  if (validationError) {
+    appStore.showError(t(`admin.settings.oidc.${validationError}`))
+    return
+  }
+  billingConnectionSaving.value = true
+  billingConnectionSaved.value = false
+  try {
+    const payload: OIDCBillingConnectionRequest = {
+      billing_center: { ...billingConnection.value.billing_center },
+      resource_server: {
+        ...billingConnection.value.resource_server,
+        token_exchange: { ...billingConnection.value.resource_server.token_exchange }
+      }
+    }
+    applyBillingConnection(await adminAPI.settings.updateOIDCBillingConnection(payload))
+    billingConnectionSaved.value = true
+    billingConnectionVerified.value = false
+    appStore.showSuccess(t('admin.settings.oidc.connectionSaved'))
+  } catch (error: unknown) {
+    appStore.showError(extractApiErrorMessage(error, t('admin.settings.oidc.connectionSaveFailed')))
+  } finally {
+    billingConnectionSaving.value = false
+  }
+}
+
+async function setupBillingConnection() {
+  if (billingConnectionLoading.value || billingConnectionLoadFailed.value || billingConnectionSaving.value || billingConnectionSettingUp.value) return
+  if (!savedOIDCIssuerURL.value) {
+    appStore.showError(t('admin.settings.oidc.connectionSavedOIDCRequired'))
+    return
+  }
+  const clientSecret = billingConnection.value.billing_center.client_secret
+  if (!clientSecret.trim() && !billingConnection.value.client_secret_configured) {
+    appStore.showError(t('admin.settings.oidc.connectionSetupSecretRequired'))
+    return
+  }
+  billingConnectionSettingUp.value = true
+  billingConnectionVerified.value = false
+  try {
+    applyBillingConnection(await adminAPI.settings.setupOIDCBillingConnection(clientSecret))
+    billingConnectionSaved.value = false
+    billingConnectionVerified.value = true
+    appStore.showSuccess(t('admin.settings.oidc.connectionVerified'))
+  } catch (error: unknown) {
+    const reason = error && typeof error === 'object' && 'reason' in error ? String(error.reason) : ''
+    const setupErrors: Record<string, string> = {
+      OIDC_BILLING_SETUP_REQUIRES_OIDC: t('admin.settings.oidc.connectionSetupRequiresOIDC'),
+      OIDC_BILLING_SETUP_INVALID_ISSUER: t('admin.settings.oidc.connectionSetupInvalidIssuer'),
+      OIDC_BILLING_SETUP_SECRET_REQUIRED: t('admin.settings.oidc.connectionSetupSecretRequired'),
+      OIDC_BILLING_SETUP_DISCOVERY_FAILED: t('admin.settings.oidc.connectionSetupDiscoveryFailed'),
+      OIDC_BILLING_SETUP_UNTRUSTED_ENDPOINT: t('admin.settings.oidc.connectionSetupUntrustedEndpoint'),
+      OIDC_BILLING_SETUP_CREDENTIALS_REJECTED: t('admin.settings.oidc.connectionSetupCredentialsRejected'),
+      OIDC_BILLING_SETUP_CONFIG_CHANGED: t('admin.settings.oidc.connectionSetupConfigChanged')
+    }
+    appStore.showError(setupErrors[reason] || extractApiErrorMessage(error, t('admin.settings.oidc.connectionSetupFailed')))
+  } finally {
+    billingConnectionSettingUp.value = false
+  }
+}
 
 function hasSavedOIDCConfiguration(settings: SystemSettings): boolean {
   const requiredFields = [
@@ -3610,6 +3929,7 @@ async function loadSettings() {
     const settings = await adminAPI.settings.getSettings()
     oidcOnlyCanEnable.value = hasSavedOIDCConfiguration(settings)
     savedOIDCOnlyEnabled.value = settings.oidc_only_enabled === true
+    savedOIDCIssuerURL.value = settings.oidc_connect_issuer_url || ''
     settings.payment_load_balance_strategy = settings.payment_load_balance_strategy || 'round-robin'
     // Only assign non-null values from backend (null means unconfigured, keep defaults)
     for (const [key, value] of Object.entries(settings)) {
@@ -3641,6 +3961,8 @@ async function loadSettings() {
     form.turnstile_secret_key = ''
     form.linuxdo_connect_client_secret = ''
     form.oidc_connect_client_secret = ''
+
+    await loadBillingConnection()
 
     // Load web search emulation config separately
     await loadWebSearchConfig()
@@ -3686,7 +4008,7 @@ async function saveSettings() {
       return
     }
     if (form.oidc_billing_enabled && !oidcBillingCanEnable.value) {
-      appStore.showError(t('admin.settings.oidc.billingPrerequisite'))
+      appStore.showError(oidcBillingPrerequisite.value)
       return
     }
     if (!Number.isFinite(form.oidc_billing_rate_multiplier) || form.oidc_billing_rate_multiplier <= 0) {
@@ -3868,6 +4190,7 @@ async function saveSettings() {
     const updated = await adminAPI.settings.updateSettings(payload)
     oidcOnlyCanEnable.value = hasSavedOIDCConfiguration(updated)
     savedOIDCOnlyEnabled.value = updated.oidc_only_enabled === true
+    savedOIDCIssuerURL.value = updated.oidc_connect_issuer_url || ''
     for (const [key, value] of Object.entries(updated)) {
       if (value !== null && value !== undefined) {
         (form as Record<string, unknown>)[key] = value

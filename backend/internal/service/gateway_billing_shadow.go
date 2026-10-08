@@ -25,6 +25,16 @@ func (s *GatewayBillingCoordinator) runShadowEstimates(ctx context.Context) {
 	}
 }
 func (s *GatewayBillingCoordinator) ReconcileShadows(ctx context.Context) error {
+	if s.runtime != nil {
+		current, err := s.current(ctx)
+		if err != nil {
+			return err
+		}
+		return current.ReconcileShadows(ctx)
+	}
+	if !s.enabled || s.authority == nil {
+		return nil
+	}
 	rows, err := s.repo.PendingBillingShadows(ctx, 20)
 	if err != nil {
 		return err

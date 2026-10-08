@@ -21,6 +21,8 @@ type GatewayBillingRoute struct {
 	// DynamicAuthority means Auth selects the payer and owner epoch from a
 	// verified subject proof at Quote time. It is never persisted as a route.
 	DynamicAuthority bool
+	// runtime pins the connector for the entire request, including WebSocket turns.
+	runtime *GatewayBillingCoordinator
 }
 type GatewayBillingRepository interface {
 	bc.OperationStore
@@ -59,9 +61,16 @@ type GatewayBillingCoordinator struct {
 	cancel       context.CancelFunc
 	done         chan struct{}
 	stop         sync.Once
+	runtime      *gatewayBillingRuntime
+	owner        *gatewayBillingRuntime
+	connection   OIDCBillingConnectionConfig
 }
 
 func ProvideGatewayBillingCoordinator(cfg *config.Config, repo GatewayBillingRepository, pricing *PricingService, gateway *GatewayService, settings *SettingService) (*GatewayBillingCoordinator, error) {
+	return provideGatewayBillingRuntime(cfg, repo, pricing, gateway, settings)
+}
+
+func newGatewayBillingCoordinator(cfg *config.Config, repo GatewayBillingRepository, pricing *PricingService, gateway *GatewayService, settings *SettingService) (*GatewayBillingCoordinator, error) {
 	s := &GatewayBillingCoordinator{repo: repo, pricing: pricing, creditPricer: &gatewayCreditPriceCalculator{gateway: gateway}, settings: settings, producer: cfg.BillingCenter.ProducerClientID, enabled: cfg.BillingCenter.Enabled}
 	if !s.enabled {
 		return s, nil
@@ -100,6 +109,10 @@ func (s *GatewayBillingCoordinator) Stop() {
 	if s == nil {
 		return
 	}
+	if s.runtime != nil {
+		s.runtime.close()
+		return
+	}
 	s.stop.Do(func() {
 		if s.cancel != nil {
 			s.cancel()
@@ -109,6 +122,16 @@ func (s *GatewayBillingCoordinator) Stop() {
 }
 
 func (s *GatewayBillingCoordinator) ShadowFailure(ctx context.Context, route GatewayBillingRoute, operationID, payloadHash, stage string) error {
+	if route.runtime != nil && route.runtime != s {
+		return route.runtime.ShadowFailure(ctx, route, operationID, payloadHash, stage)
+	}
+	if s.runtime != nil {
+		current, err := s.current(ctx)
+		if err != nil {
+			return err
+		}
+		return current.ShadowFailure(ctx, route, operationID, payloadHash, stage)
+	}
 	return s.repo.RecordBillingShadowFailure(ctx, route, bc.Key{ProducerClientID: s.producer, OriginAppID: route.OriginAppID, OperationID: operationID}, payloadHash, stage)
 }
 
@@ -118,6 +141,17 @@ func (s *GatewayBillingCoordinator) ShadowFailure(ctx context.Context, route Gat
 func (s *GatewayBillingCoordinator) Route(ctx context.Context, userID int64) (*GatewayBillingRoute, error) {
 	if s == nil {
 		return nil, nil
+	}
+	if s.runtime != nil {
+		current, err := s.current(ctx)
+		if err != nil {
+			return nil, err
+		}
+		route, err := current.Route(ctx, userID)
+		if route != nil {
+			route.runtime = current
+		}
+		return route, err
 	}
 	if s.repo == nil {
 		return nil, bc.ErrState
@@ -141,6 +175,20 @@ func (s *GatewayBillingCoordinator) RouteForPrincipal(ctx context.Context, userI
 			return nil, bc.ErrState
 		}
 		return nil, nil
+	}
+	if s.runtime != nil {
+		current, err := s.current(ctx)
+		if err != nil {
+			return nil, err
+		}
+		route, err := current.RouteForPrincipal(ctx, userID, p)
+		if route != nil {
+			route.runtime = current
+		}
+		return route, err
+	}
+	if s.owner != nil && s.connection.ResourceServer.Enabled && p != nil && p.ClientID != "legacy-api-key" && p.Issuer != s.connection.ResourceServer.IssuerURL {
+		return nil, bc.ErrConflict
 	}
 	policy, err := s.oidcBillingPolicy(ctx)
 	if err != nil {
@@ -220,6 +268,29 @@ func (s *GatewayBillingCoordinator) PrepareForKey(ctx context.Context, route Gat
 }
 
 func (s *GatewayBillingCoordinator) prepareWithQuote(ctx context.Context, route GatewayBillingRoute, principal *GatewayOIDCPrincipal, proof, path, operationID string, body []byte, providedQuote *bc.QuoteRequest, apiKey *APIKey, credentials ...*GatewayBillingCredential) (*bc.Execution, error) {
+	if route.runtime != nil && route.runtime != s {
+		return route.runtime.prepareWithQuote(ctx, route, principal, proof, path, operationID, body, providedQuote, apiKey, credentials...)
+	}
+	if s.runtime != nil {
+		current, err := s.current(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return current.prepareWithQuote(ctx, route, principal, proof, path, operationID, body, providedQuote, apiKey, credentials...)
+	}
+	if s.owner != nil {
+		s.owner.admission.RLock()
+		defer s.owner.admission.RUnlock()
+		s.owner.mu.Lock()
+		current, err := s.owner.refreshLocked(ctx)
+		s.owner.mu.Unlock()
+		if err != nil {
+			return nil, err
+		}
+		if !current.enabled || !sameBillingAuthority(s.connection, current.connection) {
+			return nil, bc.ErrState
+		}
+	}
 	policy, err := s.oidcBillingPolicy(ctx)
 	if err != nil {
 		return nil, err
@@ -382,7 +453,14 @@ func (s *GatewayBillingCoordinator) Finish(ctx context.Context, e *bc.Execution)
 	if e.HandedOff() {
 		return nil
 	}
-	op, err := s.repo.Get(ctx, e.Key)
+	repo := s.repo
+	if pinned, ok := e.Coordinator.Store.(GatewayBillingRepository); ok {
+		repo = pinned
+	}
+	if repo == nil {
+		return bc.ErrState
+	}
+	op, err := repo.Get(ctx, e.Key)
 	if err != nil {
 		return err
 	}
@@ -392,13 +470,13 @@ func (s *GatewayBillingCoordinator) Finish(ctx context.Context, e *bc.Execution)
 		if err != nil {
 			return err
 		}
-		_, err = s.repo.Enqueue(ctx, event)
+		_, err = repo.Enqueue(ctx, event)
 		return err
 	case bc.Dispatching, bc.Dispatched:
 		if !e.DispatchGranted() {
 			return nil
 		}
-		return s.repo.MarkReconciliation(ctx, e.Key, op.Version)
+		return repo.MarkReconciliation(ctx, e.Key, op.Version)
 	default:
 		return nil
 	}
@@ -407,6 +485,13 @@ func (s *GatewayBillingCoordinator) Finish(ctx context.Context, e *bc.Execution)
 // Restore reconstructs a worker's non-secret execution identity from the
 // durable job snapshot and verifies it against the original operation.
 func (s *GatewayBillingCoordinator) Restore(ctx context.Context, snapshot *bc.ExecutionSnapshot) (*bc.Execution, error) {
+	if s != nil && s.runtime != nil {
+		current, err := s.current(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return current.Restore(ctx, snapshot)
+	}
 	if s == nil || snapshot == nil || snapshot.Key.ProducerClientID != s.producer {
 		return nil, bc.ErrConflict
 	}

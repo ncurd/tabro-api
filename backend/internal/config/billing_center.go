@@ -10,23 +10,23 @@ import (
 // BillingCenterConfig enables the connector, never changes an account's mode.
 // Account ownership/mode remains a database decision even when disabled.
 type BillingCenterConfig struct {
-	Enabled          bool                        `mapstructure:"enabled"`
-	BaseURL          string                      `mapstructure:"base_url"`
-	TokenURL         string                      `mapstructure:"token_url"`
-	ProducerClientID string                      `mapstructure:"producer_client_id"`
-	ClientSecret     string                      `mapstructure:"client_secret"`
-	TimeoutSeconds   int                         `mapstructure:"timeout_seconds"`
-	InsecureLocal    bool                        `mapstructure:"insecure_local"`
-	Payments         BillingCenterPaymentsConfig `mapstructure:"payments"`
+	Enabled          bool                        `mapstructure:"enabled" json:"enabled"`
+	BaseURL          string                      `mapstructure:"base_url" json:"base_url"`
+	TokenURL         string                      `mapstructure:"token_url" json:"token_url"`
+	ProducerClientID string                      `mapstructure:"producer_client_id" json:"producer_client_id"`
+	ClientSecret     string                      `mapstructure:"client_secret" json:"client_secret"`
+	TimeoutSeconds   int                         `mapstructure:"timeout_seconds" json:"timeout_seconds"`
+	InsecureLocal    bool                        `mapstructure:"insecure_local" json:"insecure_local"`
+	Payments         BillingCenterPaymentsConfig `mapstructure:"payments" json:"-"`
 }
 
 // Payment adapters use a separate least-privileged billing.credit client.
 type BillingCenterPaymentsConfig struct {
-	Enabled              bool   `mapstructure:"enabled"`
-	ProducerClientID     string `mapstructure:"producer_client_id"`
-	ClientSecret         string `mapstructure:"client_secret"`
-	CallbackBaseURL      string `mapstructure:"callback_base_url"`
-	AccountCenterBaseURL string `mapstructure:"account_center_base_url"`
+	Enabled              bool   `mapstructure:"enabled" json:"enabled"`
+	ProducerClientID     string `mapstructure:"producer_client_id" json:"producer_client_id"`
+	ClientSecret         string `mapstructure:"client_secret" json:"client_secret"`
+	CallbackBaseURL      string `mapstructure:"callback_base_url" json:"callback_base_url"`
+	AccountCenterBaseURL string `mapstructure:"account_center_base_url" json:"account_center_base_url"`
 }
 
 func (c BillingCenterConfig) Validate() error {

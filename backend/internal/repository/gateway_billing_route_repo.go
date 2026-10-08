@@ -14,6 +14,22 @@ import (
 func ProvideGatewayBillingRepository(db *sql.DB, cfg *config.Config) service.GatewayBillingRepository {
 	return NewBillingCenterRepository(db, cfg.BillingCenter.ProducerClientID)
 }
+
+// WithBillingProducer scopes all operation and outbox access to an immutable
+// producer identity without mutating a repository used by in-flight requests.
+func (r *BillingCenterRepository) WithBillingProducer(producer string) service.GatewayBillingRepository {
+	return NewBillingCenterRepository(r.db, producer)
+}
+
+// Check all producers, including historical identities that must still settle.
+func (r *BillingCenterRepository) HasPendingBillingOperations(ctx context.Context) (bool, error) {
+	var pending bool
+	err := r.db.QueryRowContext(ctx, `SELECT
+ EXISTS(SELECT 1 FROM billing_center_operations WHERE state NOT IN ('settled','released')) OR
+ EXISTS(SELECT 1 FROM billing_center_outbox WHERE status NOT IN ('delivered','superseded')) OR
+ EXISTS(SELECT 1 FROM billing_center_shadow_observations WHERE central_estimate IS NULL)`).Scan(&pending)
+	return pending, err
+}
 func (r *BillingCenterRepository) GetBillingRoute(ctx context.Context, userID int64) (*service.GatewayBillingRoute, error) {
 	var route service.GatewayBillingRoute
 	err := r.db.QueryRowContext(ctx, `SELECT local_user_id,billing_mode,oidc_issuer,actor_user_id,tenant_id,origin_app_id,billing_account_id,owner_epoch FROM billing_center_account_routes WHERE local_user_id=$1`, userID).Scan(&route.LocalUserID, &route.Mode, &route.Issuer, &route.ActorUserID, &route.TenantID, &route.OriginAppID, &route.BillingAccountID, &route.OwnerEpoch)

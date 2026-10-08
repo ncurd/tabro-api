@@ -99,6 +99,16 @@ func (r *oidcOnlyAdminSettingRepo) GetAll(context.Context) (map[string]string, e
 	return values, nil
 }
 
+func (r *oidcOnlyAdminSettingRepo) GetMultiple(_ context.Context, keys []string) (map[string]string, error) {
+	values := make(map[string]string, len(keys))
+	for _, key := range keys {
+		if value, exists := r.values[key]; exists {
+			values[key] = value
+		}
+	}
+	return values, nil
+}
+
 func (r *oidcOnlyAdminSettingRepo) SetMultiple(_ context.Context, values map[string]string) error {
 	r.setCalls++
 	for key, value := range values {

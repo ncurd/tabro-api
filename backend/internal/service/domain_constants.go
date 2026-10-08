@@ -114,6 +114,7 @@ const (
 	SettingKeyLinuxDoConnectRedirectURL  = "linuxdo_connect_redirect_url"
 
 	// Generic OIDC OAuth 登录设置
+	SettingKeyOIDCBillingConnection           = "oidc_billing_connection"
 	SettingKeyOIDCBillingEnabled              = "oidc_billing_enabled"
 	SettingKeyOIDCBillingRateMultiplier       = "oidc_billing_rate_multiplier"
 	SettingKeyOIDCBillingSettlementTime       = "oidc_billing_settlement_time"

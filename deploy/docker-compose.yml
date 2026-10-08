@@ -32,7 +32,8 @@ services:
       # Optional: Mount custom config.yaml (uncomment and create the file first)
       # Copy config.example.yaml to config.yaml, modify it, then uncomment:
       # - ./config.yaml:/app/data/config.yaml
-      # Resource Server trust policy must be set in this YAML file, not .env.
+      # Initial Resource Server policy belongs in YAML; administrator settings
+      # can override it at runtime. Environment overrides are unsupported.
       # Optional: Mount a custom Codex instructions template file, then point
       # gateway.forced_codex_instructions_template_file at /app/data/codex-instructions.md.tmpl
       # in config.yaml.

@@ -81,7 +81,18 @@ func gatewayRequiredScopeChallenge(cfg *config.Config) string {
 	if cfg == nil {
 		return "llm.invoke"
 	}
-	scopes := strings.FieldsFunc(cfg.Gateway.ResourceServer.RequiredScopes, func(r rune) bool {
+	return normalizeGatewayScopeChallenge(cfg.Gateway.ResourceServer.RequiredScopes)
+}
+
+func gatewayResourceScopeChallenge(ctx context.Context, server *service.GatewayResourceServer, cfg *config.Config) string {
+	if server != nil {
+		return normalizeGatewayScopeChallenge(server.CurrentRequiredScopes(ctx))
+	}
+	return gatewayRequiredScopeChallenge(cfg)
+}
+
+func normalizeGatewayScopeChallenge(raw string) string {
+	scopes := strings.FieldsFunc(raw, func(r rune) bool {
 		return r == ',' || r == ';' || r == ' ' || r == '\t' || r == '\n' || r == '\r'
 	})
 	if len(scopes) == 0 {

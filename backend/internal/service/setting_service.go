@@ -8,10 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"net/url"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -105,13 +107,17 @@ type WebSearchManagerBuilder func(cfg *WebSearchEmulationConfig, proxyURLs map[i
 
 // SettingService 系统设置服务
 type SettingService struct {
-	settingRepo             SettingRepository
-	defaultSubGroupReader   DefaultSubscriptionGroupReader
-	proxyRepo               ProxyRepository // for resolving websearch provider proxy URLs
-	cfg                     *config.Config
-	onUpdate                func() // Callback when settings are updated (for cache invalidation)
-	version                 string // Application version
-	webSearchManagerBuilder WebSearchManagerBuilder
+	settingRepo                      SettingRepository
+	defaultSubGroupReader            DefaultSubscriptionGroupReader
+	proxyRepo                        ProxyRepository // for resolving websearch provider proxy URLs
+	cfg                              *config.Config
+	onUpdate                         func() // Callback when settings are updated (for cache invalidation)
+	version                          string // Application version
+	webSearchManagerBuilder          WebSearchManagerBuilder
+	oidcBillingConnectionUpdateMu    sync.Mutex
+	oidcBillingConnectionValidator   func(context.Context, OIDCBillingConnectionConfig, OIDCBillingConnectionConfig) error
+	oidcBillingConnectionUpdateGuard func() func()
+	oidcBillingSetupTransport        http.RoundTripper
 }
 
 // NewSettingService 创建系统设置服务实例
@@ -186,6 +192,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeyBackendModeEnabled,
 		SettingPaymentEnabled,
 		SettingKeyOIDCOnlyEnabled,
+		SettingKeyOIDCBillingConnection,
 		SettingKeyOIDCBillingEnabled,
 		SettingKeyOIDCBillingRateMultiplier,
 		SettingKeyOIDCBillingSettlementTime,
@@ -224,6 +231,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 	}
 	oidcOnlyEnabled := settings[SettingKeyOIDCOnlyEnabled] == "true"
 	oidcBilling, _ := oidcBillingPolicyFromSettings(settings)
+	connection, _, connectionErr := s.oidcBillingConnectionFromValues(settings)
 
 	// Password reset requires email verification to be enabled
 	emailVerifyEnabled := settings[SettingKeyEmailVerifyEnabled] == "true"
@@ -270,7 +278,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		LinuxDoOAuthEnabled:              !internalOnly && !oidcOnlyEnabled && linuxDoEnabled,
 		OIDCOnlyEnabled:                  oidcOnlyEnabled,
 		OIDCBillingEnabled:               oidcBilling.Enabled,
-		OIDCBillingSupported:             s.IsOIDCBillingSupported(),
+		OIDCBillingSupported:             connectionErr == nil && oidcBillingConnectionSupported(connection),
 		OIDCBillingRateMultiplier:        oidcBilling.RateMultiplier,
 		OIDCBillingSettlementTime:        oidcBilling.SettlementTime,
 		OIDCBillingSettlementTimezone:    oidcBilling.SettlementTimezone,
@@ -516,7 +524,11 @@ func parseCustomMenuItemURLs(raw string) []string {
 
 // UpdateSettings 更新系统设置
 func (s *SettingService) UpdateSettings(ctx context.Context, settings *SystemSettings) error {
-	if err := s.normalizeOIDCBillingSettings(settings); err != nil {
+	// Serialize billing policy changes with connector edits. Each validation
+	// must observe the connection/policy that will remain current at commit.
+	s.oidcBillingConnectionUpdateMu.Lock()
+	defer s.oidcBillingConnectionUpdateMu.Unlock()
+	if err := s.normalizeOIDCBillingSettings(ctx, settings); err != nil {
 		return err
 	}
 	if err := s.validateDefaultSubscriptionGroups(ctx, settings.DefaultSubscriptions); err != nil {
@@ -1066,12 +1078,13 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 // parseSettings 解析设置到结构体
 func (s *SettingService) parseSettings(settings map[string]string) *SystemSettings {
 	oidcBilling, _ := oidcBillingPolicyFromSettings(settings)
+	connection, _, connectionErr := s.oidcBillingConnectionFromValues(settings)
 	emailVerifyEnabled := settings[SettingKeyEmailVerifyEnabled] == "true"
 	result := &SystemSettings{
 		RegistrationEnabled:              settings[SettingKeyRegistrationEnabled] == "true",
 		OIDCOnlyEnabled:                  settings[SettingKeyOIDCOnlyEnabled] == "true",
 		OIDCBillingEnabled:               oidcBilling.Enabled,
-		OIDCBillingSupported:             s.IsOIDCBillingSupported(),
+		OIDCBillingSupported:             connectionErr == nil && oidcBillingConnectionSupported(connection),
 		OIDCBillingRateMultiplier:        oidcBilling.RateMultiplier,
 		OIDCBillingSettlementTime:        oidcBilling.SettlementTime,
 		OIDCBillingSettlementTimezone:    oidcBilling.SettlementTimezone,
