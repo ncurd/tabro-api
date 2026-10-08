@@ -366,6 +366,23 @@ export default {
     paymentPlans: 'Plans'
   },
 
+  oidcAccount: {
+    availableCredits: 'Available credits',
+    creditDetails: 'View credit details in Auth',
+    accountMenu: 'Account menu',
+    topUpsAndPlans: 'Top-ups and plans',
+    ordersAndInvoices: 'Orders and invoices',
+    accountAndBills: 'Account and bills',
+    profile: 'Profile',
+    securitySettings: 'Security settings',
+    apiAdministration: 'API administration',
+    loading: 'Loading available credits',
+    unavailable: 'Available credits are temporarily unavailable',
+    unlinked: 'No Auth billing account is linked to this login',
+    identityMismatch: 'Sign in to Auth with the same account as this API session, then refresh credits.',
+    refresh: 'Refresh available credits'
+  },
+
   // Auth
   auth: {
     welcomeBack: 'Welcome Back',
@@ -723,10 +740,19 @@ export default {
   },
 
   // Usage
+  modelPricing: {
+    oidcDescription: 'Available model prices include your effective group rate and the OIDC billing multiplier, in Auth credits.',
+    oidcNotice: 'Prices already include the {multiplier} OIDC multiplier. Usage statistics and billing details use the multiplier recorded for each request; changing the current multiplier does not change historical charges.',
+    oidcIncluded: 'Includes OIDC {multiplier}'
+  },
   usage: {
     title: 'Usage Records',
     description: 'View and analyze your API usage history',
     costDetails: 'Cost Breakdown',
+    centralPriceNotice: 'Line costs and unit prices include the final multiplier recorded for this request. Historical charges do not change with the current configuration.',
+    finalRate: 'Final billing rate',
+    baseCost: 'Base cost',
+    billingSource: 'Billing source',
     tokenDetails: 'Token Breakdown',
     cacheTtlOverriddenHint: 'Cache TTL Override enabled',
     cacheTtlOverriddenLabel: 'TTL Override',
@@ -3470,6 +3496,7 @@ export default {
       billingTypeSubscription: 'Subscription',
       billingMode: 'Billing Mode',
       billingModeToken: 'Token',
+      billingModeCentral: 'Central billing',
       billingModePerRequest: 'Per Request',
       billingModeImage: 'Image',
       billingModeVideo: 'Video (per second)',
@@ -4449,7 +4476,7 @@ export default {
         "billingMultiplierInvalid": "The billing multiplier must be a finite number greater than 0.",
         "billingTimeInvalid": "Use HH:MM for settlement time, for example 00:00.",
         "billingTimezoneInvalid": "Enter a valid settlement timezone, for example Asia/Shanghai.",
-        "billingUserNotice": "Auth credits are charged with a {multiplier}× billing multiplier. Calls reserve credits first and settle daily at {time} ({timezone}). Local credits, subscriptions and coupons do not apply.",
+        "billingUserNotice": "Current model prices include the {multiplier}× Auth billing multiplier. Actual usage costs and billing details use the multiplier recorded for each request, so changing it does not affect historical charges. Calls reserve credits first and settle daily at {time} ({timezone}). Local credits, subscriptions and coupons do not apply.",
         onlyEnabled: 'OIDC-only mode',
         onlyEnabledHint: 'Save and enable OIDC, then sign out and sign back in as an administrator via OIDC. This mode disables local login, registration, password reset, and LinuxDo. Turn this mode off before changing key OIDC settings.',
         onlyPrerequisite: 'First save and enable OIDC, then sign back in to this administrator account through OIDC.',

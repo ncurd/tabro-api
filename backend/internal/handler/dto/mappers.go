@@ -606,12 +606,20 @@ func usageLogFromServiceUser(l *service.UsageLog) UsageLog {
 		UserAgent:             l.UserAgent,
 		CacheTTLOverridden:    l.CacheTTLOverridden,
 		BillingMode:           l.BillingMode,
+		BillingSource:         usageLogBillingSource(l),
 		CreatedAt:             l.CreatedAt,
 		User:                  UserFromServiceShallow(l.User),
 		APIKey:                APIKeyFromService(l.APIKey),
 		Group:                 GroupFromServiceShallow(l.Group),
 		Subscription:          UserSubscriptionFromService(l.Subscription),
 	}
+}
+
+func usageLogBillingSource(l *service.UsageLog) string {
+	if l.BillingSource == "central" || l.BillingMode != nil && *l.BillingMode == "central" {
+		return "central"
+	}
+	return "local"
 }
 
 // UsageLogFromService converts a service UsageLog to DTO for regular users.

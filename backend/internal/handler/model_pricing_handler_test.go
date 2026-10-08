@@ -44,6 +44,8 @@ func TestModelPricingHandlerGetAvailableReturnsPricing(t *testing.T) {
 
 	stub := &modelPricingHandlerServiceStub{
 		resp: &service.AvailableModelPricingResponse{
+			OIDCBillingEnabled:        true,
+			OIDCBillingRateMultiplier: 2.5,
 			Groups: []service.AvailableModelPricingGroup{{
 				ID:       10,
 				Name:     "OpenAI",
@@ -64,5 +66,5 @@ func TestModelPricingHandlerGetAvailableReturnsPricing(t *testing.T) {
 
 	require.Equal(t, int64(42), stub.gotUserID)
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.JSONEq(t, `{"code":0,"message":"success","data":{"groups":[{"id":10,"name":"OpenAI","platform":"openai","rate_multiplier":0,"effective_rate_multiplier":0,"models":[{"id":"gpt-5.4","pricing_available":true,"billing_mode":"token","price_unit":"million_tokens","input_price_per_million":2.5}]}]}}`, rec.Body.String())
+	require.JSONEq(t, `{"code":0,"message":"success","data":{"oidc_billing_enabled":true,"oidc_billing_rate_multiplier":2.5,"groups":[{"id":10,"name":"OpenAI","platform":"openai","rate_multiplier":0,"effective_rate_multiplier":0,"models":[{"id":"gpt-5.4","pricing_available":true,"billing_mode":"token","price_unit":"million_tokens","input_price_per_million":2.5}]}]}}`, rec.Body.String())
 }

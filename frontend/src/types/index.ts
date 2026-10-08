@@ -1047,6 +1047,8 @@ export interface UsageLog {
 
   // 计费模式
   billing_mode?: string | null
+  // Payment source is separate from the model's token/image/per-request pricing mode.
+  billing_source?: 'central' | 'local'
 
   created_at: string
 

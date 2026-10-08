@@ -401,8 +401,10 @@ type UsageLog struct {
 	// Cache TTL Override 标记
 	CacheTTLOverridden bool `json:"cache_ttl_overridden"`
 
-	// BillingMode 计费模式：token/image
+	// BillingMode 计费模式：token/image/per_request/audio/video，或 central（Auth 计费）。
 	BillingMode *string `json:"billing_mode,omitempty"`
+	// BillingSource is the financial owner: central (Auth) or local.
+	BillingSource string `json:"billing_source"`
 
 	CreatedAt time.Time `json:"created_at"`
 

@@ -22,7 +22,7 @@
       </div>
 
       <!-- Right: Announcements + Docs + Language + Subscriptions + Balance + User Dropdown -->
-      <div class="flex items-center gap-3">
+      <div class="flex items-center gap-2 sm:gap-3">
         <!-- Announcement Bell -->
         <AnnouncementBell v-if="user" />
 
@@ -43,6 +43,24 @@
 
         <!-- Subscription Progress (for users with active subscriptions) -->
         <SubscriptionProgressMini v-if="user && !appStore.oidcBillingEnabled" />
+
+        <!-- Auth available credits include the deductions reserved for pending calls. -->
+        <component
+          :is="authCreditDetailsURL ? 'a' : 'div'"
+          v-if="user && appStore.oidcBillingEnabled"
+          :href="authCreditDetailsURL || undefined"
+          :target="authCreditDetailsURL ? '_blank' : undefined"
+          :rel="authCreditDetailsURL ? 'noopener noreferrer' : undefined"
+          :title="authCreditsTitle"
+          :aria-label="`${t('oidcAccount.availableCredits')}: ${authCreditsText}`"
+          :aria-busy="oidcAccountLoading"
+          data-testid="auth-available-credits"
+          class="flex max-w-[9rem] items-center gap-1.5 rounded-xl bg-primary-50 px-2 py-1.5 text-primary-700 dark:bg-primary-900/20 dark:text-primary-300 sm:max-w-[15rem] sm:px-3"
+        >
+          <Icon name="sparkles" size="sm" class="shrink-0" />
+          <span class="hidden text-xs sm:inline">{{ t('oidcAccount.availableCredits') }}</span>
+          <span class="min-w-0 break-all text-sm font-semibold tabular-nums" aria-live="polite">{{ authCreditsText }}</span>
+        </component>
 
         <!-- Balance Display -->
         <div
@@ -73,6 +91,8 @@
             @click="toggleDropdown"
             class="flex items-center gap-2 rounded-xl p-1.5 transition-colors hover:bg-gray-100 dark:hover:bg-dark-800"
             aria-label="User Menu"
+            :aria-expanded="dropdownOpen"
+            aria-controls="header-account-menu"
           >
             <div
               class="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-primary-500 to-primary-600 text-sm font-medium text-white shadow-sm"
@@ -92,7 +112,7 @@
 
           <!-- Dropdown Menu -->
           <transition name="dropdown">
-            <div v-if="dropdownOpen" class="dropdown right-0 mt-2 w-56">
+            <div v-if="dropdownOpen" id="header-account-menu" class="dropdown right-0 mt-2 w-64 max-w-[calc(100vw-2rem)]">
               <!-- User Info -->
               <div class="border-b border-gray-100 px-4 py-3 dark:border-dark-700">
                 <div class="text-sm font-medium text-gray-900 dark:text-white">
@@ -111,10 +131,44 @@
                 </div>
               </div>
 
+              <div v-if="appStore.oidcBillingEnabled" class="border-b border-gray-100 py-1 dark:border-dark-700">
+                <div class="px-4 py-2 text-xs font-medium text-gray-500 dark:text-dark-400">
+                  {{ t('oidcAccount.accountMenu') }}
+                </div>
+                <a
+                  v-for="item in authAccountMenu"
+                  :key="item.id"
+                  :href="item.url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  @click="closeDropdown"
+                  class="dropdown-item"
+                >
+                  <Icon :name="item.icon" size="sm" />
+                  {{ t(item.label) }}
+                </a>
+                <button
+                  @click="refreshOIDCAccount"
+                  :disabled="oidcAccountLoading"
+                  class="dropdown-item w-full disabled:opacity-50"
+                >
+                  <Icon name="refresh" size="sm" :class="{ 'animate-spin': oidcAccountLoading }" />
+                  {{ t('oidcAccount.refresh') }}
+                </button>
+                <p v-if="authAccountNotice" class="px-4 pb-2 text-xs text-gray-500 dark:text-dark-400">
+                  {{ authAccountNotice }}
+                </p>
+              </div>
+
               <div class="py-1">
-                <router-link to="/profile" @click="closeDropdown" class="dropdown-item">
+                <router-link v-if="!appStore.oidcBillingEnabled" to="/profile" @click="closeDropdown" class="dropdown-item">
                   <Icon name="user" size="sm" />
                   {{ t('nav.profile') }}
+                </router-link>
+
+                <router-link v-if="authStore.isAdmin" to="/admin/dashboard" @click="closeDropdown" class="dropdown-item">
+                  <Icon name="cog" size="sm" />
+                  {{ t('oidcAccount.apiAdministration') }}
                 </router-link>
 
                 <router-link to="/keys" @click="closeDropdown" class="dropdown-item">
@@ -180,7 +234,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAppStore, useAuthStore } from '@/stores'
@@ -189,7 +243,8 @@ import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
 import SubscriptionProgressMini from '@/components/common/SubscriptionProgressMini.vue'
 import AnnouncementBell from '@/components/common/AnnouncementBell.vue'
 import Icon from '@/components/icons/Icon.vue'
-import { formatCredits } from '@/utils/credits'
+import { formatCredits, formatExactCredits } from '@/utils/credits'
+import { getOIDCAccountIdentity, getOIDCAccountSummary, type OIDCAccountIdentity, type OIDCAccountLinks } from '@/api/oidcAccount'
 
 const router = useRouter()
 const route = useRoute()
@@ -203,6 +258,157 @@ const dropdownOpen = ref(false)
 const dropdownRef = ref<HTMLElement | null>(null)
 const contactInfo = computed(() => appStore.contactInfo)
 const docUrl = computed(() => appStore.docUrl)
+interface AccountMenuLinks extends OIDCAccountLinks {
+  top_ups_and_plans?: string
+  orders_and_invoices?: string
+  account_and_bills?: string
+}
+interface HeaderAccount {
+  status: 'available' | 'unavailable' | 'unlinked' | 'disabled' | 'identity_mismatch'
+  issuer: string | null
+  available_credits: string | null
+  links: AccountMenuLinks
+}
+const oidcAccount = ref<HeaderAccount | null>(null)
+const oidcAccountLoading = ref(false)
+let accountRequest: AbortController | null = null
+let accountGeneration = 0
+let accountRefreshTimer: ReturnType<typeof setInterval> | undefined
+let accountRequestTimeout: ReturnType<typeof setTimeout> | undefined
+
+function safeAuthLink(value: string | undefined, issuer = oidcAccount.value?.issuer): string {
+  if (!value || !issuer) return ''
+  try {
+    const url = new URL(value)
+    const authority = new URL(issuer)
+    return authority.protocol === 'https:' && !authority.username && !authority.password &&
+      url.protocol === 'https:' && !url.username && !url.password &&
+      url.origin === authority.origin ? url.href : ''
+  } catch {
+    return ''
+  }
+}
+
+const authCreditDetailsURL = computed(() => safeAuthLink(oidcAccount.value?.links.credit_details))
+const authCreditsText = computed(() => formatExactCredits(oidcAccount.value?.available_credits, { fractionDigits: 2 }))
+const authAccountNotice = computed(() => {
+  if (oidcAccountLoading.value) return t('oidcAccount.loading')
+  if (oidcAccount.value?.status === 'unlinked') return t('oidcAccount.unlinked')
+  if (oidcAccount.value?.status === 'identity_mismatch') return t('oidcAccount.identityMismatch')
+  if (!oidcAccount.value || oidcAccount.value.status !== 'available') return t('oidcAccount.unavailable')
+  return ''
+})
+const authCreditsTitle = computed(() => authAccountNotice.value ||
+  `${t('oidcAccount.creditDetails')}: ${formatExactCredits(oidcAccount.value?.available_credits)}`)
+
+const authMenuItems = [
+  { id: 'top_ups_and_plans', label: 'oidcAccount.topUpsAndPlans', icon: 'creditCard' },
+  { id: 'orders_and_invoices', label: 'oidcAccount.ordersAndInvoices', icon: 'document' },
+  { id: 'account_and_bills', label: 'oidcAccount.accountAndBills', icon: 'clipboard' },
+  { id: 'profile', label: 'oidcAccount.profile', icon: 'user' },
+  { id: 'security_settings', label: 'oidcAccount.securitySettings', icon: 'shield' }
+] as const
+const authAccountMenu = computed(() => authMenuItems.flatMap(item => {
+  const url = safeAuthLink(oidcAccount.value?.links[item.id])
+  return url ? [{ ...item, url }] : []
+}))
+
+function accountSummaryURL(identity: OIDCAccountIdentity): string {
+  if (!identity.issuer || !identity.summary_url || !identity.client_id) return ''
+  const allowed = safeAuthLink(identity.summary_url, identity.issuer)
+  if (!allowed) return ''
+  const url = new URL(allowed)
+  const expected = new URL(`${identity.issuer.replace(/\/+$/, '')}/api/account/header-summary`)
+  return url.pathname === expected.pathname && !url.hash && url.searchParams.get('client_id') === identity.client_id ? url.href : ''
+}
+
+function tenantAccountLinks(issuer: string, tenant: string): AccountMenuLinks {
+  const paths = {
+    top_ups_and_plans: 'BillingPayments', orders_and_invoices: 'BillingOrders', account_and_bills: 'Billing'
+  } as const
+  const links: AccountMenuLinks = {}
+  for (const [id, page] of Object.entries(paths)) {
+    const url = new URL(`${issuer.replace(/\/+$/, '')}/Identity/Account/Manage/${page}`)
+    url.searchParams.set('TenantId', tenant)
+    links[id as keyof typeof paths] = url.href
+  }
+  return links
+}
+
+async function refreshOIDCAccount() {
+  if (!appStore.oidcBillingEnabled || !user.value || accountRequest) return
+  const controller = new AbortController()
+  const generation = accountGeneration
+  let safeLinks: OIDCAccountLinks = {}
+  let issuer: string | null = null
+  let identityMismatch = false
+  accountRequest = controller
+  oidcAccountLoading.value = true
+  try {
+    const identity = await getOIDCAccountIdentity(controller.signal)
+    if (generation !== accountGeneration) return
+    issuer = identity.issuer
+    safeLinks = identity.links ?? {}
+    const summaryURL = accountSummaryURL(identity)
+    if (identity.status !== 'linked' || !identity.subject || !summaryURL) {
+      oidcAccount.value = {
+        status: identity.status === 'unlinked' ? 'unlinked' : 'unavailable',
+        issuer, available_credits: null, links: safeLinks
+      }
+      return
+    }
+    const timeout = setTimeout(() => controller.abort(), 10_000)
+    accountRequestTimeout = timeout
+    let summary
+    try {
+      summary = await getOIDCAccountSummary(summaryURL, controller.signal)
+    } finally {
+      clearTimeout(timeout)
+      if (accountRequestTimeout === timeout) accountRequestTimeout = undefined
+    }
+    if (generation !== accountGeneration) return
+    // The browser can be signed into Auth as a different person from this API session.
+    if (summary.issuer !== issuer || summary.subject !== identity.subject) {
+      identityMismatch = true
+      throw new Error('Auth identity does not match')
+    }
+    if (!['available', 'unavailable'].includes(summary.status)) throw new Error('Invalid Auth account summary')
+    const tenant = typeof summary.tenant_id === 'string' && summary.tenant_id.trim() ? summary.tenant_id : null
+    const amount = summary.status === 'available' && typeof summary.available_credits === 'string' &&
+      formatExactCredits(summary.available_credits) !== '—' ? summary.available_credits : null
+    oidcAccount.value = {
+      status: amount === null ? 'unavailable' : 'available', issuer, available_credits: amount,
+      links: { ...safeLinks, ...(tenant ? tenantAccountLinks(issuer!, tenant) : {}) }
+    }
+  } catch {
+    if (generation === accountGeneration) {
+      // A failed refresh must not present an old balance as the current available amount.
+      oidcAccount.value = {
+        status: identityMismatch ? 'identity_mismatch' : 'unavailable', issuer, available_credits: null, links: safeLinks
+      }
+    }
+  } finally {
+    if (accountRequest === controller) {
+      accountRequest = null
+      oidcAccountLoading.value = false
+    }
+  }
+}
+
+watch(() => [appStore.oidcBillingEnabled, user.value?.id, user.value?.email, authStore.token], () => {
+  accountGeneration++
+  clearTimeout(accountRequestTimeout)
+  accountRequestTimeout = undefined
+  accountRequest?.abort()
+  accountRequest = null
+  oidcAccount.value = null
+  oidcAccountLoading.value = false
+  void refreshOIDCAccount()
+}, { immediate: true })
+
+function refreshVisibleOIDCAccount() {
+  if (document.visibilityState !== 'hidden') void refreshOIDCAccount()
+}
 
 const userInitials = computed(() => {
   if (!user.value) return ''
@@ -253,6 +459,7 @@ function toggleMobileSidebar() {
 
 function toggleDropdown() {
   dropdownOpen.value = !dropdownOpen.value
+  if (dropdownOpen.value) void refreshOIDCAccount()
 }
 
 function closeDropdown() {
@@ -276,12 +483,27 @@ function handleClickOutside(event: MouseEvent) {
   }
 }
 
+function handleEscape(event: KeyboardEvent) {
+  if (event.key === 'Escape') closeDropdown()
+}
+
 onMounted(() => {
   document.addEventListener('click', handleClickOutside)
+  document.addEventListener('keydown', handleEscape)
+  document.addEventListener('visibilitychange', refreshVisibleOIDCAccount)
+  window.addEventListener('focus', refreshVisibleOIDCAccount)
+  accountRefreshTimer = setInterval(refreshVisibleOIDCAccount, 60_000)
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('click', handleClickOutside)
+  document.removeEventListener('keydown', handleEscape)
+  document.removeEventListener('visibilitychange', refreshVisibleOIDCAccount)
+  window.removeEventListener('focus', refreshVisibleOIDCAccount)
+  clearInterval(accountRefreshTimer)
+  clearTimeout(accountRequestTimeout)
+  accountGeneration++
+  accountRequest?.abort()
 })
 </script>
 

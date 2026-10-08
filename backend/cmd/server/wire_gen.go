@@ -101,7 +101,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	}
 	billingService := service.NewBillingService(configConfig, pricingService)
 	modelPricingResolver := service.NewModelPricingResolver(channelService, billingService)
-	modelPricingPageService := service.ProvideModelPricingPageService(apiKeyService, accountRepository, modelPricingResolver)
+	modelPricingPageService := service.ProvideModelPricingPageService(apiKeyService, accountRepository, modelPricingResolver, settingService)
 	modelPricingHandler := handler.ProvideModelPricingHandler(modelPricingPageService)
 	dashboardAggregationRepository := repository.NewDashboardAggregationRepository(db)
 	dashboardStatsCache := repository.NewDashboardCache(redisClient, configConfig)

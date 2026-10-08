@@ -5,13 +5,17 @@
       <div>
         <h1 class="text-2xl font-bold text-gray-900 dark:text-white">模型价格</h1>
         <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          当前账户可用分组的模型价格，按分组倍率折算为✦。
+          {{ oidcBillingEnabled ? t('modelPricing.oidcDescription') : '当前账户可用分组的模型价格，按分组倍率折算为✦。' }}
         </p>
       </div>
       <button class="btn btn-secondary inline-flex items-center gap-2 self-start lg:self-auto" :disabled="loading" @click="loadPricing">
         <Icon name="refresh" size="sm" :class="{ 'animate-spin': loading }" />
         <span>刷新</span>
       </button>
+    </div>
+
+    <div v-if="oidcBillingEnabled" class="rounded-xl border border-primary-200 bg-primary-50 p-4 text-sm text-primary-800 dark:border-primary-800 dark:bg-primary-900/20 dark:text-primary-200" role="status">
+      {{ t('modelPricing.oidcNotice', { multiplier: formatRate(oidcBillingMultiplier) }) }}
     </div>
 
     <div class="grid gap-4 md:grid-cols-3">
@@ -88,6 +92,7 @@
             </div>
             <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
               有效倍率 {{ formatRate(group.effective_rate_multiplier) }}，{{ group.models.length }} 个模型
+              <span v-if="oidcBillingEnabled"> · {{ t('modelPricing.oidcIncluded', { multiplier: formatRate(oidcBillingMultiplier) }) }}</span>
             </p>
           </div>
         </div>
@@ -147,14 +152,19 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import { modelPricingAPI, type AvailableModelPricingGroup, type AvailableModelPricingModel } from '@/api/modelPricing'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { formatCredits } from '@/utils/credits'
+import { formatMultiplier } from '@/utils/formatters'
 
 const groups = ref<AvailableModelPricingGroup[]>([])
+const { t } = useI18n()
+const oidcBillingEnabled = ref(false)
+const oidcBillingMultiplier = ref(1)
 const loading = ref(false)
 const error = ref('')
 const selectedGroupId = ref<number | 'all'>('all')
@@ -179,7 +189,7 @@ const filteredGroups = computed(() => {
 })
 
 function formatRate(value: number): string {
-  return `${value.toFixed(2)}x`
+  return Number.isFinite(value) && value >= 0 ? `${formatMultiplier(value)}x` : '—'
 }
 
 function isUnitBilling(model: AvailableModelPricingModel): boolean {
@@ -209,6 +219,9 @@ function formatPrice(model: AvailableModelPricingModel, value: number | undefine
   if (!model.pricing_available || value == null) {
     return '暂无'
   }
+  if (value > 0 && value < 0.0001) {
+    return `${new Intl.NumberFormat('zh-CN', { maximumSignificantDigits: 8 }).format(value)} ✦`
+  }
   return formatCredits(value, { fractionDigits: 4 })
 }
 
@@ -218,6 +231,8 @@ async function loadPricing() {
   try {
     const data = await modelPricingAPI.getAvailable()
     groups.value = data.groups ?? []
+    oidcBillingEnabled.value = data.oidc_billing_enabled === true
+    oidcBillingMultiplier.value = data.oidc_billing_rate_multiplier ?? 1
   } catch (err) {
     error.value = extractApiErrorMessage(err, '价格加载失败，请稍后重试')
   } finally {

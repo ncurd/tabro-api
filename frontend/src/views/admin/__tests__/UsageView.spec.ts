@@ -4,7 +4,7 @@ import { defineComponent } from 'vue'
 
 import UsageView from '../UsageView.vue'
 
-const { list, getStats, getSnapshotV2, getModelStats, getById } = vi.hoisted(() => {
+const { list, getStats, getSnapshotV2, getModelStats, getById, exportList, aoaToSheet, sheetAdd, saveAs } = vi.hoisted(() => {
   vi.stubGlobal('localStorage', {
     getItem: vi.fn(() => null),
     setItem: vi.fn(),
@@ -17,6 +17,10 @@ const { list, getStats, getSnapshotV2, getModelStats, getById } = vi.hoisted(() 
     getSnapshotV2: vi.fn(),
     getModelStats: vi.fn(),
     getById: vi.fn(),
+    exportList: vi.fn(),
+    aoaToSheet: vi.fn(() => ({})),
+    sheetAdd: vi.fn(),
+    saveAs: vi.fn(),
   }
 })
 
@@ -52,8 +56,14 @@ vi.mock('@/api/admin', () => ({
 
 vi.mock('@/api/admin/usage', () => ({
   adminUsageAPI: {
-    list: vi.fn(),
+    list: exportList,
   },
+}))
+
+vi.mock('file-saver', () => ({ saveAs }))
+vi.mock('xlsx', () => ({
+  utils: { aoa_to_sheet: aoaToSheet, sheet_add_aoa: sheetAdd, book_new: vi.fn(() => ({})), book_append_sheet: vi.fn() },
+  write: vi.fn(() => new Uint8Array()),
 }))
 
 vi.mock('@/stores/app', () => ({
@@ -149,6 +159,10 @@ describe('admin UsageView distribution metric toggles', () => {
     getSnapshotV2.mockReset()
     getModelStats.mockReset()
     getById.mockReset()
+    exportList.mockReset()
+    aoaToSheet.mockClear()
+    sheetAdd.mockClear()
+    saveAs.mockClear()
 
     list.mockResolvedValue({
       items: [],
@@ -177,6 +191,34 @@ describe('admin UsageView distribution metric toggles', () => {
 
   afterEach(() => {
     vi.useRealTimers()
+  })
+
+  it('exports central line costs using the historical effective rate without converting account or actual costs again', async () => {
+    const row = {
+      billing_source: 'central', billing_mode: 'token', rate_multiplier: 3.1416,
+      input_cost: 0.02, output_cost: 0.02, cache_read_cost: 0, cache_creation_cost: 0,
+      total_cost: 0.04, actual_cost: 0.12566368, account_rate_multiplier: 2,
+      input_tokens: 4000, output_tokens: 2000,
+    }
+    exportList.mockResolvedValue({ items: [row], total: 1 })
+    const wrapper = mount(UsageView, { global: { stubs: {
+      AppLayout: AppLayoutStub, UsageStatsCards: true, UsageFilters: true, UsageTable: true,
+      UsageExportProgress: true, UsageCleanupDialog: true, UserBalanceHistoryModal: true,
+      Pagination: true, Select: true, DateRangePicker: true, Icon: true, TokenUsageTrend: true,
+      ModelDistributionChart: true, GroupDistributionChart: true, EndpointDistributionChart: true,
+    } } })
+    const setupState = (wrapper.vm as any).$?.setupState
+    await setupState.exportToExcel()
+    const headers = (aoaToSheet.mock.calls[0] as unknown as [string[][]])[0][0]
+    const record = (sheetAdd.mock.calls[0] as unknown as [unknown, unknown[][]])[1][0]
+    expect(record[headers.indexOf('usage.billingSource')]).toBe('central')
+    expect(record[headers.indexOf('usage.finalRate')]).toBeCloseTo(3.141592, 10)
+    expect(record[headers.indexOf('admin.usage.inputCost')]).toBe('0.062832')
+    expect(record[headers.indexOf('usage.userBilled')]).toBe('0.125664')
+    expect(record[headers.indexOf('usage.accountBilled')]).toBe('0.080000')
+    expect(record[headers.indexOf('usage.baseCost')]).toBe('0.040000')
+    expect(saveAs).toHaveBeenCalledOnce()
+    wrapper.unmount()
   })
 
   it('keeps model and group metric toggles independent without refetching chart data', async () => {

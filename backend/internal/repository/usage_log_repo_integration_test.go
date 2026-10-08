@@ -461,6 +461,61 @@ func (s *UsageLogRepoSuite) TestGetByID() {
 	s.Require().Equal(10, got.InputTokens)
 }
 
+func (s *UsageLogRepoSuite) TestBillingSourceUsesHistoricalLedgerWithoutChangingPricing() {
+	user := mustCreateUser(s.T(), s.client, &service.User{Email: "usage-financial-source@test.com"})
+	apiKey := mustCreateApiKey(s.T(), s.client, &service.APIKey{UserID: user.ID, Key: "sk-usage-financial-source", Name: "k"})
+	account := mustCreateAccount(s.T(), s.client, &service.Account{Name: "acc-usage-financial-source"})
+	issuer, subject := "https://auth.example.test", "verified-user"
+	expected := map[int64]string{}
+	for _, tt := range []struct {
+		mode, ledgerMode, wantSource string
+		wrongKey, wrongUser          bool
+	}{
+		{mode: "token", ledgerMode: "central", wantSource: "central"},
+		{mode: "per_request", ledgerMode: "central", wantSource: "central"},
+		{mode: "central", wantSource: "central"},
+		{mode: "image", ledgerMode: "token", wantSource: "local"},
+		{mode: "token", ledgerMode: "central", wrongKey: true, wantSource: "local"},
+		{mode: "token", ledgerMode: "central", wrongUser: true, wantSource: "local"},
+		{mode: "token", wantSource: "local"},
+	} {
+		log := &service.UsageLog{UserID: user.ID, APIKeyID: apiKey.ID, AccountID: account.ID,
+			RequestID: uuid.NewString(), Model: "example-model", BillingMode: &tt.mode,
+			OIDCIssuer: &issuer, OIDCSubject: &subject, InputTokens: 10, InputCost: .25,
+			TotalCost: .5, ActualCost: 3, RateMultiplier: 6, CreatedAt: time.Now().UTC()}
+		_, err := s.repo.Create(s.ctx, log)
+		s.Require().NoError(err)
+		if tt.ledgerMode != "" {
+			keyID, userID := apiKey.ID, user.ID
+			if tt.wrongKey {
+				keyID += 9999
+			}
+			if tt.wrongUser {
+				userID += 9999
+			}
+			_, err = s.repo.sql.ExecContext(s.ctx, `INSERT INTO gateway_usage_ledger
+				(request_id, api_key_id, request_fingerprint, user_id, account_id, model, requested_model, billing_mode)
+				VALUES ($1,$2,$3,$4,$5,$6,$6,$7)`, log.RequestID, keyID, uuid.NewString(), userID, account.ID, log.Model, tt.ledgerMode)
+			s.Require().NoError(err)
+		}
+		got, err := s.repo.GetByID(s.ctx, log.ID)
+		s.Require().NoError(err)
+		s.Require().Equal(tt.wantSource, got.BillingSource)
+		s.Require().Equal(tt.mode, *got.BillingMode)
+		s.Require().Equal(.25, got.InputCost)
+		s.Require().Equal(.5, got.TotalCost)
+		s.Require().Equal(3.0, got.ActualCost)
+		s.Require().Equal(6.0, got.RateMultiplier)
+		expected[log.ID] = tt.wantSource
+	}
+	logs, _, err := s.repo.ListByUser(s.ctx, user.ID, pagination.PaginationParams{Page: 1, PageSize: 20})
+	s.Require().NoError(err)
+	s.Require().Len(logs, len(expected))
+	for _, log := range logs {
+		s.Require().Equal(expected[log.ID], log.BillingSource)
+	}
+}
+
 func (s *UsageLogRepoSuite) TestGetByID_NotFound() {
 	_, err := s.repo.GetByID(s.ctx, 999999)
 	s.Require().Error(err, "expected error for non-existent ID")

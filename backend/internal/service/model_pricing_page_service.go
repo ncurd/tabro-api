@@ -27,26 +27,35 @@ type ModelPricingResolverProvider interface {
 	GetIntervalPricing(resolved *ResolvedPricing, totalContextTokens int) *ModelPricing
 }
 
+type ModelPricingBillingPolicyProvider interface {
+	GetOIDCBillingPolicy(ctx context.Context) (OIDCBillingPolicy, error)
+}
+
 type ModelPricingPageService struct {
 	groupProvider   ModelPricingGroupProvider
 	accountProvider ModelPricingAccountProvider
 	resolver        ModelPricingResolverProvider
+	billingPolicy   ModelPricingBillingPolicyProvider
 }
 
 func NewModelPricingPageService(
 	groupProvider ModelPricingGroupProvider,
 	accountProvider ModelPricingAccountProvider,
 	resolver ModelPricingResolverProvider,
+	billingPolicy ModelPricingBillingPolicyProvider,
 ) *ModelPricingPageService {
 	return &ModelPricingPageService{
 		groupProvider:   groupProvider,
 		accountProvider: accountProvider,
 		resolver:        resolver,
+		billingPolicy:   billingPolicy,
 	}
 }
 
 type AvailableModelPricingResponse struct {
-	Groups []AvailableModelPricingGroup `json:"groups"`
+	Groups                    []AvailableModelPricingGroup `json:"groups"`
+	OIDCBillingEnabled        bool                         `json:"oidc_billing_enabled"`
+	OIDCBillingRateMultiplier float64                      `json:"oidc_billing_rate_multiplier"`
 }
 
 type AvailableModelPricingGroup struct {
@@ -84,6 +93,24 @@ type AvailableModelPricingTier struct {
 }
 
 func (s *ModelPricingPageService) ListAvailablePricing(ctx context.Context, userID int64) (*AvailableModelPricingResponse, error) {
+	// Read the same validated policy used when freezing request prices. A failed
+	// settings read must not publish local prices as if Auth conversion were off.
+	policy := defaultOIDCBillingPolicy()
+	if s.billingPolicy != nil {
+		var err error
+		policy, err = s.billingPolicy.GetOIDCBillingPolicy(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("get model pricing billing policy: %w", err)
+		}
+	}
+	oidcRate := 1.0
+	if policy.Enabled {
+		if !finiteNonnegativeCredit(policy.RateMultiplier) || policy.RateMultiplier <= 0 {
+			return nil, fmt.Errorf("invalid model pricing OIDC billing multiplier")
+		}
+		oidcRate = policy.RateMultiplier
+	}
+
 	groups, err := s.groupProvider.GetModelPricingGroups(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("get model pricing groups: %w", err)
@@ -95,7 +122,9 @@ func (s *ModelPricingPageService) ListAvailablePricing(ctx context.Context, user
 	}
 
 	resp := &AvailableModelPricingResponse{
-		Groups: make([]AvailableModelPricingGroup, 0, len(groups)),
+		Groups:                    make([]AvailableModelPricingGroup, 0, len(groups)),
+		OIDCBillingEnabled:        policy.Enabled,
+		OIDCBillingRateMultiplier: oidcRate,
 	}
 
 	for i := range groups {
@@ -104,11 +133,21 @@ func (s *ModelPricingPageService) ListAvailablePricing(ctx context.Context, user
 		if rate, ok := userRates[group.ID]; ok {
 			effectiveRate = rate
 		}
+		if policy.Enabled {
+			if !finiteNonnegativeCredit(effectiveRate) || !finiteNonnegativeCredit(effectiveRate*oidcRate) {
+				return nil, fmt.Errorf("invalid model pricing credit multiplier for group %d", group.ID)
+			}
+			effectiveRate *= oidcRate
+		}
 
 		modelIDs := s.availableModelIDsForGroup(ctx, group)
 		models := make([]AvailableModelPricingModel, 0, len(modelIDs))
 		for _, modelID := range modelIDs {
-			models = append(models, s.resolveModelPricing(ctx, group.ID, modelID, effectiveRate))
+			model := s.resolveModelPricing(ctx, group.ID, modelID, effectiveRate)
+			if policy.Enabled && !finiteConvertedModelPricing(model) {
+				return nil, fmt.Errorf("invalid converted model price for group %d model %q", group.ID, modelID)
+			}
+			models = append(models, model)
 		}
 
 		resp.Groups = append(resp.Groups, AvailableModelPricingGroup{
@@ -122,6 +161,27 @@ func (s *ModelPricingPageService) ListAvailablePricing(ctx context.Context, user
 	}
 
 	return resp, nil
+}
+
+func finiteConvertedModelPricing(model AvailableModelPricingModel) bool {
+	prices := []float64{
+		model.InputPricePerMillion, model.OutputPricePerMillion,
+		model.CacheWritePricePerMillion, model.CacheReadPricePerMillion,
+		model.PriorityInputPricePerMillion, model.PriorityOutputPricePerMillion,
+		model.PriorityCacheReadPricePerMillion, model.ImageOutputPricePerMillion,
+	}
+	if model.UnitPrice != nil {
+		prices = append(prices, *model.UnitPrice)
+	}
+	for _, tier := range model.Tiers {
+		prices = append(prices, tier.UnitPrice)
+	}
+	for _, price := range prices {
+		if !finiteNonnegativeCredit(price) {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *ModelPricingPageService) availableModelIDsForGroup(ctx context.Context, group Group) []string {

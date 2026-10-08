@@ -502,6 +502,6 @@ func ProvideOAuthRefreshAPI(accountRepo AccountRepository, tokenCache GeminiToke
 	return NewOAuthRefreshAPI(accountRepo, tokenCache)
 }
 
-func ProvideModelPricingPageService(apiKeyService *APIKeyService, accountRepo AccountRepository, resolver *ModelPricingResolver) *ModelPricingPageService {
-	return NewModelPricingPageService(apiKeyService, accountRepo, resolver)
+func ProvideModelPricingPageService(apiKeyService *APIKeyService, accountRepo AccountRepository, resolver *ModelPricingResolver, settings *SettingService) *ModelPricingPageService {
+	return NewModelPricingPageService(apiKeyService, accountRepo, resolver, settings)
 }

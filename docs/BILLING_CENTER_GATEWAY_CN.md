@@ -10,6 +10,8 @@
 
 先在 Auth 完成一次部署配置：启用 `OpenIddict:Tabro:Billing:Enabled`，登记独立的 `tabro-api-gateway` producer，为其设置专用密钥、`credit_amount` meter，以及 `billing.reserve billing.dispatch billing.extend billing.settle billing.release billing.read` 权限。`AllowedAppIds` 应包含实际模型调用应用（默认 `tabro-agent`）；需要旧 API Key 接入时另包含 `legacy-api-key`。保留 Auth 已有的其他 producer 和应用授权。仅在 Auth 客户端管理中创建普通 OIDC 客户端，不能替代这项 producer 配置。具体模板见 `tabro-auth/docs/examples/billing-config/auth-cnprod.billing.json.template`。
 
+每个 producer 的 `AllowedAppIds` 必须属于 `OpenIddict:Tabro:AllowedClientIds`，只有 `legacy-api-key` 作为显式旧 Key 绑定可例外。例如允许 `tabro-drama` 提交消费明细时，须同时将它加入顶层 `AllowedClientIds`；该列表仍须保留 `tabro-agent` 和原有已授权应用。`tabro-api-gateway` 是独立计费 producer，不能加入这个应用白名单。环境变量对数组按整组覆盖，配置文件增加应用后还须检查是否有更高优先级的旧数组覆盖。
+
 API 管理后台按以下顺序操作：
 
 1. 保存 OIDC 登录配置并开启「仅 OIDC」。已有登录客户端 `tabro-llm` 及其登录密钥保持原配置。
@@ -44,6 +46,20 @@ API 管理后台按以下顺序操作：
 本地余额充值、余额修改、套餐授权、优惠码及兑换券 API 同时关闭，界面隐藏相应入口，新 OIDC 用户也不再获得默认本地余额或套餐。历史订单与签名支付回调保留，用于处理切换前的订单；已存在的 Auth 账户中心链接可继续使用。部署级 `auto_provision` 和已迁移中心账户的原有保护规则不受此开关替代，关闭开关不会让 Auth-only 身份回退本地扣费。
 
 升级须执行 `129_billing_center_daily_settlement.sql`，此前历史 operation 的空截止时间保留即时结算行为。数据库中的 `settlement_pending` 表示已记录真实费用、等待中心结算，不能把它显示为已实际扣款。每日结算沿用现有逐笔账单接口，不合并不同调用的幂等身份。
+
+### 模型价格、统计与计费明细的倍率
+
+OIDC 计费开启时，模型价格页直接显示已换算的 Auth 积分价格：基础模型价格 × 用户专属倍率（未配置时使用分组倍率）× OIDC 计费倍数。有效倍率包含上述两个倍率，文本、缓存、优先级、图片、媒体单位价和阶梯价采用相同规则；前端不再重复相乘。关闭 OIDC 计费时保持原有价目。配置读取失败或倍率无效时不返回未经换算的价目。
+
+历史用量的实际扣费、统计、图表和导出使用每次调用已保存的实际费用与最终倍率，不根据当前设置重算。Auth 计费明细中的输入、输出、缓存费用和单价按该记录的冻结倍率显示；原倍率列仅保存四位小数时，优先用记录中的实际费用与基础费用比例对齐分项精度。基础价格和上游账号成本保留独立口径。计费来源由已提交的用量账本识别，与 token、图片或按次等计价模式分开，因此旧记录也可正确识别；本次不新增数据库迁移。这里的实际费用是本次调用已记录的应扣积分，每日是否已经完成账单结算仍以中心 operation 状态为准。
+
+### 页面头部的 Auth 积分与账户菜单
+
+启用 OIDC 计费后，API 页面头部显示 Auth 当前工作空间中当前成员的可用积分，头像菜单提供充值与套餐、订单与发票、账户与账单、个人资料及安全设置入口。积分链接进入 Auth 积分明细；充值等资金入口也进入 Auth，不调用本站旧钱包、套餐或券接口。本站退出登录保持原行为。
+
+本功能须同时更新 Auth 与 API。API 的 `/api/v1/auth/oidc-account` 仅从当前会话已验证的 OIDC Key 读取 issuer、subject 和已保存的登录客户端 ID；不接受调用方指定其他用户或工作空间。浏览器随后凭 Auth 登录 Cookie 请求 `/api/account/header-summary`。Auth 只允许当前 OIDC 登录客户端已登记的 HTTPS 回调地址来源读取结果，并再次核对当前用户状态与工作空间成员关系。仅当两个会话的 issuer、subject 完全匹配，页面才显示积分并使用 Auth 返回的工作空间生成资金菜单链接。接口不持久保存或转发上游 OIDC access/refresh token，不扩大计费服务客户端查询其他用户余额的权限。
+
+可用积分复用 Auth 页头的计算规则，包含预扣冻结、到期、成员分配和预算限制。API 登录身份未关联、Auth 会话过期、两边账号不一致或查询失败时显示 `—`，不会以本地余额或假定的 `0` 替代。页面加载、头像菜单打开、窗口重新获得焦点和定时刷新会重新查询。浏览器限制跨站 Cookie 时也显示不可用并保留账户中心入口；`llm.tabro.cn` 与 `auth.tabro.cn` 的 HTTPS 部署属于同站，可使用现有 Auth 登录 Cookie，无需放宽整个站点的 Cookie 策略。工作空间链接使用 Auth 当前已验证的工作空间，不等于所有 API Key 的固定付款账户。
 
 ### 外部 OIDC Bearer 自动接入
 

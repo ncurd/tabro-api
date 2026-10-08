@@ -92,6 +92,7 @@ func RegisterAuthRoutes(
 	authenticated.Use(servermiddleware.BackendModeUserGuard(settingService))
 	{
 		authenticated.GET("/auth/me", h.Auth.GetCurrentUser)
+		authenticated.GET("/auth/oidc-account", h.Auth.GetOIDCAccount)
 		// 撤销所有会话（需要认证）
 		authenticated.POST("/auth/revoke-all-sessions", h.Auth.RevokeAllSessions)
 	}

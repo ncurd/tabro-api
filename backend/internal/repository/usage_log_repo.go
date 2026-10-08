@@ -28,15 +28,30 @@ import (
 	gocache "github.com/patrickmn/go-cache"
 )
 
-const usageLogSelectColumns = "id, user_id, api_key_id, account_id, request_id, oidc_issuer, oidc_subject, oidc_tenant, tabro_run_id, tabro_project_id, model, requested_model, upstream_model, group_id, subscription_id, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cache_creation_5m_tokens, cache_creation_1h_tokens, image_output_tokens, image_output_cost, input_cost, output_cost, cache_creation_cost, cache_read_cost, total_cost, actual_cost, rate_multiplier, account_rate_multiplier, billing_type, request_type, stream, openai_ws_mode, duration_ms, first_token_ms, user_agent, ip_address, image_count, image_size, service_tier, reasoning_effort, inbound_endpoint, upstream_endpoint, cache_ttl_overridden, channel_id, model_mapping_chain, billing_tier, billing_mode, account_stats_cost, created_at"
+const usageLogStoredSelectColumns = "id, user_id, api_key_id, account_id, request_id, oidc_issuer, oidc_subject, oidc_tenant, tabro_run_id, tabro_project_id, model, requested_model, upstream_model, group_id, subscription_id, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cache_creation_5m_tokens, cache_creation_1h_tokens, image_output_tokens, image_output_cost, input_cost, output_cost, cache_creation_cost, cache_read_cost, total_cost, actual_cost, rate_multiplier, account_rate_multiplier, billing_type, request_type, stream, openai_ws_mode, duration_ms, first_token_ms, user_agent, ip_address, image_count, image_size, service_tier, reasoning_effort, inbound_endpoint, upstream_endpoint, cache_ttl_overridden, channel_id, model_mapping_chain, billing_tier, billing_mode, account_stats_cost, created_at"
+
+// Read financial ownership from the committed ledger without overwriting the
+// original token/image/per-request pricing mode or recomputing historical cost.
+// The correlated lookup uses the ledger's unique request_id/api_key_id index and
+// stays in the list query, avoiding a separate round trip per usage record.
+const usageLogBillingSourceExpression = `CASE WHEN usage_logs.billing_mode = 'central' OR EXISTS (
+	SELECT 1 FROM gateway_usage_ledger gul
+	WHERE gul.request_id = usage_logs.request_id
+		AND gul.api_key_id = usage_logs.api_key_id
+		AND gul.user_id = usage_logs.user_id
+		AND gul.billing_mode = 'central'
+) THEN 'central' ELSE 'local' END AS billing_source`
+
+const usageLogSelectColumns = usageLogStoredSelectColumns + ", " + usageLogBillingSourceExpression
 
 // usageLogInsertArgTypes must stay in the same order as:
 //  1. prepareUsageLogInsert().args
 //  2. every INSERT/CTE VALUES column list in this file
 //  3. execUsageLogInsertNoResult placeholder positions
-//  4. scanUsageLog selected column order (via usageLogSelectColumns)
+//  4. scanUsageLog stored column order (via usageLogStoredSelectColumns)
 //
 // When adding a usage_logs column, update all of those call sites together.
+// billing_source is a SELECT-only derived value and is not inserted.
 var usageLogInsertArgTypes = [...]string{
 	"bigint",      // user_id
 	"bigint",      // api_key_id
@@ -4153,6 +4168,7 @@ func scanUsageLog(scanner interface{ Scan(...any) error }) (*service.UsageLog, e
 		billingMode           sql.NullString
 		accountStatsCost      sql.NullFloat64
 		createdAt             time.Time
+		billingSource         string
 	)
 
 	if err := scanner.Scan(
@@ -4208,6 +4224,7 @@ func scanUsageLog(scanner interface{ Scan(...any) error }) (*service.UsageLog, e
 		&billingMode,
 		&accountStatsCost,
 		&createdAt,
+		&billingSource,
 	); err != nil {
 		return nil, err
 	}
@@ -4236,6 +4253,7 @@ func scanUsageLog(scanner interface{ Scan(...any) error }) (*service.UsageLog, e
 		RateMultiplier:        rateMultiplier,
 		AccountRateMultiplier: nullFloat64Ptr(accountRateMultiplier),
 		BillingType:           int8(billingType),
+		BillingSource:         billingSource,
 		RequestType:           service.RequestTypeFromInt16(requestTypeRaw),
 		ImageCount:            imageCount,
 		CacheTTLOverridden:    cacheTTLOverridden,

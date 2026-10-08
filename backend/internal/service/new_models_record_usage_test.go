@@ -121,7 +121,7 @@ func TestNewModelsPricingPageUsesBillingPrices(t *testing.T) {
 			{ID: 1, Platform: PlatformOpenAI, RateMultiplier: 1.5},
 			{ID: 2, Platform: PlatformAnthropic, RateMultiplier: 1.5},
 		}},
-		modelPricingAccountsStub{}, resolver,
+		modelPricingAccountsStub{}, resolver, nil,
 	)
 	result, err := svc.ListAvailablePricing(context.Background(), 55)
 	require.NoError(t, err)

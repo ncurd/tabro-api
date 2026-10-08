@@ -3,9 +3,11 @@ export const BILLING_MODE_PER_REQUEST = 'per_request'
 export const BILLING_MODE_IMAGE = 'image'
 export const BILLING_MODE_VIDEO = 'video'
 export const BILLING_MODE_AUDIO = 'audio'
+export const BILLING_MODE_CENTRAL = 'central'
 
 export function getBillingModeLabel(mode: string | null | undefined, t: (key: string) => string): string {
   switch (mode) {
+    case BILLING_MODE_CENTRAL: return t('admin.usage.billingModeCentral')
     case BILLING_MODE_PER_REQUEST: return t('admin.usage.billingModePerRequest')
     case BILLING_MODE_VIDEO: return t('admin.usage.billingModeVideo')
     case BILLING_MODE_AUDIO: return t('admin.usage.billingModeAudio')
@@ -16,6 +18,7 @@ export function getBillingModeLabel(mode: string | null | undefined, t: (key: st
 
 export function getBillingModeBadgeClass(mode: string | null | undefined): string {
   switch (mode) {
+    case BILLING_MODE_CENTRAL: return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
     case BILLING_MODE_PER_REQUEST: return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
     case BILLING_MODE_VIDEO: return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
     case BILLING_MODE_AUDIO: return 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300'

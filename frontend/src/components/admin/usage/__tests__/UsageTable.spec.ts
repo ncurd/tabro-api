@@ -18,6 +18,12 @@ const messages: Record<string, string> = {
   'usage.serviceTierFlex': 'Flex',
   'usage.serviceTierStandard': 'Standard',
   'usage.rate': 'Rate',
+  'usage.finalRate': 'Final billing rate',
+  'usage.baseCost': 'Base cost',
+  'usage.centralPriceNotice': 'Recorded request multiplier',
+  'usage.unitPrice': 'Unit price',
+  'usage.imageUnitPrice': 'Image unit price',
+  'usage.billed': 'Billed',
   'usage.accountMultiplier': 'Account rate',
   'usage.original': 'Original',
   'usage.userBilled': 'User billed',
@@ -146,5 +152,34 @@ describe('admin UsageTable tooltip', () => {
     const text = wrapper.text()
     expect(text).toContain('claude-sonnet-4')
     expect(text).toContain('claude-sonnet-4-20250514')
+  })
+
+  it.each([
+    ['token', 2, 0, '10.0000 ✦ / 1M tokens', true],
+    ['per_request', 2, 0, '0.080000 ✦', false],
+    ['image', 2, 4, '0.020000 ✦', false],
+    ['central', 2, 0, '0.080000 ✦', false],
+    ['token', 0, 0, '0.0000 ✦ / 1M tokens', true],
+  ])('uses the stored central rate for %s prices without multiplying charged or account costs', async (mode, multiplier, images, expectedPrice, tokenPrice) => {
+    const row = {
+      request_id: 'historical', billing_source: 'central', billing_mode: mode,
+      rate_multiplier: multiplier, image_count: images, account_rate_multiplier: 3,
+      input_cost: 0.02, output_cost: 0.02, total_cost: 0.04, actual_cost: 0.04 * multiplier,
+      input_tokens: 4000, output_tokens: 2000,
+    }
+    const wrapper = mount(UsageTable, {
+      props: { data: [row], columns: [] },
+      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
+    })
+    await wrapper.find('.group.relative').trigger('mouseenter')
+    const text = wrapper.text()
+    expect(text).toContain('Final billing rate')
+    expect(text).toContain('Base cost')
+    expect(text).toContain('0.040000 ✦')
+    expect(text).toContain(multiplier === 0 ? '0.000000 ✦' : '0.080000 ✦')
+    expect(text).toContain('0.120000 ✦') // Independent account multiplier, without OIDC conversion.
+    expect(text).toContain(expectedPrice)
+    expect(text.includes('/ 1M tokens')).toBe(tokenPrice)
+    if (multiplier === 0) expect(text).toContain('0.0x')
   })
 })

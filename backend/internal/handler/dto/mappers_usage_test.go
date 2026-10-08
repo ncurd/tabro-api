@@ -8,6 +8,38 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestUsageLogFromService_PreservesFrozenCostsAndIndependentBillingSource(t *testing.T) {
+	for _, tt := range []struct {
+		name, mode, source, wantSource string
+	}{
+		{"historical central token charge", "token", "central", "central"},
+		{"central fixed price with tokens", "per_request", "central", "central"},
+		{"existing central media charge", "central", "", "central"},
+		{"local oidc identity is not central billing", "image", "local", "local"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			issuer := "https://auth.example.test"
+			log := &service.UsageLog{Model: "example-model", BillingMode: &tt.mode, BillingSource: tt.source,
+				OIDCIssuer: &issuer, InputTokens: 10, InputCost: .25, TotalCost: .5, ActualCost: 3, RateMultiplier: 6,
+				AccountRateMultiplier: f64Ptr(.4)}
+			userDTO := UsageLogFromService(log)
+			adminDTO := UsageLogFromServiceAdmin(log)
+			for _, mapped := range []*UsageLog{userDTO, &adminDTO.UsageLog} {
+				require.Equal(t, tt.wantSource, mapped.BillingSource)
+				require.Equal(t, tt.mode, *mapped.BillingMode)
+				require.Equal(t, .25, mapped.InputCost)
+				require.Equal(t, .5, mapped.TotalCost)
+				require.Equal(t, 3.0, mapped.ActualCost)
+				require.Equal(t, 6.0, mapped.RateMultiplier)
+				encoded, err := json.Marshal(mapped)
+				require.NoError(t, err)
+				require.Contains(t, string(encoded), `"billing_source":"`+tt.wantSource+`"`)
+			}
+			require.Equal(t, .4, *adminDTO.AccountRateMultiplier)
+		})
+	}
+}
+
 func TestUsageLogFromService_IncludesOpenAIWSMode(t *testing.T) {
 	t.Parallel()
 

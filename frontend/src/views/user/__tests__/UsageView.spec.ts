@@ -28,6 +28,9 @@ const messages: Record<string, string> = {
   'usage.serviceTierFlex': 'Flex',
   'usage.serviceTierStandard': 'Standard',
   'usage.rate': 'Rate',
+  'usage.finalRate': 'Final billing rate',
+  'usage.baseCost': 'Base cost',
+  'usage.centralPriceNotice': 'Recorded request multiplier',
   'usage.original': 'Original',
   'usage.billed': 'Billed',
   'usage.allApiKeys': 'All API Keys',
@@ -187,16 +190,16 @@ describe('user UsageView tooltip', () => {
     const exportedLogs = [
       {
         request_id: 'req-user-export',
-        actual_cost: 0.092883,
-        total_cost: 0.092883,
-        rate_multiplier: 1,
+        actual_cost: 0.12566368,
+        total_cost: 0.04,
+        rate_multiplier: 3.1416,
         service_tier: 'priority',
-        input_cost: 0.020285,
-        output_cost: 0.00303,
+        input_cost: 0.02,
+        output_cost: 0.02,
         cache_creation_cost: 0.000001,
         cache_read_cost: 0.069568,
-        input_tokens: 4057,
-        output_tokens: 101,
+        input_tokens: 4000,
+        output_tokens: 2000,
         cache_creation_tokens: 4,
         cache_read_tokens: 278272,
         cache_creation_5m_tokens: 0,
@@ -207,6 +210,8 @@ describe('user UsageView tooltip', () => {
         duration_ms: 345,
         created_at: '2026-03-08T00:00:00Z',
         model: 'gpt-5.4',
+        billing_source: 'central',
+        billing_mode: 'token',
         reasoning_effort: null,
         api_key: { name: 'demo-key' },
       },
@@ -256,6 +261,19 @@ describe('user UsageView tooltip', () => {
     await setupState.exportToCSV()
 
     expect(exportedBlob).not.toBeNull()
+    const csv = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result))
+      reader.onerror = reject
+      reader.readAsText(exportedBlob!)
+    })
+    const [headers, record] = csv.split('\n').map(line => line.split(','))
+    expect(headers).toContain('Input Price per 1M Tokens')
+    expect(record[headers.indexOf('Billing Source')]).toBe('central')
+    expect(record[headers.indexOf('Input Cost')]).toBe('0.06283184')
+    expect(record[headers.indexOf('Input Price per 1M Tokens')]).toBe('15.70796000')
+    expect(record[headers.indexOf('Billed Cost')]).toBe('0.12566368')
+    expect(record[headers.indexOf('Final Rate Multiplier')]).toBe('3.141592')
     const hasSortedExportQuery = query.mock.calls.some((call) => {
       const params = call[0] as Record<string, unknown> | undefined
       const config = call[1]
@@ -273,5 +291,33 @@ describe('user UsageView tooltip', () => {
     window.URL.createObjectURL = originalCreateObjectURL
     window.URL.revokeObjectURL = originalRevokeObjectURL
     clickSpy.mockRestore()
+  })
+
+  it('shows central request unit prices at the saved rate and leaves statistical actual costs unchanged', async () => {
+    query.mockResolvedValue({ items: [], total: 0, pages: 0 })
+    list.mockResolvedValue({ items: [] })
+    getStatsByDateRange.mockResolvedValue({ total_actual_cost: 9.8765, total_cost: 0.8 })
+    const wrapper = mount(UsageView, {
+      global: { stubs: {
+        AppLayout: AppLayoutStub, TablePageLayout: TablePageLayoutStub, Pagination: true,
+        EmptyState: true, Select: true, DateRangePicker: true, Icon: true, Teleport: true,
+      } },
+    })
+    await flushPromises()
+    const setupState = (wrapper.vm as any).$?.setupState
+    setupState.tooltipData = {
+      billing_source: 'central', billing_mode: 'token', rate_multiplier: 6,
+      input_cost: 0.02, output_cost: 0.01, total_cost: 0.03, actual_cost: 0.18,
+      input_tokens: 4000, output_tokens: 1000,
+    }
+    setupState.tooltipVisible = true
+    await nextTick()
+    expect(wrapper.text()).toContain('9.8765 ✦')
+    expect(wrapper.text()).toContain('6.00x')
+    expect(wrapper.text()).toContain('30.0000 ✦ / 1M tokens')
+    expect(wrapper.text()).toContain('60.0000 ✦ / 1M tokens')
+    expect(wrapper.text()).toContain('0.120000 ✦')
+    expect(wrapper.text()).toContain('0.180000 ✦')
+    expect(wrapper.text()).toContain('Base cost')
   })
 })

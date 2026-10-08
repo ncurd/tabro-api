@@ -34,6 +34,8 @@ export interface AvailableModelPricingGroup {
 
 export interface AvailableModelPricingResponse {
   groups: AvailableModelPricingGroup[]
+  oidc_billing_enabled?: boolean
+  oidc_billing_rate_multiplier?: number
 }
 
 export const modelPricingAPI = {

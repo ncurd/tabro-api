@@ -135,6 +135,7 @@ func TestModelPricingPageServiceListAvailablePricingUsesMappedModelsAndEffective
 				BasePricing: nil,
 			},
 		}},
+		nil,
 	)
 
 	result, err := svc.ListAvailablePricing(context.Background(), 123)
@@ -177,6 +178,7 @@ func TestModelPricingPageServiceListAvailablePricingFallsBackToPlatformDefaults(
 			},
 		}},
 		modelPricingResolverStub{},
+		nil,
 	)
 
 	result, err := svc.ListAvailablePricing(context.Background(), 123)
@@ -199,6 +201,7 @@ func TestModelPricingPageServiceListAvailablePricingFallsBackToAliyunDefaults(t 
 			},
 		}},
 		modelPricingResolverStub{},
+		nil,
 	)
 
 	result, err := svc.ListAvailablePricing(context.Background(), 123)
@@ -234,6 +237,7 @@ func TestModelPricingPageServiceListAvailablePricingUsesAliyunDefaultsForDashSco
 				},
 			},
 		}},
+		nil,
 	)
 
 	result, err := svc.ListAvailablePricing(context.Background(), 123)
@@ -272,6 +276,7 @@ func TestModelPricingPageServiceListAvailablePricingKeepsZeroRate(t *testing.T) 
 				},
 			},
 		}},
+		nil,
 	)
 
 	result, err := svc.ListAvailablePricing(context.Background(), 123)
@@ -297,6 +302,7 @@ func TestModelPricingPageServiceListAvailablePricingReturnsGroupErrors(t *testin
 		modelPricingGroupsErrorStub{},
 		modelPricingAccountsStub{},
 		modelPricingResolverStub{},
+		nil,
 	)
 
 	_, err := svc.ListAvailablePricing(context.Background(), 123)

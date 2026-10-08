@@ -619,6 +619,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},  // billing_mode
 			sql.NullFloat64{}, // account_stats_cost
 			now,
+			"local", // read-only billing_source
 		}})
 		require.NoError(t, err)
 		require.NotNil(t, log.ServiceTier)
@@ -672,6 +673,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},  // billing_mode
 			sql.NullFloat64{}, // account_stats_cost
 			now,
+			"local", // read-only billing_source
 		}})
 		require.NoError(t, err)
 		require.NotNil(t, log.ServiceTier)
@@ -725,6 +727,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},  // billing_mode
 			sql.NullFloat64{}, // account_stats_cost
 			now,
+			"central", // read-only billing_source
 		}})
 		require.NoError(t, err)
 		require.NotNil(t, log.ServiceTier)
@@ -734,6 +737,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 		require.Equal(t, "tenant-3", *log.OIDCTenant)
 		require.Equal(t, "run-3", *log.TabroRunID)
 		require.Equal(t, "project-3", *log.TabroProjectID)
+		require.Equal(t, "central", log.BillingSource)
 	})
 
 }

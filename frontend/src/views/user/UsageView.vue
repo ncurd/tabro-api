@@ -2,6 +2,7 @@
   <AppLayout>
     <TablePageLayout>
       <template #actions>
+        <OIDCBillingNotice class="mb-4" />
         <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
           <!-- Total Requests -->
           <div class="card p-4">
@@ -198,7 +199,7 @@
 
           <template #cell-tokens="{ row }">
             <!-- 图片生成请求（仅按次计费时显示图片格式） -->
-            <div v-if="row.image_count > 0 && row.billing_mode === 'image'" class="flex items-center gap-1.5">
+            <div v-if="isImagePricedUsage(row)" class="flex items-center gap-1.5">
               <svg
                 class="h-4 w-4 text-indigo-500"
                 fill="none"
@@ -439,37 +440,38 @@
           <!-- Cost Breakdown -->
           <div class="mb-2 border-b border-gray-700 pb-1.5">
             <div class="text-xs font-semibold text-gray-300 mb-1">{{ t('usage.costDetails') }}</div>
+            <p v-if="isCentralUsage(tooltipData)" class="mb-2 max-w-xs whitespace-normal text-gray-400">{{ t('usage.centralPriceNotice') }}</p>
             <div v-if="tooltipData && tooltipData.input_cost > 0" class="flex items-center justify-between gap-4">
               <span class="text-gray-400">{{ t('admin.usage.inputCost') }}</span>
-              <span class="font-medium text-white">{{ formatCredits(tooltipData.input_cost, { fractionDigits: 6 }) }}</span>
+              <span class="font-medium text-white">{{ formatCredits(usageDisplayCost(tooltipData.input_cost, tooltipData), { fractionDigits: 6 }) }}</span>
             </div>
             <div v-if="tooltipData && tooltipData.output_cost > 0" class="flex items-center justify-between gap-4">
               <span class="text-gray-400">{{ t('admin.usage.outputCost') }}</span>
-              <span class="font-medium text-white">{{ formatCredits(tooltipData.output_cost, { fractionDigits: 6 }) }}</span>
+              <span class="font-medium text-white">{{ formatCredits(usageDisplayCost(tooltipData.output_cost, tooltipData), { fractionDigits: 6 }) }}</span>
             </div>
             <!-- Token billing: show unit prices per 1M tokens -->
-            <template v-if="!tooltipData?.billing_mode || tooltipData.billing_mode === 'token'">
+            <template v-if="isTokenPricedUsage(tooltipData)">
               <div v-if="tooltipData && tooltipData.input_tokens > 0" class="flex items-center justify-between gap-4">
                 <span class="text-gray-400">{{ t('usage.inputTokenPrice') }}</span>
-                <span class="font-medium text-sky-300">{{ formatTokenPricePerMillion(tooltipData.input_cost, tooltipData.input_tokens) }} {{ t('usage.perMillionTokens') }}</span>
+                <span class="font-medium text-sky-300">{{ formatTokenPricePerMillion(usageDisplayCost(tooltipData.input_cost, tooltipData), tooltipData.input_tokens) }} {{ t('usage.perMillionTokens') }}</span>
               </div>
               <div v-if="tooltipData && tooltipData.output_tokens > 0" class="flex items-center justify-between gap-4">
                 <span class="text-gray-400">{{ t('usage.outputTokenPrice') }}</span>
-                <span class="font-medium text-violet-300">{{ formatTokenPricePerMillion(tooltipData.output_cost, tooltipData.output_tokens) }} {{ t('usage.perMillionTokens') }}</span>
+                <span class="font-medium text-violet-300">{{ formatTokenPricePerMillion(usageDisplayCost(tooltipData.output_cost, tooltipData), tooltipData.output_tokens) }} {{ t('usage.perMillionTokens') }}</span>
               </div>
             </template>
             <!-- Per-request / image billing: show unit price -->
-            <div v-else class="flex items-center justify-between gap-4">
-              <span class="text-gray-400">{{ tooltipData.billing_mode === 'image' ? t('usage.imageUnitPrice') : t('usage.unitPrice') }}</span>
-              <span class="font-medium text-sky-300">{{ formatCredits(tooltipData.total_cost || 0, { fractionDigits: 6 }) }}</span>
+            <div v-else-if="tooltipData" class="flex items-center justify-between gap-4">
+              <span class="text-gray-400">{{ tooltipData.billing_mode === 'central' ? t('usage.billed') : tooltipData.billing_mode === 'image' ? t('usage.imageUnitPrice') : t('usage.unitPrice') }}</span>
+              <span class="font-medium text-sky-300">{{ formatCredits(tooltipData.billing_mode === 'central' ? tooltipData.actual_cost : usageDisplayUnitCost(tooltipData.total_cost, tooltipData), { fractionDigits: 6 }) }}</span>
             </div>
             <div v-if="tooltipData && tooltipData.cache_creation_cost > 0" class="flex items-center justify-between gap-4">
               <span class="text-gray-400">{{ t('admin.usage.cacheCreationCost') }}</span>
-              <span class="font-medium text-white">{{ formatCredits(tooltipData.cache_creation_cost, { fractionDigits: 6 }) }}</span>
+              <span class="font-medium text-white">{{ formatCredits(usageDisplayCost(tooltipData.cache_creation_cost, tooltipData), { fractionDigits: 6 }) }}</span>
             </div>
             <div v-if="tooltipData && tooltipData.cache_read_cost > 0" class="flex items-center justify-between gap-4">
               <span class="text-gray-400">{{ t('admin.usage.cacheReadCost') }}</span>
-              <span class="font-medium text-white">{{ formatCredits(tooltipData.cache_read_cost, { fractionDigits: 6 }) }}</span>
+              <span class="font-medium text-white">{{ formatCredits(usageDisplayCost(tooltipData.cache_read_cost, tooltipData), { fractionDigits: 6 }) }}</span>
             </div>
           </div>
           <!-- Rate and Summary -->
@@ -478,13 +480,13 @@
             <span class="font-semibold text-cyan-300">{{ getUsageServiceTierLabel(tooltipData?.service_tier, t) }}</span>
           </div>
           <div class="flex items-center justify-between gap-6">
-            <span class="text-gray-400">{{ t('usage.rate') }}</span>
+            <span class="text-gray-400">{{ t(isCentralUsage(tooltipData) ? 'usage.finalRate' : 'usage.rate') }}</span>
             <span class="font-semibold text-blue-400"
-              >{{ formatMultiplier(tooltipData?.rate_multiplier || 1) }}x</span
+              >{{ formatUsageRate(tooltipData) }}</span
             >
           </div>
           <div class="flex items-center justify-between gap-6">
-            <span class="text-gray-400">{{ t('usage.original') }}</span>
+            <span class="text-gray-400">{{ t(isCentralUsage(tooltipData) ? 'usage.baseCost' : 'usage.original') }}</span>
             <span class="font-medium text-white">{{ formatCredits(tooltipData?.total_cost, { fractionDigits: 6 }) }}</span>
           </div>
           <div class="flex items-center justify-between gap-6 border-t border-gray-700 pt-1.5">
@@ -516,12 +518,13 @@ import EmptyState from '@/components/common/EmptyState.vue'
 import Select from '@/components/common/Select.vue'
 import DateRangePicker from '@/components/common/DateRangePicker.vue'
 import Icon from '@/components/icons/Icon.vue'
+import OIDCBillingNotice from '@/components/common/OIDCBillingNotice.vue'
 import type { UsageLog, ApiKey, UsageQueryParams, UsageStatsResponse } from '@/types'
 import type { Column } from '@/components/common/types'
 import { formatDateTime, formatReasoningEffort } from '@/utils/format'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
-import { formatCacheTokens, formatMultiplier } from '@/utils/formatters'
-import { formatTokenPricePerMillion } from '@/utils/usagePricing'
+import { formatCacheTokens } from '@/utils/formatters'
+import { formatTokenPricePerMillion, formatUsageRate, isCentralUsage, isImagePricedUsage, isTokenPricedUsage, usageDisplayCost, usageDisplayMultiplier, usageDisplayUnitCost } from '@/utils/usagePricing'
 import { formatCredits } from '@/utils/credits'
 import { getUsageServiceTierLabel } from '@/utils/usageServiceTier'
 import { resolveUsageRequestType } from '@/utils/usageRequestType'
@@ -843,9 +846,16 @@ const exportToCSV = async () => {
       'Output Tokens',
       'Cache Read Tokens',
       'Cache Creation Tokens',
-      'Rate Multiplier',
+      'Input Cost',
+      'Output Cost',
+      'Cache Read Cost',
+      'Cache Creation Cost',
+      'Input Price per 1M Tokens',
+      'Output Price per 1M Tokens',
+      'Billing Source',
+      'Final Rate Multiplier',
       'Billed Cost',
-      'Original Cost',
+      'Base Cost',
       'First Token (ms)',
       'Duration (ms)'
     ]
@@ -862,7 +872,14 @@ const exportToCSV = async () => {
         log.output_tokens,
         log.cache_read_tokens,
         log.cache_creation_tokens,
-        log.rate_multiplier,
+        usageDisplayCost(log.input_cost, log)?.toFixed(8) ?? '',
+        usageDisplayCost(log.output_cost, log)?.toFixed(8) ?? '',
+        usageDisplayCost(log.cache_read_cost, log)?.toFixed(8) ?? '',
+        usageDisplayCost(log.cache_creation_cost, log)?.toFixed(8) ?? '',
+        isTokenPricedUsage(log) ? formatTokenPricePerMillion(usageDisplayCost(log.input_cost, log), log.input_tokens, { fractionDigits: 8, withCurrencySymbol: false, emptyValue: '' }) : '',
+        isTokenPricedUsage(log) ? formatTokenPricePerMillion(usageDisplayCost(log.output_cost, log), log.output_tokens, { fractionDigits: 8, withCurrencySymbol: false, emptyValue: '' }) : '',
+        isCentralUsage(log) ? 'central' : 'local',
+        usageDisplayMultiplier(log) ?? '',
         log.actual_cost.toFixed(8),
         log.total_cost.toFixed(8),
         log.first_token_ms ?? '',
