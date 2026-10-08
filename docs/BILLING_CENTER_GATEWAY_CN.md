@@ -6,6 +6,27 @@
 
 `billing_center.enabled` 启用 Auth 计费连接器。旧有本地用户是否已经迁移到中心，仍由数据库 route 决定；启用连接器不会自动搬钱或建立邮箱映射。配置关闭时，已经迁移的账户仍拒绝收费请求，不能转回本地余额。`draining`、`frozen`、`fenced` 拒绝新收费工作。
 
+### 仅 OIDC 模式下的每日计费
+
+后台「系统设置 → OIDC 登录」增加 OIDC 计费开关。先保存并验证仅 OIDC 登录模式；配置有效的 `billing_center` 连接器并启用 `gateway.resource_server`，且网页登录与网关使用同一个 issuer，才允许开启。`oidc_billing_supported` 表示部署配置具备接入能力，不是 OIDC 标准声明，也不是 Auth 在线健康检查；实际调用仍必须通过 Auth 的 Quote、Reserve、Dispatch 授权。
+
+| 设置 | 默认值 | 作用 |
+|---|---|---|
+| `oidc_billing_enabled` | `false` | 开启全站 Auth 计费与每日结算 |
+| `oidc_billing_rate_multiplier` | `1` | 正数；实际积分 = 网关模型/媒体费用 × 分组或用户倍率 × OIDC 计费倍数 |
+| `oidc_billing_settlement_time` | `00:00` | 每日结算时间，24 小时制 `HH:MM` |
+| `oidc_billing_settlement_timezone` | `Asia/Shanghai` | 明确的 IANA 时区；默认北京时间 |
+
+开启后，验证通过的外部 OIDC Bearer 可自动建立内部路由身份，无需另开 `auto_provision`。Auth 负责资金账户与可用积分；网关按每次调用的真实用量和冻结价目计算明细。普通 API Key 必须已有 Auth credential binding 和中心资金路由，否则拒绝调用；不能从旧积分、套餐或券中补扣。旧账户的显式资金隔离状态仍须按迁移流程处理，开关不迁移或清空历史资金。
+
+调用前先预扣锁定执行上界所需积分，成功 Dispatch 后才调用上游。完成时将真实费用、价格快照和结算事件持久化，到准入之后的第一个每日结算时间再由 worker 逐笔转为实际账单扣款。金额不足或 Auth 不可用时不执行上游工作。**预扣上界在日内保持锁定，到实际结算时扣除真实金额并释放余量**；Auth 当前没有单独缩减预扣的接口。尚未执行上游的失败调用立即排队释放，已执行但用量不明的调用保留待核对。
+
+结算截止时间和计费快照保存在 operation 中。调整倍数、时间、时区或关闭开关，仅影响后续新请求，不重算已预扣调用；每日 worker 不依赖网页会话，也不保存用户 Token。服务停机错过结算时间，恢复后补结算；投递超时沿用原事件 ID 和内容重试。跨结算点仍在执行的调用，在取得完整真实用量后立即补入到期队列。多副本通过数据库租约领取事件，正常空闲轮询间隔为 worker 配置值，不保证所有账单恰在同一秒完成。
+
+本地余额充值、余额修改、套餐授权、优惠码及兑换券 API 同时关闭，界面隐藏相应入口，新 OIDC 用户也不再获得默认本地余额或套餐。历史订单与签名支付回调保留，用于处理切换前的订单；已存在的 Auth 账户中心链接可继续使用。部署级 `auto_provision` 和已迁移中心账户的原有保护规则不受此开关替代，关闭开关不会让 Auth-only 身份回退本地扣费。
+
+升级须执行 `129_billing_center_daily_settlement.sql`，此前历史 operation 的空截止时间保留即时结算行为。数据库中的 `settlement_pending` 表示已记录真实费用、等待中心结算，不能把它显示为已实际扣款。每日结算沿用现有逐笔账单接口，不合并不同调用的幂等身份。
+
 ### 外部 OIDC Bearer 自动接入
 
 同时启用 `gateway.resource_server.enabled`、`gateway.resource_server.auto_provision` 和 `billing_center.enabled` 后，所有有效的外部 OIDC Bearer 调用采用中心计费。网关按已验签的 `(iss, sub)` 首次自动建立 API-only 本地用户和隐藏路由 Key；管理员无需为每个用户手动配置绑定。部署时须已有带活跃上游账号的公开标准分组；否则首访失败且不会留下半建档身份。自动生成的 Key 持久标记 `auth_billing_only=true`，状态也为 `auth_billing_only`，以便旧版网关拒绝它；本地身份仅用于路由、权限和用量外键，不成为客户资金权威。不同 `sub` 不通过邮箱合并。已存在的显式绑定仍可使用：个人显式 `central` route 必须与 Auth 返回的付款账户及 epoch 一致；无中心 workspace route 时，显式非 `central` 个人 route 会拒绝 Bearer。已登记中心 workspace 的团队资金独立于该用户个人旧资金，仍需 Auth Quote 验证实际 payer 和成员资格。

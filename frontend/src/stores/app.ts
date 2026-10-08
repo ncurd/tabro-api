@@ -47,6 +47,7 @@ export const useAppStore = defineStore('app', () => {
   // ==================== Computed ====================
 
   const hasActiveToasts = computed(() => toasts.value.length > 0)
+  const oidcBillingEnabled = computed(() => cachedPublicSettings.value?.oidc_billing_enabled === true)
   const backendModeEnabled = computed(() => cachedPublicSettings.value?.backend_mode_enabled ?? false)
 
   const loadingCount = ref<number>(0)
@@ -339,6 +340,7 @@ export const useAppStore = defineStore('app', () => {
         oidc_oauth_enabled: false,
         oidc_oauth_provider_name: 'OIDC',
         oidc_only_enabled: false,
+        oidc_billing_enabled: false,
         backend_mode_enabled: false,
         version: siteVersion.value,
         balance_low_notify_enabled: false,
@@ -417,6 +419,7 @@ export const useAppStore = defineStore('app', () => {
     // Computed
     hasActiveToasts,
     backendModeEnabled,
+    oidcBillingEnabled,
 
     // Actions
     toggleSidebar,

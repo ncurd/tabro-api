@@ -67,8 +67,14 @@ type Operation struct {
 	RemoteVersion      int64
 	RequestPayload     json.RawMessage
 	Snapshot           json.RawMessage
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
+	// SettlementNotBefore freezes the daily billing cutoff at admission. Zero
+	// preserves immediate settlement for operations created before scheduling.
+	SettlementNotBefore time.Time
+	// GatewayPricingSnapshot preserves the gateway's detailed prices and
+	// multiplier for retries and asynchronous usage reconciliation.
+	GatewayPricingSnapshot json.RawMessage
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
 }
 
 func (o Operation) ValidateIntent() error {

@@ -2,7 +2,7 @@
   <!-- Row 1: Core Stats -->
   <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
     <!-- Balance -->
-    <div v-if="!isSimple" class="card p-4">
+    <div v-if="!isSimple && !appStore.oidcBillingEnabled" class="card p-4">
       <div class="flex items-center gap-3">
         <div class="rounded-lg bg-emerald-100 p-2 dark:bg-emerald-900/30">
           <svg class="h-5 w-5 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -135,6 +135,7 @@
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
+import { useAppStore } from '@/stores/app'
 import Icon from '@/components/icons/Icon.vue'
 import type { UserDashboardStats as UserStatsType } from '@/api/usage'
 import { formatCredits } from '@/utils/credits'
@@ -145,6 +146,7 @@ defineProps<{
   isSimple: boolean
 }>()
 const { t } = useI18n()
+const appStore = useAppStore()
 
 const formatNumber = (n: number) => n.toLocaleString()
 const formatTokens = (t: number) => {

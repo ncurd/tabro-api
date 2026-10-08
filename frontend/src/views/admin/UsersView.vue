@@ -553,6 +553,7 @@
 
               <!-- Deposit -->
               <button
+                v-if="!appStore.oidcBillingEnabled"
                 @click="handleDeposit(user); closeActionMenu()"
                 class="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
               >
@@ -562,6 +563,7 @@
 
               <!-- Withdraw -->
               <button
+                v-if="!appStore.oidcBillingEnabled"
                 @click="handleWithdraw(user); closeActionMenu()"
                 class="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
               >
@@ -573,6 +575,7 @@
 
               <!-- Balance History -->
               <button
+                v-if="!appStore.oidcBillingEnabled"
                 @click="handleBalanceHistory(user); closeActionMenu()"
                 class="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
               >
@@ -602,8 +605,8 @@
     <UserEditModal :show="showEditModal" :user="editingUser" @close="closeEditModal" @success="loadUsers" />
     <UserApiKeysModal :show="showApiKeysModal" :user="viewingUser" @close="closeApiKeysModal" />
     <UserAllowedGroupsModal :show="showAllowedGroupsModal" :user="allowedGroupsUser" @close="closeAllowedGroupsModal" @success="loadUsers" />
-    <UserBalanceModal :show="showBalanceModal" :user="balanceUser" :operation="balanceOperation" @close="closeBalanceModal" @success="loadUsers" />
-    <UserBalanceHistoryModal :show="showBalanceHistoryModal" :user="balanceHistoryUser" @close="closeBalanceHistoryModal" @deposit="handleDepositFromHistory" @withdraw="handleWithdrawFromHistory" />
+    <UserBalanceModal v-if="!appStore.oidcBillingEnabled" :show="showBalanceModal" :user="balanceUser" :operation="balanceOperation" @close="closeBalanceModal" @success="loadUsers" />
+    <UserBalanceHistoryModal v-if="!appStore.oidcBillingEnabled" :show="showBalanceHistoryModal" :user="balanceHistoryUser" @close="closeBalanceHistoryModal" @deposit="handleDepositFromHistory" @withdraw="handleWithdrawFromHistory" />
     <GroupReplaceModal :show="showGroupReplaceModal" :user="groupReplaceUser" :old-group="groupReplaceOldGroup" :all-groups="allGroups" @close="closeGroupReplaceModal" @success="loadUsers" />
     <UserAttributesConfigModal :show="showAttributesModal" @close="handleAttributesModalClose" />
   </AppLayout>
@@ -699,8 +702,10 @@ const allColumns = computed<Column[]>(() => [
   ...attributeColumns.value,
   { key: 'role', label: t('admin.users.columns.role'), sortable: true },
   { key: 'groups', label: t('admin.users.columns.groups'), sortable: false },
-  { key: 'subscriptions', label: t('admin.users.columns.subscriptions'), sortable: false },
-  { key: 'balance', label: t('admin.users.columns.balance'), sortable: true },
+  ...(!appStore.oidcBillingEnabled ? [
+    { key: 'subscriptions', label: t('admin.users.columns.subscriptions'), sortable: false },
+    { key: 'balance', label: t('admin.users.columns.balance'), sortable: true }
+  ] : []),
   { key: 'usage', label: t('admin.users.columns.usage'), sortable: false },
   { key: 'concurrency', label: t('admin.users.columns.concurrency'), sortable: true },
   { key: 'status', label: t('admin.users.columns.status'), sortable: true },
@@ -772,7 +777,7 @@ const toggleColumn = (key: string) => {
 // Check if column is visible (not in hidden set)
 const isColumnVisible = (key: string) => !hiddenColumns.has(key)
 const hasVisibleUsageColumn = computed(() => !hiddenColumns.has('usage'))
-const hasVisibleSubscriptionsColumn = computed(() => !hiddenColumns.has('subscriptions'))
+const hasVisibleSubscriptionsColumn = computed(() => !appStore.oidcBillingEnabled && !hiddenColumns.has('subscriptions'))
 const hasVisibleGroupsColumn = computed(() => !hiddenColumns.has('groups'))
 const hasVisibleAttributeColumns = computed(() =>
   attributeDefinitions.value.some((def) => def.enabled && !hiddenColumns.has(`attr_${def.id}`))

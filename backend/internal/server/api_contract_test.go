@@ -63,7 +63,8 @@ func TestAPIContracts(t *testing.T) {
 					"balance_notify_threshold": null,
 					"balance_notify_extra_emails": null,
 					"total_recharged": 0,
-					"run_mode": "standard"
+					"run_mode": "standard",
+					"api_only": false
 				}
 			}`,
 		},
@@ -556,6 +557,11 @@ func TestAPIContracts(t *testing.T) {
 						"oidc_connect_use_pkce": false,
 						"oidc_connect_validate_id_token": true,
 						"oidc_only_enabled": false,
+						"oidc_billing_enabled": false,
+						"oidc_billing_supported": false,
+						"oidc_billing_rate_multiplier": 1,
+						"oidc_billing_settlement_time": "00:00",
+						"oidc_billing_settlement_timezone": "Asia/Shanghai",
 						"oidc_connect_allowed_signing_algs": "RS256,ES256,PS256",
 						"oidc_connect_clock_skew_seconds": 120,
 						"oidc_connect_require_email_verified": false,

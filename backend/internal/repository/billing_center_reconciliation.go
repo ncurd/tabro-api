@@ -21,6 +21,7 @@ func (r *BillingCenterRepository) PendingReconciliations(ctx context.Context, li
  SELECT producer_client_id,origin_app_id,operation_id FROM billing_center_operations
  WHERE producer_client_id=$1 AND billing_mode='central' AND reservation_id<>''
  AND state IN ('dispatching','dispatched','settlement_pending','release_pending','reconciliation_required')
+ AND (state<>'settlement_pending' OR settlement_not_before IS NULL OR settlement_not_before<=NOW())
  AND updated_at<NOW()-INTERVAL '30 seconds'
  AND (reconciliation_checked_at IS NULL OR reconciliation_checked_at<NOW()-INTERVAL '30 seconds')
  ORDER BY reconciliation_checked_at NULLS FIRST,updated_at LIMIT $2 FOR UPDATE SKIP LOCKED

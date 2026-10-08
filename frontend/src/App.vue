@@ -42,7 +42,23 @@ watch(
   { immediate: true }
 )
 
-// Watch for authentication state and manage subscription data + announcements
+// Local subscriptions are inactive while Auth owns billing.
+watch(
+  () => authStore.isAuthenticated && !appStore.oidcBillingEnabled,
+  (enabled) => {
+    if (enabled) {
+      subscriptionStore.fetchActiveSubscriptions().catch((error) => {
+        console.error('Failed to preload subscriptions:', error)
+      })
+      subscriptionStore.startPolling()
+    } else {
+      subscriptionStore.clear()
+    }
+  },
+  { immediate: true }
+)
+
+// Watch for authentication state and manage announcements
 function onVisibilityChange() {
   if (document.visibilityState === 'visible' && authStore.isAuthenticated) {
     announcementStore.fetchAnnouncements()
@@ -53,12 +69,6 @@ watch(
   () => authStore.isAuthenticated,
   (isAuthenticated, oldValue) => {
     if (isAuthenticated) {
-      // User logged in: preload subscriptions and start polling
-      subscriptionStore.fetchActiveSubscriptions().catch((error) => {
-        console.error('Failed to preload subscriptions:', error)
-      })
-      subscriptionStore.startPolling()
-
       // Announcements: new login vs page refresh restore
       if (oldValue === false) {
         // New login: delay 3s then force fetch
@@ -71,8 +81,7 @@ watch(
       // Register visibility change listener
       document.addEventListener('visibilitychange', onVisibilityChange)
     } else {
-      // User logged out: clear data and stop polling
-      subscriptionStore.clear()
+      // User logged out: clear announcement data
       announcementStore.reset()
       document.removeEventListener('visibilitychange', onVisibilityChange)
     }

@@ -55,15 +55,24 @@ func billingCenterTestRepository(t *testing.T) (*BillingCenterRepository, *sql.D
 	require.NoError(t, err)
 	_, err = db.Exec(string(resolutionMigration))
 	require.NoError(t, err)
+	scheduleMigration, err := migrations.FS.ReadFile("129_billing_center_daily_settlement.sql")
+	require.NoError(t, err)
+	_, err = db.Exec(string(scheduleMigration))
+	require.NoError(t, err)
+	_, err = db.Exec(string(scheduleMigration))
+	require.NoError(t, err)
 	return NewBillingCenterRepository(db, "gateway-billing"), db
 }
 
-func billingCenterTestOperation(t *testing.T, repo *BillingCenterRepository) bc.Operation {
+func billingCenterTestOperation(t *testing.T, repo *BillingCenterRepository, deadlines ...time.Time) bc.Operation {
 	t.Helper()
 	ctx := context.Background()
 	key := bc.Key{ProducerClientID: "gateway-billing", OriginAppID: "agent", OperationID: uuid.NewString()}
 	request := bc.ReserveRequest{OperationID: key.OperationID, BillingAccountID: "payer", BalanceID: "balance", PriceVersionID: "price", OwnerEpoch: 7, ServiceTier: "default", MaximumUsage: map[string]bc.Decimal{"input": "100000"}}
 	intent, err := bc.NewIntent(key, "user", "tenant", "central", request)
+	if len(deadlines) == 1 {
+		intent, err = bc.NewScheduledIntent(key, "user", "tenant", "central", request, deadlines[0])
+	}
 	require.NoError(t, err)
 	op, created, err := repo.CreateIntent(ctx, intent)
 	require.NoError(t, err)
@@ -81,9 +90,9 @@ func billingCenterTestRemote(op bc.Operation, state string, version int64) bc.Re
 	}
 	return bc.Reservation{OperationID: op.OperationID, ReservationID: id, State: state, Version: version, BillingAccountID: "payer", OwnerEpoch: 7, WalletUnit: "credit", ReservedAmount: "1.25", SettledAmount: "0.75", PriceVersionID: "price", ProductVersion: "product", BalanceID: "balance", PeriodIDs: []string{"period"}, ExpiresAt: time.Now().Add(time.Hour).UTC()}
 }
-func billingCenterTestDispatched(t *testing.T, repo *BillingCenterRepository) bc.Operation {
+func billingCenterTestDispatched(t *testing.T, repo *BillingCenterRepository, deadlines ...time.Time) bc.Operation {
 	t.Helper()
-	op := billingCenterTestOperation(t, repo)
+	op := billingCenterTestOperation(t, repo, deadlines...)
 	ctx := context.Background()
 	claimed, err := repo.ClaimDispatch(ctx, op.Key, op.Version, "attempt")
 	require.NoError(t, err)

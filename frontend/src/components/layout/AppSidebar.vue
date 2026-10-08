@@ -187,6 +187,7 @@ import { useAdminSettingsStore, useAppStore, useAuthStore, useOnboardingStore } 
 import VersionBadge from '@/components/common/VersionBadge.vue'
 import { sanitizeSvg } from '@/utils/sanitize'
 import { paymentPurchaseDestination } from '@/router/paymentMigration'
+import { isLocalBillingPath } from '@/router/oidcBilling'
 
 interface NavItem {
   path: string
@@ -634,7 +635,8 @@ const userNavItems = computed((): NavItem[] => {
       iconSvg: item.icon_svg,
     })),
   ]
-  return authStore.isSimpleMode ? items.filter(item => !item.hideInSimpleMode) : items
+  return items.filter(item => (!authStore.isSimpleMode || !item.hideInSimpleMode)
+    && (!appStore.oidcBillingEnabled || !isLocalBillingPath(item.path)))
 })
 
 // Personal navigation items (for admin's "My Account" section, without Dashboard)
@@ -674,7 +676,8 @@ const personalNavItems = computed((): NavItem[] => {
       iconSvg: item.icon_svg,
     })),
   ]
-  return authStore.isSimpleMode ? items.filter(item => !item.hideInSimpleMode) : items
+  return items.filter(item => (!authStore.isSimpleMode || !item.hideInSimpleMode)
+    && (!appStore.oidcBillingEnabled || !isLocalBillingPath(item.path)))
 })
 
 // Custom menu items filtered by visibility
@@ -729,6 +732,12 @@ const adminNavItems = computed((): NavItem[] => {
       : []),
     { path: '/admin/usage', label: t('nav.usage'), icon: ChartIcon }
   ]
+
+  if (appStore.oidcBillingEnabled) {
+    for (let index = baseItems.length - 1; index >= 0; index--) {
+      if (isLocalBillingPath(baseItems[index].path)) baseItems.splice(index, 1)
+    }
+  }
 
   // 简单模式下，在系统设置前插入 API密钥
   if (authStore.isSimpleMode) {

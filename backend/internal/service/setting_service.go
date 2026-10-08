@@ -186,6 +186,10 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeyBackendModeEnabled,
 		SettingPaymentEnabled,
 		SettingKeyOIDCOnlyEnabled,
+		SettingKeyOIDCBillingEnabled,
+		SettingKeyOIDCBillingRateMultiplier,
+		SettingKeyOIDCBillingSettlementTime,
+		SettingKeyOIDCBillingSettlementTimezone,
 		SettingKeyOIDCConnectEnabled,
 		SettingKeyOIDCConnectProviderName,
 		SettingKeyBalanceLowNotifyEnabled,
@@ -219,6 +223,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		oidcProviderName = "OIDC"
 	}
 	oidcOnlyEnabled := settings[SettingKeyOIDCOnlyEnabled] == "true"
+	oidcBilling, _ := oidcBillingPolicyFromSettings(settings)
 
 	// Password reset requires email verification to be enabled
 	emailVerifyEnabled := settings[SettingKeyEmailVerifyEnabled] == "true"
@@ -242,7 +247,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		RegistrationEnabled:              !internalOnly && settings[SettingKeyRegistrationEnabled] == "true",
 		EmailVerifyEnabled:               emailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist: registrationEmailSuffixWhitelist,
-		PromoCodeEnabled:                 settings[SettingKeyPromoCodeEnabled] != "false", // 默认启用
+		PromoCodeEnabled:                 !oidcBilling.Enabled && settings[SettingKeyPromoCodeEnabled] != "false", // 默认启用
 		PasswordResetEnabled:             !internalOnly && !oidcOnlyEnabled && passwordResetEnabled,
 		InvitationCodeEnabled:            settings[SettingKeyInvitationCodeEnabled] == "true",
 		TotpEnabled:                      settings[SettingKeyTotpEnabled] == "true",
@@ -256,7 +261,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		DocURL:                           settings[SettingKeyDocURL],
 		HomeContent:                      settings[SettingKeyHomeContent],
 		HideCcsImportButton:              settings[SettingKeyHideCcsImportButton] == "true",
-		PurchaseSubscriptionEnabled:      !internalOnly && settings[SettingKeyPurchaseSubscriptionEnabled] == "true",
+		PurchaseSubscriptionEnabled:      !internalOnly && !oidcBilling.Enabled && settings[SettingKeyPurchaseSubscriptionEnabled] == "true",
 		PurchaseSubscriptionURL:          strings.TrimSpace(settings[SettingKeyPurchaseSubscriptionURL]),
 		TableDefaultPageSize:             tableDefaultPageSize,
 		TablePageSizeOptions:             tablePageSizeOptions,
@@ -264,11 +269,16 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		CustomEndpoints:                  settings[SettingKeyCustomEndpoints],
 		LinuxDoOAuthEnabled:              !internalOnly && !oidcOnlyEnabled && linuxDoEnabled,
 		OIDCOnlyEnabled:                  oidcOnlyEnabled,
+		OIDCBillingEnabled:               oidcBilling.Enabled,
+		OIDCBillingSupported:             s.IsOIDCBillingSupported(),
+		OIDCBillingRateMultiplier:        oidcBilling.RateMultiplier,
+		OIDCBillingSettlementTime:        oidcBilling.SettlementTime,
+		OIDCBillingSettlementTimezone:    oidcBilling.SettlementTimezone,
 		BackendModeEnabled:               internalOnly || settings[SettingKeyBackendModeEnabled] == "true",
-		PaymentEnabled:                   settings[SettingPaymentEnabled] == "true",
+		PaymentEnabled:                   !oidcBilling.Enabled && settings[SettingPaymentEnabled] == "true",
 		OIDCOAuthEnabled:                 oidcEnabled,
 		OIDCOAuthProviderName:            oidcProviderName,
-		BalanceLowNotifyEnabled:          settings[SettingKeyBalanceLowNotifyEnabled] == "true",
+		BalanceLowNotifyEnabled:          !oidcBilling.Enabled && settings[SettingKeyBalanceLowNotifyEnabled] == "true",
 		AccountQuotaNotifyEnabled:        settings[SettingKeyAccountQuotaNotifyEnabled] == "true",
 		BalanceLowNotifyThreshold:        balanceLowNotifyThreshold,
 		BalanceLowNotifyRechargeURL:      settings[SettingKeyBalanceLowNotifyRechargeURL],
@@ -323,6 +333,11 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		CustomEndpoints                  json.RawMessage `json:"custom_endpoints"`
 		LinuxDoOAuthEnabled              bool            `json:"linuxdo_oauth_enabled"`
 		OIDCOnlyEnabled                  bool            `json:"oidc_only_enabled"`
+		OIDCBillingEnabled               bool            `json:"oidc_billing_enabled"`
+		OIDCBillingSupported             bool            `json:"oidc_billing_supported"`
+		OIDCBillingRateMultiplier        float64         `json:"oidc_billing_rate_multiplier"`
+		OIDCBillingSettlementTime        string          `json:"oidc_billing_settlement_time"`
+		OIDCBillingSettlementTimezone    string          `json:"oidc_billing_settlement_timezone"`
 		BackendModeEnabled               bool            `json:"backend_mode_enabled"`
 		PaymentEnabled                   bool            `json:"payment_enabled"`
 		OIDCOAuthEnabled                 bool            `json:"oidc_oauth_enabled"`
@@ -360,6 +375,11 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		CustomEndpoints:                  safeRawJSONArray(settings.CustomEndpoints),
 		LinuxDoOAuthEnabled:              settings.LinuxDoOAuthEnabled,
 		OIDCOnlyEnabled:                  settings.OIDCOnlyEnabled,
+		OIDCBillingEnabled:               settings.OIDCBillingEnabled,
+		OIDCBillingSupported:             settings.OIDCBillingSupported,
+		OIDCBillingRateMultiplier:        settings.OIDCBillingRateMultiplier,
+		OIDCBillingSettlementTime:        settings.OIDCBillingSettlementTime,
+		OIDCBillingSettlementTimezone:    settings.OIDCBillingSettlementTimezone,
 		BackendModeEnabled:               settings.BackendModeEnabled,
 		PaymentEnabled:                   settings.PaymentEnabled,
 		OIDCOAuthEnabled:                 settings.OIDCOAuthEnabled,
@@ -496,6 +516,9 @@ func parseCustomMenuItemURLs(raw string) []string {
 
 // UpdateSettings 更新系统设置
 func (s *SettingService) UpdateSettings(ctx context.Context, settings *SystemSettings) error {
+	if err := s.normalizeOIDCBillingSettings(settings); err != nil {
+		return err
+	}
 	if err := s.validateDefaultSubscriptionGroups(ctx, settings.DefaultSubscriptions); err != nil {
 		return err
 	}
@@ -554,6 +577,10 @@ func (s *SettingService) UpdateSettings(ctx context.Context, settings *SystemSet
 
 	// Generic OIDC OAuth 登录
 	updates[SettingKeyOIDCOnlyEnabled] = strconv.FormatBool(settings.OIDCOnlyEnabled)
+	updates[SettingKeyOIDCBillingEnabled] = strconv.FormatBool(settings.OIDCBillingEnabled)
+	updates[SettingKeyOIDCBillingRateMultiplier] = strconv.FormatFloat(settings.OIDCBillingRateMultiplier, 'g', -1, 64)
+	updates[SettingKeyOIDCBillingSettlementTime] = settings.OIDCBillingSettlementTime
+	updates[SettingKeyOIDCBillingSettlementTimezone] = settings.OIDCBillingSettlementTimezone
 	updates[SettingKeyOIDCConnectEnabled] = strconv.FormatBool(settings.OIDCConnectEnabled)
 	updates[SettingKeyOIDCConnectProviderName] = settings.OIDCConnectProviderName
 	updates[SettingKeyOIDCConnectClientID] = settings.OIDCConnectClientID
@@ -872,6 +899,9 @@ func (s *SettingService) GetRegistrationEmailSuffixWhitelist(ctx context.Context
 
 // IsPromoCodeEnabled 检查是否启用优惠码功能
 func (s *SettingService) IsPromoCodeEnabled(ctx context.Context) bool {
+	if s.IsOIDCBillingEnabled(ctx) {
+		return false
+	}
 	value, err := s.settingRepo.GetValue(ctx, SettingKeyPromoCodeEnabled)
 	if err != nil {
 		return true // 默认启用
@@ -940,6 +970,9 @@ func (s *SettingService) GetDefaultConcurrency(ctx context.Context) int {
 
 // GetDefaultBalance 获取默认余额
 func (s *SettingService) GetDefaultBalance(ctx context.Context) float64 {
+	if s.IsOIDCBillingEnabled(ctx) {
+		return 0
+	}
 	value, err := s.settingRepo.GetValue(ctx, SettingKeyDefaultBalance)
 	if err != nil {
 		return s.cfg.Default.UserBalance
@@ -952,6 +985,9 @@ func (s *SettingService) GetDefaultBalance(ctx context.Context) float64 {
 
 // GetDefaultSubscriptions 获取新用户默认订阅配置列表。
 func (s *SettingService) GetDefaultSubscriptions(ctx context.Context) []DefaultSubscriptionSetting {
+	if s.IsOIDCBillingEnabled(ctx) {
+		return nil
+	}
 	value, err := s.settingRepo.GetValue(ctx, SettingKeyDefaultSubscriptions)
 	if err != nil {
 		return nil
@@ -987,6 +1023,10 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyCustomEndpoints:                  "[]",
 		SettingKeyOIDCConnectEnabled:               "false",
 		SettingKeyOIDCOnlyEnabled:                  "false",
+		SettingKeyOIDCBillingEnabled:               "false",
+		SettingKeyOIDCBillingRateMultiplier:        "1",
+		SettingKeyOIDCBillingSettlementTime:        DefaultOIDCBillingSettlementTime,
+		SettingKeyOIDCBillingSettlementTimezone:    DefaultOIDCBillingSettlementTimezone,
 		SettingKeyOIDCConnectProviderName:          "OIDC",
 		SettingKeyDefaultConcurrency:               strconv.Itoa(s.cfg.Default.UserConcurrency),
 		SettingKeyDefaultBalance:                   strconv.FormatFloat(s.cfg.Default.UserBalance, 'f', 8, 64),
@@ -1025,10 +1065,16 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 
 // parseSettings 解析设置到结构体
 func (s *SettingService) parseSettings(settings map[string]string) *SystemSettings {
+	oidcBilling, _ := oidcBillingPolicyFromSettings(settings)
 	emailVerifyEnabled := settings[SettingKeyEmailVerifyEnabled] == "true"
 	result := &SystemSettings{
 		RegistrationEnabled:              settings[SettingKeyRegistrationEnabled] == "true",
 		OIDCOnlyEnabled:                  settings[SettingKeyOIDCOnlyEnabled] == "true",
+		OIDCBillingEnabled:               oidcBilling.Enabled,
+		OIDCBillingSupported:             s.IsOIDCBillingSupported(),
+		OIDCBillingRateMultiplier:        oidcBilling.RateMultiplier,
+		OIDCBillingSettlementTime:        oidcBilling.SettlementTime,
+		OIDCBillingSettlementTimezone:    oidcBilling.SettlementTimezone,
 		EmailVerifyEnabled:               emailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist: ParseRegistrationEmailSuffixWhitelist(settings[SettingKeyRegistrationEmailSuffixWhitelist]),
 		PromoCodeEnabled:                 settings[SettingKeyPromoCodeEnabled] != "false", // 默认启用

@@ -1,8 +1,9 @@
 <template>
   <AppLayout>
     <div class="mx-auto max-w-4xl space-y-6">
-      <div class="grid grid-cols-1 gap-6 sm:grid-cols-3">
-        <StatCard :title="t('profile.accountBalance')" :value="formatCurrency(user?.balance || 0)" :icon="WalletIcon" icon-variant="success" />
+      <OIDCBillingNotice />
+      <div class="grid grid-cols-1 gap-6" :class="appStore.oidcBillingEnabled ? 'sm:grid-cols-2' : 'sm:grid-cols-3'">
+        <StatCard v-if="!appStore.oidcBillingEnabled" :title="t('profile.accountBalance')" :value="formatCurrency(user?.balance || 0)" :icon="WalletIcon" icon-variant="success" />
         <StatCard :title="t('profile.concurrencyLimit')" :value="user?.concurrency || 0" :icon="BoltIcon" icon-variant="warning" />
         <StatCard :title="t('profile.memberSince')" :value="formatDate(user?.created_at || '', { year: 'numeric', month: 'long' })" :icon="CalendarIcon" icon-variant="primary" />
       </div>
@@ -15,7 +16,7 @@
       </div>
       <ProfileEditForm :initial-username="user?.username || ''" />
       <ProfileBalanceNotifyCard
-        v-if="user && balanceLowNotifyEnabled"
+        v-if="user && balanceLowNotifyEnabled && !appStore.oidcBillingEnabled"
         :enabled="user.balance_notify_enabled ?? true"
         :threshold="user.balance_notify_threshold"
         :extra-emails="user.balance_notify_extra_emails ?? []"
@@ -29,6 +30,8 @@
 </template>
 
 <script setup lang="ts">
+import { useAppStore } from '@/stores/app'
+import OIDCBillingNotice from '@/components/common/OIDCBillingNotice.vue'
 import { ref, computed, h, onMounted } from 'vue'; import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'; import { formatDate } from '@/utils/format'
 import { authAPI } from '@/api'; import AppLayout from '@/components/layout/AppLayout.vue'
@@ -42,6 +45,7 @@ import ProfileTotpCard from '@/components/user/profile/ProfileTotpCard.vue'
 import { Icon } from '@/components/icons'
 
 const { t } = useI18n(); const authStore = useAuthStore(); const user = computed(() => authStore.user)
+const appStore = useAppStore()
 const contactInfo = ref('')
 const balanceLowNotifyEnabled = ref(false)
 const systemDefaultThreshold = ref(0)

@@ -148,6 +148,11 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 	response.Success(c, dto.SystemSettings{
 		RegistrationEnabled:                  settings.RegistrationEnabled,
 		OIDCOnlyEnabled:                      settings.OIDCOnlyEnabled,
+		OIDCBillingEnabled:                   settings.OIDCBillingEnabled,
+		OIDCBillingSupported:                 settings.OIDCBillingSupported,
+		OIDCBillingRateMultiplier:            settings.OIDCBillingRateMultiplier,
+		OIDCBillingSettlementTime:            settings.OIDCBillingSettlementTime,
+		OIDCBillingSettlementTimezone:        settings.OIDCBillingSettlementTimezone,
 		EmailVerifyEnabled:                   settings.EmailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist:     settings.RegistrationEmailSuffixWhitelist,
 		PromoCodeEnabled:                     settings.PromoCodeEnabled,
@@ -295,29 +300,33 @@ type UpdateSettingsRequest struct {
 	LinuxDoConnectRedirectURL  string `json:"linuxdo_connect_redirect_url"`
 
 	// Generic OIDC OAuth 登录
-	OIDCOnlyEnabled                 *bool  `json:"oidc_only_enabled"`
-	OIDCConnectEnabled              bool   `json:"oidc_connect_enabled"`
-	OIDCConnectProviderName         string `json:"oidc_connect_provider_name"`
-	OIDCConnectClientID             string `json:"oidc_connect_client_id"`
-	OIDCConnectClientSecret         string `json:"oidc_connect_client_secret"`
-	OIDCConnectIssuerURL            string `json:"oidc_connect_issuer_url"`
-	OIDCConnectDiscoveryURL         string `json:"oidc_connect_discovery_url"`
-	OIDCConnectAuthorizeURL         string `json:"oidc_connect_authorize_url"`
-	OIDCConnectTokenURL             string `json:"oidc_connect_token_url"`
-	OIDCConnectUserInfoURL          string `json:"oidc_connect_userinfo_url"`
-	OIDCConnectJWKSURL              string `json:"oidc_connect_jwks_url"`
-	OIDCConnectScopes               string `json:"oidc_connect_scopes"`
-	OIDCConnectRedirectURL          string `json:"oidc_connect_redirect_url"`
-	OIDCConnectFrontendRedirectURL  string `json:"oidc_connect_frontend_redirect_url"`
-	OIDCConnectTokenAuthMethod      string `json:"oidc_connect_token_auth_method"`
-	OIDCConnectUsePKCE              bool   `json:"oidc_connect_use_pkce"`
-	OIDCConnectValidateIDToken      bool   `json:"oidc_connect_validate_id_token"`
-	OIDCConnectAllowedSigningAlgs   string `json:"oidc_connect_allowed_signing_algs"`
-	OIDCConnectClockSkewSeconds     int    `json:"oidc_connect_clock_skew_seconds"`
-	OIDCConnectRequireEmailVerified bool   `json:"oidc_connect_require_email_verified"`
-	OIDCConnectUserInfoEmailPath    string `json:"oidc_connect_userinfo_email_path"`
-	OIDCConnectUserInfoIDPath       string `json:"oidc_connect_userinfo_id_path"`
-	OIDCConnectUserInfoUsernamePath string `json:"oidc_connect_userinfo_username_path"`
+	OIDCOnlyEnabled                 *bool    `json:"oidc_only_enabled"`
+	OIDCBillingEnabled              *bool    `json:"oidc_billing_enabled"`
+	OIDCBillingRateMultiplier       *float64 `json:"oidc_billing_rate_multiplier"`
+	OIDCBillingSettlementTime       *string  `json:"oidc_billing_settlement_time"`
+	OIDCBillingSettlementTimezone   *string  `json:"oidc_billing_settlement_timezone"`
+	OIDCConnectEnabled              bool     `json:"oidc_connect_enabled"`
+	OIDCConnectProviderName         string   `json:"oidc_connect_provider_name"`
+	OIDCConnectClientID             string   `json:"oidc_connect_client_id"`
+	OIDCConnectClientSecret         string   `json:"oidc_connect_client_secret"`
+	OIDCConnectIssuerURL            string   `json:"oidc_connect_issuer_url"`
+	OIDCConnectDiscoveryURL         string   `json:"oidc_connect_discovery_url"`
+	OIDCConnectAuthorizeURL         string   `json:"oidc_connect_authorize_url"`
+	OIDCConnectTokenURL             string   `json:"oidc_connect_token_url"`
+	OIDCConnectUserInfoURL          string   `json:"oidc_connect_userinfo_url"`
+	OIDCConnectJWKSURL              string   `json:"oidc_connect_jwks_url"`
+	OIDCConnectScopes               string   `json:"oidc_connect_scopes"`
+	OIDCConnectRedirectURL          string   `json:"oidc_connect_redirect_url"`
+	OIDCConnectFrontendRedirectURL  string   `json:"oidc_connect_frontend_redirect_url"`
+	OIDCConnectTokenAuthMethod      string   `json:"oidc_connect_token_auth_method"`
+	OIDCConnectUsePKCE              bool     `json:"oidc_connect_use_pkce"`
+	OIDCConnectValidateIDToken      bool     `json:"oidc_connect_validate_id_token"`
+	OIDCConnectAllowedSigningAlgs   string   `json:"oidc_connect_allowed_signing_algs"`
+	OIDCConnectClockSkewSeconds     int      `json:"oidc_connect_clock_skew_seconds"`
+	OIDCConnectRequireEmailVerified bool     `json:"oidc_connect_require_email_verified"`
+	OIDCConnectUserInfoEmailPath    string   `json:"oidc_connect_userinfo_email_path"`
+	OIDCConnectUserInfoIDPath       string   `json:"oidc_connect_userinfo_id_path"`
+	OIDCConnectUserInfoUsernamePath string   `json:"oidc_connect_userinfo_username_path"`
 
 	// OEM设置
 	SiteName                    string                `json:"site_name"`
@@ -421,6 +430,29 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	oidcOnlyEnabled := previousSettings.OIDCOnlyEnabled
 	if req.OIDCOnlyEnabled != nil {
 		oidcOnlyEnabled = *req.OIDCOnlyEnabled
+	}
+
+	oidcBilling := service.OIDCBillingPolicy{
+		Enabled:            previousSettings.OIDCBillingEnabled,
+		RateMultiplier:     previousSettings.OIDCBillingRateMultiplier,
+		SettlementTime:     previousSettings.OIDCBillingSettlementTime,
+		SettlementTimezone: previousSettings.OIDCBillingSettlementTimezone,
+	}
+	if req.OIDCBillingEnabled != nil {
+		oidcBilling.Enabled = *req.OIDCBillingEnabled
+	}
+	if req.OIDCBillingRateMultiplier != nil {
+		oidcBilling.RateMultiplier = *req.OIDCBillingRateMultiplier
+	}
+	if req.OIDCBillingSettlementTime != nil {
+		oidcBilling.SettlementTime = strings.TrimSpace(*req.OIDCBillingSettlementTime)
+	}
+	if req.OIDCBillingSettlementTimezone != nil {
+		oidcBilling.SettlementTimezone = strings.TrimSpace(*req.OIDCBillingSettlementTimezone)
+	}
+	if err := oidcBilling.Validate(); err != nil {
+		response.ErrorFrom(c, err)
+		return
 	}
 
 	// 验证参数
@@ -879,6 +911,10 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	settings := &service.SystemSettings{
 		RegistrationEnabled:              req.RegistrationEnabled,
 		OIDCOnlyEnabled:                  oidcOnlyEnabled,
+		OIDCBillingEnabled:               oidcBilling.Enabled,
+		OIDCBillingRateMultiplier:        oidcBilling.RateMultiplier,
+		OIDCBillingSettlementTime:        oidcBilling.SettlementTime,
+		OIDCBillingSettlementTimezone:    oidcBilling.SettlementTimezone,
 		EmailVerifyEnabled:               req.EmailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist: req.RegistrationEmailSuffixWhitelist,
 		PromoCodeEnabled:                 req.PromoCodeEnabled,
@@ -1100,6 +1136,11 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	response.Success(c, dto.SystemSettings{
 		RegistrationEnabled:                  updatedSettings.RegistrationEnabled,
 		OIDCOnlyEnabled:                      updatedSettings.OIDCOnlyEnabled,
+		OIDCBillingEnabled:                   updatedSettings.OIDCBillingEnabled,
+		OIDCBillingSupported:                 updatedSettings.OIDCBillingSupported,
+		OIDCBillingRateMultiplier:            updatedSettings.OIDCBillingRateMultiplier,
+		OIDCBillingSettlementTime:            updatedSettings.OIDCBillingSettlementTime,
+		OIDCBillingSettlementTimezone:        updatedSettings.OIDCBillingSettlementTimezone,
 		EmailVerifyEnabled:                   updatedSettings.EmailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist:     updatedSettings.RegistrationEmailSuffixWhitelist,
 		PromoCodeEnabled:                     updatedSettings.PromoCodeEnabled,
@@ -1251,6 +1292,18 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if before.OIDCOnlyEnabled != after.OIDCOnlyEnabled {
 		changed = append(changed, "oidc_only_enabled")
+	}
+	if before.OIDCBillingEnabled != after.OIDCBillingEnabled {
+		changed = append(changed, "oidc_billing_enabled")
+	}
+	if before.OIDCBillingRateMultiplier != after.OIDCBillingRateMultiplier {
+		changed = append(changed, "oidc_billing_rate_multiplier")
+	}
+	if before.OIDCBillingSettlementTime != after.OIDCBillingSettlementTime {
+		changed = append(changed, "oidc_billing_settlement_time")
+	}
+	if before.OIDCBillingSettlementTimezone != after.OIDCBillingSettlementTimezone {
+		changed = append(changed, "oidc_billing_settlement_timezone")
 	}
 	if before.EmailVerifyEnabled != after.EmailVerifyEnabled {
 		changed = append(changed, "email_verify_enabled")

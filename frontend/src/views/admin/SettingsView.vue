@@ -864,6 +864,7 @@
 
             <!-- Promo Code -->
             <div
+              v-if="!form.oidc_billing_enabled"
               class="flex items-center justify-between border-t border-gray-100 pt-4 dark:border-dark-700"
             >
               <div>
@@ -1161,6 +1162,39 @@
                 data-testid="oidc-only-toggle"
                 :disabled="!form.oidc_only_enabled && !oidcOnlyCanEnable"
               />
+            </div>
+
+            <div class="space-y-4 border-t border-gray-100 pt-4 dark:border-dark-700">
+              <div class="flex items-center justify-between gap-4">
+                <div>
+                  <label class="font-medium text-gray-900 dark:text-white">{{ t('admin.settings.oidc.billingEnabled') }}</label>
+                  <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('admin.settings.oidc.billingHint') }}</p>
+                  <p v-if="!oidcBillingCanEnable" class="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                    {{ t('admin.settings.oidc.billingPrerequisite') }}
+                  </p>
+                </div>
+                <Toggle
+                  v-model="form.oidc_billing_enabled"
+                  data-testid="oidc-billing-toggle"
+                  :disabled="!form.oidc_billing_enabled && !oidcBillingCanEnable"
+                />
+              </div>
+              <div v-if="form.oidc_billing_enabled" class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+                <div>
+                  <label for="oidc-billing-multiplier" class="input-label">{{ t('admin.settings.oidc.billingMultiplier') }}</label>
+                  <input id="oidc-billing-multiplier" v-model.number="form.oidc_billing_rate_multiplier" type="number" min="0" step="any" required class="input" />
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.oidc.billingMultiplierHint') }}</p>
+                </div>
+                <div>
+                  <label for="oidc-billing-time" class="input-label">{{ t('admin.settings.oidc.billingTime') }}</label>
+                  <input id="oidc-billing-time" v-model="form.oidc_billing_settlement_time" type="time" required class="input" />
+                </div>
+                <div>
+                  <label for="oidc-billing-timezone" class="input-label">{{ t('admin.settings.oidc.billingTimezone') }}</label>
+                  <input id="oidc-billing-timezone" v-model.trim="form.oidc_billing_settlement_timezone" type="text" placeholder="Asia/Shanghai" required class="input" />
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.oidc.billingTimezoneHint') }}</p>
+                </div>
+              </div>
             </div>
 
             <div
@@ -1475,7 +1509,7 @@
           </div>
           <div class="space-y-6 p-6">
             <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
-              <div>
+              <div v-if="!form.oidc_billing_enabled">
                 <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
                   {{ t('admin.settings.defaults.defaultBalance') }}
                 </label>
@@ -1508,7 +1542,7 @@
               </div>
             </div>
 
-            <div class="border-t border-gray-100 pt-4 dark:border-dark-700">
+            <div v-if="!form.oidc_billing_enabled" class="border-t border-gray-100 pt-4 dark:border-dark-700">
               <div class="mb-3 flex items-center justify-between">
                 <div>
                   <label class="font-medium text-gray-900 dark:text-white">
@@ -2765,7 +2799,7 @@
           </div>
         </div>
         <!-- Balance Low Notification -->
-        <div class="card">
+        <div v-if="!form.oidc_billing_enabled" class="card">
           <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
             <h3 class="text-base font-medium text-gray-900 dark:text-white">
               {{ t('admin.settings.balanceNotify.title') }}
@@ -3116,6 +3150,11 @@ const form = reactive<SettingsForm>({
   // Generic OIDC OAuth 登录
   oidc_connect_enabled: false,
   oidc_only_enabled: false,
+  oidc_billing_enabled: false,
+  oidc_billing_supported: false,
+  oidc_billing_rate_multiplier: 1,
+  oidc_billing_settlement_time: '00:00',
+  oidc_billing_settlement_timezone: 'Asia/Shanghai',
   oidc_connect_provider_name: 'OIDC',
   oidc_connect_client_id: '',
   oidc_connect_client_secret: '',
@@ -3548,6 +3587,9 @@ async function handleInterfaceLanguageChange(event: Event) {
 }
 
 const oidcOnlyCanEnable = ref(false)
+const savedOIDCOnlyEnabled = ref(false)
+const oidcBillingCanEnable = computed(() => savedOIDCOnlyEnabled.value
+  && form.oidc_only_enabled && form.oidc_connect_enabled && form.oidc_billing_supported)
 
 function hasSavedOIDCConfiguration(settings: SystemSettings): boolean {
   const requiredFields = [
@@ -3567,6 +3609,7 @@ async function loadSettings() {
   try {
     const settings = await adminAPI.settings.getSettings()
     oidcOnlyCanEnable.value = hasSavedOIDCConfiguration(settings)
+    savedOIDCOnlyEnabled.value = settings.oidc_only_enabled === true
     settings.payment_load_balance_strategy = settings.payment_load_balance_strategy || 'round-robin'
     // Only assign non-null values from backend (null means unconfigured, keep defaults)
     for (const [key, value] of Object.entries(settings)) {
@@ -3640,6 +3683,25 @@ async function saveSettings() {
   try {
     if (form.oidc_only_enabled && !form.oidc_connect_enabled) {
       appStore.showError(t('admin.settings.oidc.onlyRequiresOIDC'))
+      return
+    }
+    if (form.oidc_billing_enabled && !oidcBillingCanEnable.value) {
+      appStore.showError(t('admin.settings.oidc.billingPrerequisite'))
+      return
+    }
+    if (!Number.isFinite(form.oidc_billing_rate_multiplier) || form.oidc_billing_rate_multiplier <= 0) {
+      appStore.showError(t('admin.settings.oidc.billingMultiplierInvalid'))
+      return
+    }
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(form.oidc_billing_settlement_time)) {
+      appStore.showError(t('admin.settings.oidc.billingTimeInvalid'))
+      return
+    }
+    try {
+      if (!form.oidc_billing_settlement_timezone) throw new Error('Missing timezone')
+      new Intl.DateTimeFormat('en', { timeZone: form.oidc_billing_settlement_timezone })
+    } catch {
+      appStore.showError(t('admin.settings.oidc.billingTimezoneInvalid'))
       return
     }
     const normalizedTableDefaultPageSize = Math.floor(Number(form.table_default_page_size))
@@ -3756,6 +3818,10 @@ async function saveSettings() {
       linuxdo_connect_redirect_url: form.linuxdo_connect_redirect_url,
       oidc_connect_enabled: form.oidc_connect_enabled,
       oidc_only_enabled: form.oidc_only_enabled,
+      oidc_billing_enabled: form.oidc_billing_enabled,
+      oidc_billing_rate_multiplier: form.oidc_billing_rate_multiplier,
+      oidc_billing_settlement_time: form.oidc_billing_settlement_time,
+      oidc_billing_settlement_timezone: form.oidc_billing_settlement_timezone,
       oidc_connect_provider_name: form.oidc_connect_provider_name,
       oidc_connect_client_id: form.oidc_connect_client_id,
       oidc_connect_client_secret: form.oidc_connect_client_secret || undefined,
@@ -3801,6 +3867,7 @@ async function saveSettings() {
 
     const updated = await adminAPI.settings.updateSettings(payload)
     oidcOnlyCanEnable.value = hasSavedOIDCConfiguration(updated)
+    savedOIDCOnlyEnabled.value = updated.oidc_only_enabled === true
     for (const [key, value] of Object.entries(updated)) {
       if (value !== null && value !== undefined) {
         (form as Record<string, unknown>)[key] = value
@@ -3836,7 +3903,13 @@ async function saveSettings() {
     const oidcOnlyErrors: Record<string, string> = {
       OIDC_ADMIN_SESSION_REQUIRED: t('admin.settings.oidc.onlyAdminSessionRequired'),
       OIDC_CONFIG_CHANGE_REQUIRES_MODE_OFF: t('admin.settings.oidc.onlyConfigChangeRequiresModeOff'),
-      OIDC_REQUIRED_FOR_ONLY_MODE: t('admin.settings.oidc.onlyRequiresOIDC')
+      OIDC_REQUIRED_FOR_ONLY_MODE: t('admin.settings.oidc.onlyRequiresOIDC'),
+      OIDC_BILLING_REQUIRES_ONLY_MODE: t('admin.settings.oidc.billingPrerequisite'),
+      OIDC_BILLING_NOT_SUPPORTED: t('admin.settings.oidc.billingPrerequisite'),
+      OIDC_BILLING_ISSUER_MISMATCH: t('admin.settings.oidc.billingIssuerMismatch'),
+      OIDC_BILLING_INVALID_MULTIPLIER: t('admin.settings.oidc.billingMultiplierInvalid'),
+      OIDC_BILLING_INVALID_SETTLEMENT_TIME: t('admin.settings.oidc.billingTimeInvalid'),
+      OIDC_BILLING_INVALID_TIMEZONE: t('admin.settings.oidc.billingTimezoneInvalid')
     }
     appStore.showError(oidcOnlyErrors[reason] || extractApiErrorMessage(error, t('admin.settings.failedToSave')))
   } finally {

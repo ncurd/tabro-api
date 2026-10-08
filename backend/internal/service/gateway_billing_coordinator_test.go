@@ -131,7 +131,7 @@ func TestGatewayPricedCreditQuoteAndSettlementUseOneTechnicalMeter(t *testing.T)
 	require.Equal(t, 1, pricer.calls)
 	_, err = s.PrepareForKey(context.Background(), *repo.route, principal, "new-proof", "/v1/responses", "priced-op", body, nil)
 	require.NoError(t, err)
-	require.Equal(t, 2, pricer.calls, "retries must recheck the price against the frozen reservation")
+	require.Equal(t, 1, pricer.calls, "retries must retain the durable price and multiplier from the original reservation")
 	ctx := bc.WithExecution(context.Background(), e)
 	require.NoError(t, bc.BeforeSupplierRequest(ctx))
 	cmd := &UsageBillingCommand{RequestID: "priced-op", InputTokens: 10, OutputTokens: 20, ActualCost: 2.25}

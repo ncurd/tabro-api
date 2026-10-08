@@ -5,10 +5,42 @@ import (
 	"encoding/json"
 	"math"
 	"testing"
+	"time"
 
 	bc "github.com/Wei-Shaw/sub2api/internal/billingcenter"
 	"github.com/stretchr/testify/require"
 )
+
+func TestOIDCBillingMultiplierPricesBothReservationAndActualImages(t *testing.T) {
+	unit := .25
+	group := &Group{ID: 1, Status: StatusActive, RateMultiplier: 2,
+		ImagePrice1K: &unit, ImagePrice2K: &unit, ImagePrice4K: &unit}
+	key := &APIKey{UserID: 1, GroupID: &group.ID, Group: group}
+	channels := &ChannelService{}
+	cache := newEmptyChannelCache()
+	cache.loadedAt = time.Now()
+	cache.channelByGroupID[group.ID] = &Channel{ID: 1, Status: StatusActive, BillingModelSource: BillingModelSourceRequested}
+	channels.cache.Store(cache)
+	billing := &BillingService{}
+	gateway := &GatewayService{billingService: billing, channelService: channels, resolver: NewModelPricingResolver(channels, billing)}
+	pricer := &gatewayCreditPriceCalculator{gateway: gateway}
+	ctx := context.WithValue(context.Background(), oidcBillingMultiplierContextKey{}, 3.0)
+	maximum, snapshot, err := pricer.MaximumCredit(ctx, key, "/v1/images/generations", bc.QuoteRequest{
+		ProductKey: "ai:image-model:images", MaximumUsage: map[string]bc.Decimal{"image_count": "4", "request_count": "1"}, ServiceTier: "default",
+	})
+	require.NoError(t, err)
+	bound, err := gatewayCreditDecimal(6, true)
+	require.NoError(t, err)
+	require.Equal(t, bound, maximum)
+	// Live group changes after reserve must not alter the actual debit.
+	group.RateMultiplier = 99
+	cost, _, rate, err := gateway.frozenGatewayCreditCost(context.Background(), &bc.Execution{ProductKey: "ai:image-model:images", GatewayPricingSnapshot: snapshot},
+		&ForwardResult{ImageCount: 2, ImageSize: "1K"}, &recordUsageOpts{})
+	require.NoError(t, err)
+	require.Equal(t, 6.0, rate)
+	require.Equal(t, .5, cost.TotalCost)
+	require.Equal(t, 3.0, cost.ActualCost)
+}
 
 func TestGatewayMaximumCreditCoversContextAndCachePriceBands(t *testing.T) {
 	billing := &BillingService{}

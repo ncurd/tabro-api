@@ -33,7 +33,7 @@
         <input v-model="form.username" type="text" class="input" :placeholder="t('admin.users.enterUsername')" />
       </div>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div>
+        <div v-if="!appStore.oidcBillingEnabled">
           <label class="input-label">{{ t('admin.users.columns.balance') }}</label>
           <input v-model.number="form.balance" type="number" step="any" class="input" />
         </div>
@@ -55,6 +55,7 @@
 </template>
 
 <script setup lang="ts">
+import { useAppStore } from '@/stores/app'
 import { reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'; import { adminAPI } from '@/api/admin'
 import { useForm } from '@/composables/useForm'
@@ -62,6 +63,7 @@ import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 
 const props = defineProps<{ show: boolean }>()
+const appStore = useAppStore()
 const emit = defineEmits(['close', 'success']); const { t } = useI18n()
 
 const form = reactive({ email: '', password: '', api_only: false, username: '', notes: '', balance: 0, concurrency: 1 })
@@ -69,7 +71,7 @@ const form = reactive({ email: '', password: '', api_only: false, username: '', 
 const { loading, submit } = useForm({
   form,
   submitFn: async (data) => {
-    const { password, ...withoutPassword } = data
+    const { password, ...withoutPassword } = { ...data, balance: appStore.oidcBillingEnabled ? 0 : data.balance }
     await adminAPI.users.create(data.api_only ? withoutPassword : { ...withoutPassword, password })
     emit('success'); emit('close')
   },

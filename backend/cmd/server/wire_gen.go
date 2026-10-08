@@ -245,7 +245,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	jwtAuthMiddleware := middleware.NewJWTAuthMiddleware(authService, userService, settingService)
 	adminAuthMiddleware := middleware.NewAdminAuthMiddleware(authService, userService, settingService)
 	gatewayBillingRepository := repository.ProvideGatewayBillingRepository(db, configConfig)
-	gatewayBillingCoordinator, err := service.ProvideGatewayBillingCoordinator(configConfig, gatewayBillingRepository, pricingService, gatewayService)
+	gatewayBillingCoordinator, err := service.ProvideGatewayBillingCoordinator(configConfig, gatewayBillingRepository, pricingService, gatewayService, settingService)
 	if err != nil {
 		return nil, err
 	}

@@ -67,6 +67,11 @@ export interface SystemSettings {
   // Generic OIDC OAuth settings
   oidc_connect_enabled: boolean
   oidc_only_enabled: boolean
+  oidc_billing_enabled: boolean
+  oidc_billing_supported: boolean
+  oidc_billing_rate_multiplier: number
+  oidc_billing_settlement_time: string
+  oidc_billing_settlement_timezone: string
   oidc_connect_provider_name: string
   oidc_connect_client_id: string
   oidc_connect_client_secret_configured: boolean
@@ -193,6 +198,10 @@ export interface UpdateSettingsRequest {
   linuxdo_connect_redirect_url?: string
   oidc_connect_enabled?: boolean
   oidc_only_enabled?: boolean
+  oidc_billing_enabled?: boolean
+  oidc_billing_rate_multiplier?: number
+  oidc_billing_settlement_time?: string
+  oidc_billing_settlement_timezone?: string
   oidc_connect_provider_name?: string
   oidc_connect_client_id?: string
   oidc_connect_client_secret?: string

@@ -8,6 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -139,4 +140,57 @@ func TestReserveRejectsChangedRequestUnderSameFingerprint(t *testing.T) {
 	request.Request.BillingAccountID = "different-payer"
 	_, err = (Coordinator{Store: &memoryOperationStore{}, Authority: client}).Reserve(context.Background(), intent, request)
 	require.ErrorIs(t, err, ErrConflict)
+}
+
+func TestScheduledIntentFreezesDeadlineAndPricingWithoutChangingLegacyFingerprint(t *testing.T) {
+	request := testReserve().Request
+	key := testKey()
+	legacyFingerprint, err := Fingerprint(struct {
+		Key                         Key
+		ActorUserID, TenantID, Mode string
+		Request                     ReserveRequest
+	}{key, "actor", "tenant", "central", request})
+	require.NoError(t, err)
+	legacy, err := NewIntent(key, "actor", "tenant", "central", request)
+	require.NoError(t, err)
+	require.Equal(t, legacyFingerprint, legacy.RequestFingerprint)
+
+	notBefore := time.Date(2026, 10, 9, 0, 0, 0, 123456789, time.FixedZone("CST", 8*3600))
+	pricing := json.RawMessage(`{"rate_multiplier":"2.5","price":"0.01"}`)
+	scheduled, err := NewScheduledIntent(key, "actor", "tenant", "central", request, notBefore, pricing)
+	require.NoError(t, err)
+	require.Equal(t, time.UTC, scheduled.SettlementNotBefore.Location())
+	require.Equal(t, 123456000, scheduled.SettlementNotBefore.Nanosecond())
+	require.NotEqual(t, legacy.RequestFingerprint, scheduled.RequestFingerprint)
+	// JSONB changes whitespace and key ordering, and DB timestamps use UTC.
+	replayed, err := NewScheduledIntent(key, "actor", "tenant", "central", request, scheduled.SettlementNotBefore, json.RawMessage(`{ "price": "0.01", "rate_multiplier": "2.5" }`))
+	require.NoError(t, err)
+	require.Equal(t, scheduled.RequestFingerprint, replayed.RequestFingerprint)
+	pricing[0] = '['
+	require.True(t, json.Valid(scheduled.GatewayPricingSnapshot), "intent owns a copy of its pricing evidence")
+
+	changedTime, err := NewScheduledIntent(key, "actor", "tenant", "central", request, notBefore.Add(time.Hour), scheduled.GatewayPricingSnapshot)
+	require.NoError(t, err)
+	require.NotEqual(t, scheduled.RequestFingerprint, changedTime.RequestFingerprint)
+	changedPrice, err := NewScheduledIntent(key, "actor", "tenant", "central", request, notBefore, json.RawMessage(`{"rate_multiplier":"3","price":"0.01"}`))
+	require.NoError(t, err)
+	require.NotEqual(t, scheduled.RequestFingerprint, changedPrice.RequestFingerprint)
+}
+
+func TestScheduledReserveRejectsMutatedDeadlineOrPricingBeforeNetwork(t *testing.T) {
+	request := testReserve()
+	client, err := NewClient(Config{ProducerClientID: "gateway-billing", BaseURL: "https://billing.invalid"}, tokenFunc(func(context.Context) (string, error) { t.Fatal("must not acquire token"); return "", nil }), nil)
+	require.NoError(t, err)
+	for _, change := range []func(*Operation){
+		func(op *Operation) { op.SettlementNotBefore = time.Time{} },
+		func(op *Operation) { op.GatewayPricingSnapshot = json.RawMessage(`{"rate_multiplier":"4"}`) },
+	} {
+		intent, err := NewScheduledIntent(testKey(), "actor", "tenant", "central", request.Request, time.Now().Add(time.Hour), json.RawMessage(`{"rate_multiplier":"2"}`))
+		require.NoError(t, err)
+		change(&intent)
+		_, err = (Coordinator{Store: &memoryOperationStore{}, Authority: client}).Reserve(context.Background(), intent, request)
+		require.ErrorIs(t, err, ErrConflict)
+	}
+	_, err = NewScheduledIntent(testKey(), "actor", "tenant", "central", request.Request, time.Now(), json.RawMessage(`{"access_token":"secret"}`))
+	require.ErrorIs(t, err, ErrCredentialsInPayload)
 }

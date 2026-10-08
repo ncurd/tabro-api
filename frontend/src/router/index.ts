@@ -11,6 +11,7 @@ import { useNavigationLoadingState } from '@/composables/useNavigationLoading'
 import { useRoutePrefetch } from '@/composables/useRoutePrefetch'
 import { resolveDocumentTitle } from './title'
 import { accountCenterDestination } from './internalOnly'
+import { isLocalBillingPath } from './oidcBilling'
 import { adminPaymentConfigurationDestination, paymentPurchaseDestination } from './paymentMigration'
 
 /**
@@ -629,6 +630,11 @@ router.beforeEach((to, _from, next) => {
     return
   }
 
+
+  if (appStore.oidcBillingEnabled && isLocalBillingPath(to.path)) {
+    next(authStore.isAdmin ? '/admin/dashboard' : '/dashboard')
+    return
+  }
 
   // Check payment requirement (internal payment system only)
   if (to.meta.requiresPayment) {

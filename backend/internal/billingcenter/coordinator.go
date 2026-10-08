@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -26,12 +27,37 @@ type Coordinator struct {
 }
 
 func NewIntent(key Key, actorUserID, tenantID, mode string, request ReserveRequest) (Operation, error) {
-	o := Operation{Key: key, ActorUserID: actorUserID, TenantID: tenantID, Mode: mode, OwnerEpoch: request.OwnerEpoch}
+	return NewScheduledIntent(key, actorUserID, tenantID, mode, request, time.Time{})
+}
+
+// NewScheduledIntent freezes the settlement deadline alongside the financial
+// identity. A later settings change cannot accelerate an already reserved bill.
+// Legacy intents omit the deadline from the fingerprint to preserve replays.
+func NewScheduledIntent(key Key, actorUserID, tenantID, mode string, request ReserveRequest, notBefore time.Time, pricingSnapshots ...json.RawMessage) (Operation, error) {
+	if len(pricingSnapshots) > 1 {
+		return Operation{}, ErrConflict
+	}
+	var pricingSnapshot json.RawMessage
+	if len(pricingSnapshots) == 1 && len(pricingSnapshots[0]) > 0 {
+		pricingSnapshot = append(json.RawMessage(nil), pricingSnapshots[0]...)
+		if err := ValidatePersistentJSON(pricingSnapshot); err != nil {
+			return Operation{}, err
+		}
+	}
+	var frozenDeadline *time.Time
+	if !notBefore.IsZero() {
+		// PostgreSQL stores microsecond precision; canonicalize before hashing.
+		notBefore = notBefore.UTC().Truncate(time.Microsecond)
+		frozenDeadline = &notBefore
+	}
+	o := Operation{Key: key, ActorUserID: actorUserID, TenantID: tenantID, Mode: mode, OwnerEpoch: request.OwnerEpoch, SettlementNotBefore: notBefore, GatewayPricingSnapshot: pricingSnapshot}
 	fingerprint, err := Fingerprint(struct {
 		Key                         Key
 		ActorUserID, TenantID, Mode string
 		Request                     ReserveRequest
-	}{key, actorUserID, tenantID, mode, request})
+		SettlementNotBefore         *time.Time      `json:",omitempty"`
+		GatewayPricingSnapshot      json.RawMessage `json:",omitempty"`
+	}{key, actorUserID, tenantID, mode, request, frozenDeadline, pricingSnapshot})
 	if err != nil {
 		return o, err
 	}
@@ -52,7 +78,7 @@ func (c Coordinator) Reserve(ctx context.Context, intent Operation, request Proo
 	if intent.Mode != "central" || request.OriginAppID != intent.OriginAppID || request.Request.OperationID != intent.OperationID || request.Request.OwnerEpoch != intent.OwnerEpoch {
 		return Operation{}, ErrConflict
 	}
-	expected, err := NewIntent(intent.Key, intent.ActorUserID, intent.TenantID, intent.Mode, request.Request)
+	expected, err := NewScheduledIntent(intent.Key, intent.ActorUserID, intent.TenantID, intent.Mode, request.Request, intent.SettlementNotBefore, intent.GatewayPricingSnapshot)
 	if err != nil || expected.RequestFingerprint != intent.RequestFingerprint {
 		return Operation{}, ErrConflict
 	}

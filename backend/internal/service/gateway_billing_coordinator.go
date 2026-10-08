@@ -54,14 +54,15 @@ type GatewayBillingCoordinator struct {
 	producer     string
 	pricing      *PricingService
 	creditPricer gatewayCreditPricer
+	settings     *SettingService
 	enabled      bool
 	cancel       context.CancelFunc
 	done         chan struct{}
 	stop         sync.Once
 }
 
-func ProvideGatewayBillingCoordinator(cfg *config.Config, repo GatewayBillingRepository, pricing *PricingService, gateway *GatewayService) (*GatewayBillingCoordinator, error) {
-	s := &GatewayBillingCoordinator{repo: repo, pricing: pricing, creditPricer: &gatewayCreditPriceCalculator{gateway: gateway}, producer: cfg.BillingCenter.ProducerClientID, enabled: cfg.BillingCenter.Enabled}
+func ProvideGatewayBillingCoordinator(cfg *config.Config, repo GatewayBillingRepository, pricing *PricingService, gateway *GatewayService, settings *SettingService) (*GatewayBillingCoordinator, error) {
+	s := &GatewayBillingCoordinator{repo: repo, pricing: pricing, creditPricer: &gatewayCreditPriceCalculator{gateway: gateway}, settings: settings, producer: cfg.BillingCenter.ProducerClientID, enabled: cfg.BillingCenter.Enabled}
 	if !s.enabled {
 		return s, nil
 	}
@@ -141,6 +142,20 @@ func (s *GatewayBillingCoordinator) RouteForPrincipal(ctx context.Context, userI
 		}
 		return nil, nil
 	}
+	policy, err := s.oidcBillingPolicy(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if policy.Enabled {
+		if !s.enabled || s.repo == nil || p == nil {
+			return nil, bc.ErrState
+		}
+		// Only a verified subject or a registered credential binding can
+		// select Auth funds. Never fall back to local money in OIDC mode.
+		if p.ClientID != "legacy-api-key" {
+			p.AuthBilled = true
+		}
+	}
 	if p != nil && p.AuthBilled && (!s.enabled || s.repo == nil) {
 		return nil, bc.ErrState
 	}
@@ -183,6 +198,9 @@ func (s *GatewayBillingCoordinator) RouteForPrincipal(ctx context.Context, userI
 		}
 	}
 	route, err := s.Route(ctx, userID)
+	if policy.Enabled && (route == nil || route.Mode != "central") {
+		return nil, bc.ErrState
+	}
 	if route != nil && p != nil {
 		route.OriginAppID = p.ClientID
 	}
@@ -202,6 +220,13 @@ func (s *GatewayBillingCoordinator) PrepareForKey(ctx context.Context, route Gat
 }
 
 func (s *GatewayBillingCoordinator) prepareWithQuote(ctx context.Context, route GatewayBillingRoute, principal *GatewayOIDCPrincipal, proof, path, operationID string, body []byte, providedQuote *bc.QuoteRequest, apiKey *APIKey, credentials ...*GatewayBillingCredential) (*bc.Execution, error) {
+	policy, err := s.oidcBillingPolicy(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if policy.Enabled && (route.Mode != "central" || s.creditPricer == nil) {
+		return nil, bc.ErrState
+	}
 	if route.DynamicAuthority && route.Mode != "central" {
 		return nil, bc.ErrConflict
 	}
@@ -253,22 +278,40 @@ func (s *GatewayBillingCoordinator) prepareWithQuote(ctx context.Context, route 
 	}
 	var quote bc.Quote
 	var pricingSnapshot json.RawMessage
+	var previousOperation *bc.Operation
+	var settlementNotBefore time.Time
+	if policy.Enabled {
+		settlementNotBefore, err = policy.NextSettlementAt(time.Now())
+		if err != nil {
+			return nil, err
+		}
+	}
 	if route.Mode == "central" {
 		previous, getErr := s.repo.Get(ctx, key)
 		if getErr == nil {
 			if previous.ActorUserID != route.ActorUserID || previous.TenantID != route.TenantID || previous.Mode != route.Mode || json.Unmarshal(previous.RequestPayload, &quote.Request) != nil || quote.Request.RequestPayloadHash != quoteReq.RequestPayloadHash {
 				return nil, bc.ErrConflict
 			}
+			settlementNotBefore = previous.SettlementNotBefore
+			pricingSnapshot = previous.GatewayPricingSnapshot
+			previousOperation = &previous
 		} else if !errors.Is(getErr, bc.ErrNotFound) {
 			return nil, getErr
 		}
 	}
 	if route.Mode == "central" && s.creditPricer != nil {
-		maximum, snapshot, priceErr := s.creditPricer.MaximumCredit(ctx, apiKey, path, quoteReq)
-		if priceErr != nil {
-			return nil, priceErr
+		maximum := quote.Request.MaximumUsage[gatewayCreditMeter]
+		if len(pricingSnapshot) == 0 {
+			priceCtx := ctx
+			if policy.Enabled {
+				priceCtx = context.WithValue(ctx, oidcBillingMultiplierContextKey{}, policy.RateMultiplier)
+			}
+			var priceErr error
+			maximum, pricingSnapshot, priceErr = s.creditPricer.MaximumCredit(priceCtx, apiKey, path, quoteReq)
+			if priceErr != nil {
+				return nil, priceErr
+			}
 		}
-		pricingSnapshot = snapshot
 		if quote.Request.OperationID != "" {
 			reserved, parseErr := decimal.NewFromString(string(quote.Request.MaximumUsage[gatewayCreditMeter]))
 			needed, neededErr := decimal.NewFromString(string(maximum))
@@ -300,6 +343,7 @@ func (s *GatewayBillingCoordinator) prepareWithQuote(ctx context.Context, route 
 		return nil, bc.ErrConflict
 	}
 	execution := &bc.Execution{Key: key, Mode: route.Mode, ProductKey: businessProductKey,
+		SettlementNotBefore:  settlementNotBefore,
 		OriginalMaximumUsage: businessBounds, GatewayPricingSnapshot: pricingSnapshot, RequestPayloadHash: quoteReq.RequestPayloadHash,
 		Quote: quote, Coordinator: bc.Coordinator{Store: s.repo, Authority: s.authority}}
 	if route.Mode == "shadow" {
@@ -308,7 +352,13 @@ func (s *GatewayBillingCoordinator) prepareWithQuote(ctx context.Context, route 
 	if route.Mode != "central" {
 		return nil, bc.ErrState
 	}
-	intent, err := bc.NewIntent(key, route.ActorUserID, route.TenantID, route.Mode, quote.Request)
+	intentPricing := pricingSnapshot
+	if previousOperation != nil && len(previousOperation.GatewayPricingSnapshot) == 0 {
+		// Pre-upgrade operations did not include the local price in their
+		// identity. Preserve that fingerprint when recovering a reservation.
+		intentPricing = nil
+	}
+	intent, err := bc.NewScheduledIntent(key, route.ActorUserID, route.TenantID, route.Mode, quote.Request, settlementNotBefore, intentPricing)
 	if err != nil {
 		return nil, err
 	}
@@ -319,6 +369,7 @@ func (s *GatewayBillingCoordinator) prepareWithQuote(ctx context.Context, route 
 	if op.State != bc.Reserved {
 		return nil, bc.ErrState
 	}
+	execution.SettlementNotBefore = op.SettlementNotBefore
 	return execution, nil
 }
 
@@ -368,10 +419,28 @@ func (s *GatewayBillingCoordinator) Restore(ctx context.Context, snapshot *bc.Ex
 		if json.Unmarshal(op.RequestPayload, &request) != nil || op.Mode != "central" || request.PriceVersionID != snapshot.Quote.Request.PriceVersionID || request.RequestPayloadHash != snapshot.RequestPayloadHash {
 			return nil, bc.ErrConflict
 		}
+		if !op.SettlementNotBefore.Equal(snapshot.SettlementNotBefore) {
+			return nil, bc.ErrConflict
+		}
+		if len(op.GatewayPricingSnapshot) > 0 {
+			storedPrice, storedErr := bc.Fingerprint(op.GatewayPricingSnapshot)
+			jobPrice, jobErr := bc.Fingerprint(snapshot.GatewayPricingSnapshot)
+			if storedErr != nil || jobErr != nil || storedPrice != jobPrice {
+				return nil, bc.ErrConflict
+			}
+		}
 	} else if snapshot.Mode != "shadow" {
 		return nil, bc.ErrConflict
 	}
 	return &bc.Execution{Key: snapshot.Key, Mode: snapshot.Mode, ProductKey: snapshot.ProductKey,
+		SettlementNotBefore:  snapshot.SettlementNotBefore,
 		OriginalMaximumUsage: snapshot.OriginalMaximumUsage, GatewayPricingSnapshot: snapshot.GatewayPricingSnapshot, RequestPayloadHash: snapshot.RequestPayloadHash,
 		Quote: snapshot.Quote, Coordinator: bc.Coordinator{Store: s.repo, Authority: s.authority}}, nil
+}
+
+func (s *GatewayBillingCoordinator) oidcBillingPolicy(ctx context.Context) (OIDCBillingPolicy, error) {
+	if s.settings == nil {
+		return OIDCBillingPolicy{}, nil
+	}
+	return s.settings.GetOIDCBillingPolicy(ctx)
 }

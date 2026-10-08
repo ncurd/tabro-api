@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"sync"
+	"time"
 )
 
 type executionContextKey struct{}
@@ -20,6 +21,7 @@ type Execution struct {
 	// GatewayPricingSnapshot freezes the price used for the admission bound.
 	// It is opaque to Auth and contains neither credentials nor a request body.
 	GatewayPricingSnapshot json.RawMessage
+	SettlementNotBefore    time.Time
 	RequestPayloadHash     string
 	Quote                  Quote
 	Coordinator            Coordinator
@@ -79,6 +81,7 @@ type ExecutionSnapshot struct {
 	ProductKey             string             `json:"product_key"`
 	OriginalMaximumUsage   map[string]Decimal `json:"original_maximum_usage,omitempty"`
 	GatewayPricingSnapshot json.RawMessage    `json:"gateway_pricing_snapshot,omitempty"`
+	SettlementNotBefore    time.Time          `json:"settlement_not_before,omitzero"`
 	RequestPayloadHash     string             `json:"request_payload_hash"`
 	Quote                  Quote              `json:"quote"`
 }
@@ -87,7 +90,7 @@ func (e *Execution) Snapshot() *ExecutionSnapshot {
 	if e == nil {
 		return nil
 	}
-	return &ExecutionSnapshot{Key: e.Key, Mode: e.Mode, ProductKey: e.ProductKey, OriginalMaximumUsage: e.OriginalMaximumUsage, GatewayPricingSnapshot: e.GatewayPricingSnapshot, RequestPayloadHash: e.RequestPayloadHash, Quote: e.Quote}
+	return &ExecutionSnapshot{Key: e.Key, Mode: e.Mode, ProductKey: e.ProductKey, OriginalMaximumUsage: e.OriginalMaximumUsage, GatewayPricingSnapshot: e.GatewayPricingSnapshot, SettlementNotBefore: e.SettlementNotBefore, RequestPayloadHash: e.RequestPayloadHash, Quote: e.Quote}
 }
 func (e *Execution) MarkHandedOff() {
 	if e != nil {

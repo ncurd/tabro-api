@@ -298,4 +298,85 @@ describe('admin SettingsView', () => {
     await flushPromises()
     expect(showErrorMock).toHaveBeenCalledWith('admin.settings.oidc.onlyAdminSessionRequired')
   })
+
+  const mountOIDCBillingSettings = () => mount(SettingsView, {
+    global: {
+      stubs: {
+        AppLayout: appLayoutStub, Icon: true, Select: simpleStub,
+        ConfirmDialog: simpleStub, PaymentProviderList: simpleStub,
+        PaymentProviderDialog: simpleStub, GroupBadge: simpleStub,
+        GroupOptionItem: simpleStub, Toggle, ProxySelector: simpleStub,
+        ImageUpload: simpleStub, BackupSettings: simpleStub, RouterLink: simpleStub
+      }
+    }
+  })
+
+  it.each([
+    { only: false, supported: false, disabled: true },
+    { only: false, supported: true, disabled: true },
+    { only: true, supported: false, disabled: true },
+    { only: true, supported: true, disabled: false }
+  ])('gates OIDC billing on saved OIDC-only mode and capability: %j', async ({ only, supported, disabled }) => {
+    settingsApi.getSettings.mockResolvedValue({
+      backend_mode_enabled: false,
+      oidc_connect_enabled: true,
+      oidc_only_enabled: only,
+      oidc_billing_supported: supported
+    })
+    const wrapper = mountOIDCBillingSettings()
+    await flushPromises()
+    expect(wrapper.get('[data-testid="oidc-billing-toggle"]').attributes('disabled') !== undefined).toBe(disabled)
+    wrapper.unmount()
+  })
+
+  it('saves billing multiplier and the daily cutoff without submitting capability', async () => {
+    const settings = {
+      backend_mode_enabled: false,
+      oidc_connect_enabled: true,
+      oidc_only_enabled: true,
+      oidc_billing_supported: true,
+      oidc_billing_enabled: false
+    }
+    settingsApi.getSettings.mockResolvedValue(settings)
+    settingsApi.updateSettings.mockImplementation(async (payload) => ({ ...settings, ...payload }))
+    const wrapper = mountOIDCBillingSettings()
+    await flushPromises()
+    await wrapper.get('[data-testid="oidc-billing-toggle"]').trigger('click')
+    await wrapper.get('#oidc-billing-multiplier').setValue('2.5')
+    await wrapper.get('#oidc-billing-time').setValue('01:30')
+    await wrapper.get('#oidc-billing-timezone').setValue('Asia/Shanghai')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    const payload = settingsApi.updateSettings.mock.calls[0][0]
+    expect(payload).toMatchObject({
+      oidc_billing_enabled: true,
+      oidc_billing_rate_multiplier: 2.5,
+      oidc_billing_settlement_time: '01:30',
+      oidc_billing_settlement_timezone: 'Asia/Shanghai'
+    })
+    expect(payload).not.toHaveProperty('oidc_billing_supported')
+    expect(wrapper.find('input[placeholder="0.00"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it.each([
+    ['#oidc-billing-multiplier', '0', 'billingMultiplierInvalid'],
+    ['#oidc-billing-timezone', 'Invalid/Timezone', 'billingTimezoneInvalid'],
+    ['#oidc-billing-time', '', 'billingTimeInvalid']
+  ])('rejects invalid billing input %s', async (selector, value, error) => {
+    settingsApi.getSettings.mockResolvedValue({
+      backend_mode_enabled: false,
+      oidc_connect_enabled: true, oidc_only_enabled: true,
+      oidc_billing_supported: true, oidc_billing_enabled: true
+    })
+    const wrapper = mountOIDCBillingSettings()
+    await flushPromises()
+    await wrapper.get(selector).setValue(value)
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(settingsApi.updateSettings).not.toHaveBeenCalled()
+    expect(showErrorMock).toHaveBeenCalledWith(`admin.settings.oidc.${error}`)
+    wrapper.unmount()
+  })
+
 })

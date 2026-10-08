@@ -35,6 +35,11 @@ type SystemSettings struct {
 
 	// Generic OIDC OAuth 登录
 	OIDCOnlyEnabled                   bool
+	OIDCBillingEnabled                bool
+	OIDCBillingSupported              bool
+	OIDCBillingRateMultiplier         float64
+	OIDCBillingSettlementTime         string
+	OIDCBillingSettlementTimezone     string
 	OIDCConnectEnabled                bool
 	OIDCConnectProviderName           string
 	OIDCConnectClientID               string
@@ -159,13 +164,18 @@ type PublicSettings struct {
 	CustomMenuItems             string // JSON array of custom menu items
 	CustomEndpoints             string // JSON array of custom endpoints
 
-	LinuxDoOAuthEnabled   bool
-	OIDCOnlyEnabled       bool
-	BackendModeEnabled    bool
-	PaymentEnabled        bool
-	OIDCOAuthEnabled      bool
-	OIDCOAuthProviderName string
-	Version               string
+	LinuxDoOAuthEnabled           bool
+	OIDCOnlyEnabled               bool
+	OIDCBillingEnabled            bool
+	OIDCBillingSupported          bool
+	OIDCBillingRateMultiplier     float64
+	OIDCBillingSettlementTime     string
+	OIDCBillingSettlementTimezone string
+	BackendModeEnabled            bool
+	PaymentEnabled                bool
+	OIDCOAuthEnabled              bool
+	OIDCOAuthProviderName         string
+	Version                       string
 
 	BalanceLowNotifyEnabled     bool
 	AccountQuotaNotifyEnabled   bool

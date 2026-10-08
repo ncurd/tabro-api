@@ -25,15 +25,21 @@ var _ bc.OutboxStore = (*BillingCenterRepository)(nil)
 
 const billingOperationColumns = `producer_client_id, origin_app_id, operation_id, actor_user_id, tenant_id,
  request_fingerprint, billing_mode, owner_epoch, state, version, attempt_id, reservation_id,
- remote_version, request_payload, snapshot, created_at, updated_at`
+ remote_version, request_payload, snapshot, created_at, updated_at, settlement_not_before, gateway_pricing_snapshot`
 
 type billingRowScanner interface{ Scan(...any) error }
 
 func scanBillingOperation(row billingRowScanner) (bc.Operation, error) {
 	var o bc.Operation
+	var notBefore sql.NullTime
+	var pricingSnapshot []byte
 	err := row.Scan(&o.ProducerClientID, &o.OriginAppID, &o.OperationID, &o.ActorUserID, &o.TenantID,
 		&o.RequestFingerprint, &o.Mode, &o.OwnerEpoch, &o.State, &o.Version, &o.AttemptID, &o.ReservationID,
-		&o.RemoteVersion, &o.RequestPayload, &o.Snapshot, &o.CreatedAt, &o.UpdatedAt)
+		&o.RemoteVersion, &o.RequestPayload, &o.Snapshot, &o.CreatedAt, &o.UpdatedAt, &notBefore, &pricingSnapshot)
+	o.GatewayPricingSnapshot = pricingSnapshot
+	if notBefore.Valid {
+		o.SettlementNotBefore = notBefore.Time
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return o, bc.ErrNotFound
 	}
@@ -60,10 +66,17 @@ func (r *BillingCenterRepository) CreateIntent(ctx context.Context, o bc.Operati
 	if err := bc.ValidatePersistentJSON(o.RequestPayload); err != nil {
 		return bc.Operation{}, false, err
 	}
+	var pricingSnapshot any
+	if len(o.GatewayPricingSnapshot) > 0 {
+		if err := bc.ValidatePersistentJSON(o.GatewayPricingSnapshot); err != nil {
+			return bc.Operation{}, false, err
+		}
+		pricingSnapshot = string(o.GatewayPricingSnapshot)
+	}
 	result, err := r.db.ExecContext(ctx, `INSERT INTO billing_center_operations
- (producer_client_id,origin_app_id,operation_id,actor_user_id,tenant_id,request_fingerprint,billing_mode,owner_epoch,request_payload)
- VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT DO NOTHING`, o.ProducerClientID, o.OriginAppID, o.OperationID,
-		o.ActorUserID, o.TenantID, o.RequestFingerprint, o.Mode, o.OwnerEpoch, string(o.RequestPayload))
+ (producer_client_id,origin_app_id,operation_id,actor_user_id,tenant_id,request_fingerprint,billing_mode,owner_epoch,request_payload,settlement_not_before,gateway_pricing_snapshot)
+ VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT DO NOTHING`, o.ProducerClientID, o.OriginAppID, o.OperationID,
+		o.ActorUserID, o.TenantID, o.RequestFingerprint, o.Mode, o.OwnerEpoch, string(o.RequestPayload), billingSettlementDeadline(o), pricingSnapshot)
 	if err != nil {
 		return bc.Operation{}, false, err
 	}
@@ -75,10 +88,17 @@ func (r *BillingCenterRepository) CreateIntent(ctx context.Context, o bc.Operati
 	if err != nil {
 		return stored, false, err
 	}
-	if stored.ActorUserID != o.ActorUserID || stored.TenantID != o.TenantID || stored.Mode != o.Mode || stored.OwnerEpoch != o.OwnerEpoch || stored.RequestFingerprint != o.RequestFingerprint {
+	if stored.ActorUserID != o.ActorUserID || stored.TenantID != o.TenantID || stored.Mode != o.Mode || stored.OwnerEpoch != o.OwnerEpoch || stored.RequestFingerprint != o.RequestFingerprint || !stored.SettlementNotBefore.Equal(o.SettlementNotBefore) {
 		return stored, false, bc.ErrConflict
 	}
 	return stored, created == 1, nil
+}
+
+func billingSettlementDeadline(o bc.Operation) any {
+	if o.SettlementNotBefore.IsZero() {
+		return nil
+	}
+	return o.SettlementNotBefore
 }
 
 func reservationJSON(key bc.Key, remote bc.Reservation) ([]byte, error) {
@@ -241,9 +261,16 @@ func (r *BillingCenterRepository) EnqueueTx(ctx context.Context, tx *sql.Tx, eve
 			return false, bc.ErrState
 		}
 	}
+	// The frozen operation owns the cutoff. Releases free failed-call holds
+	// immediately; successful usage remains durable and held until the cutoff.
+	// A call that finishes after its cutoff is eligible immediately.
+	var notBefore any
+	if event.Kind == bc.SettleEvent {
+		notBefore = billingSettlementDeadline(o)
+	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO billing_center_outbox
- (producer_client_id,origin_app_id,operation_id,event_id,kind,reservation_id,payload,payload_fingerprint)
- VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, event.ProducerClientID, event.OriginAppID, event.OperationID, event.ID, event.Kind, event.ReservationID, string(event.Body), fingerprint)
+ (producer_client_id,origin_app_id,operation_id,event_id,kind,reservation_id,payload,payload_fingerprint,available_at)
+ VALUES($1,$2,$3,$4,$5,$6,$7,$8,GREATEST(NOW(),$9::timestamptz))`, event.ProducerClientID, event.OriginAppID, event.OperationID, event.ID, event.Kind, event.ReservationID, string(event.Body), fingerprint, notBefore)
 	if err != nil {
 		return false, err
 	}

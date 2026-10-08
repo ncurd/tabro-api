@@ -21,6 +21,7 @@ const authStore = {
 }
 
 const appStore = {
+  oidcBillingEnabled: false,
   contactInfo: '',
   docUrl: '',
   cachedPublicSettings: {
@@ -77,6 +78,7 @@ vi.mock('vue-i18n', async () => {
 
 describe('AppHeader', () => {
   beforeEach(() => {
+    appStore.oidcBillingEnabled = false
     logout.mockReset()
     push.mockReset()
     replay.mockReset()
@@ -108,4 +110,23 @@ describe('AppHeader', () => {
     expect(wrapper.text()).not.toContain('GitHub')
     expect(wrapper.text()).not.toContain('重新查看新手引导')
   })
+
+  it('hides local balance and subscription progress when Auth bills usage', async () => {
+    appStore.oidcBillingEnabled = true
+    const wrapper = mount(AppHeader, {
+      global: {
+        stubs: {
+          AnnouncementBell: true, LocaleSwitcher: true, SubscriptionProgressMini: true,
+          Icon: true, RouterLink: { template: '<a><slot /></a>' }, transition: false
+        },
+        mocks: { $t: (key: string) => messages[key] ?? key }
+      }
+    })
+    await wrapper.get('button[aria-label="User Menu"]').trigger('click')
+    expect(wrapper.text()).not.toContain('12.34')
+    expect(wrapper.text()).not.toContain('Balance')
+    expect(wrapper.find('subscription-progress-mini-stub').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
 })

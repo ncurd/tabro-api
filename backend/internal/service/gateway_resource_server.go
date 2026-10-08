@@ -82,6 +82,7 @@ type GatewayResourceServer struct {
 	cfg                  config.GatewayResourceServerConfig
 	apiKeyService        *APIKeyService
 	billingCenterEnabled bool
+	settings             *SettingService
 	httpClient           *http.Client
 
 	mu        sync.RWMutex
@@ -104,6 +105,9 @@ func NewGatewayResourceServer(cfg *config.Config, apiKeyService *APIKeyService) 
 	}
 	server := newGatewayResourceServerWithClient(rsCfg, apiKeyService, &http.Client{Timeout: 10 * time.Second})
 	server.billingCenterEnabled = billingCenterEnabled
+	if apiKeyService != nil && apiKeyService.GatewayBilling != nil {
+		server.settings = apiKeyService.GatewayBilling.settings
+	}
 	return server
 }
 
@@ -160,13 +164,21 @@ func (s *GatewayResourceServer) Authenticate(ctx context.Context, rawToken strin
 	if s.apiKeyService == nil {
 		return nil, nil, ErrGatewayOIDCUnavailable
 	}
-	if s.cfg.AutoProvision && !s.billingCenterEnabled {
+	autoProvision := s.cfg.AutoProvision
+	if s.settings != nil {
+		policy, policyErr := s.settings.GetOIDCBillingPolicy(ctx)
+		if policyErr != nil {
+			return nil, nil, ErrGatewayOIDCUnavailable
+		}
+		autoProvision = autoProvision || policy.Enabled
+	}
+	if autoProvision && !s.billingCenterEnabled {
 		return nil, nil, ErrGatewayOIDCUnavailable
 	}
 	apiKey, err := s.apiKeyService.GetOIDCGatewayKeyByIdentity(ctx, principal.Issuer, principal.Subject)
 	if err != nil {
 		if errors.Is(err, ErrAPIKeyNotFound) {
-			if !s.cfg.AutoProvision {
+			if !autoProvision {
 				return nil, nil, ErrGatewayOIDCIdentityNotBound
 			}
 			apiKey, err = s.apiKeyService.AutoProvisionOIDCGatewayIdentity(ctx, principal.Issuer, principal.Subject)
@@ -186,10 +198,10 @@ func (s *GatewayResourceServer) Authenticate(ctx context.Context, rawToken strin
 	if apiKey == nil {
 		return nil, nil, ErrGatewayOIDCUnavailable
 	}
-	if apiKey.AuthBillingOnly && (!s.cfg.AutoProvision || !s.billingCenterEnabled) {
+	if apiKey.AuthBillingOnly && (!autoProvision || !s.billingCenterEnabled) {
 		return nil, nil, ErrGatewayOIDCUnavailable
 	}
-	principal.AuthBilled = s.cfg.AutoProvision || apiKey.AuthBillingOnly
+	principal.AuthBilled = autoProvision || apiKey.AuthBillingOnly
 	return apiKey, principal, nil
 }
 

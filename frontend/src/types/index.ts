@@ -129,6 +129,11 @@ export interface PublicSettings {
   oidc_oauth_enabled: boolean
   oidc_oauth_provider_name: string
   oidc_only_enabled: boolean
+  oidc_billing_enabled?: boolean
+  oidc_billing_supported?: boolean
+  oidc_billing_rate_multiplier?: number
+  oidc_billing_settlement_time?: string
+  oidc_billing_settlement_timezone?: string
   backend_mode_enabled: boolean
   version: string
   balance_low_notify_enabled: boolean

@@ -15,6 +15,8 @@ import (
 const gatewayCreditProductKey = "gateway:credits"
 const gatewayCreditMeter = "credit_amount"
 
+type oidcBillingMultiplierContextKey struct{}
+
 // gatewayCreditPricer is the trusted gateway-side source of the maximum debit.
 // Auth only holds and settles credits; it does not know model prices.
 type gatewayCreditPricer interface {
@@ -80,6 +82,15 @@ func (p *gatewayCreditPriceCalculator) MaximumCredit(ctx context.Context, key *A
 	}
 	if !finiteNonnegativeCredit(rate) {
 		return "", nil, fmt.Errorf("%w: invalid gateway credit multiplier", bc.ErrState)
+	}
+	// Apply the deployment's Auth credit conversion to both the admission
+	// bound and the frozen price used by text, image and media settlement.
+	oidcRate, _ := ctx.Value(oidcBillingMultiplierContextKey{}).(float64)
+	if oidcRate != 0 {
+		if !finiteNonnegativeCredit(oidcRate) || oidcRate <= 0 || !finiteNonnegativeCredit(rate*oidcRate) {
+			return "", nil, fmt.Errorf("%w: invalid OIDC billing multiplier", bc.ErrState)
+		}
+		rate *= oidcRate
 	}
 	if isGatewayCreditMediaPath(path) {
 		return s.maximumMediaCredit(ctx, path, quote, billingModel, key.Group.ID, rate)
