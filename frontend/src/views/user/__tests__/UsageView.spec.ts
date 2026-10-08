@@ -30,7 +30,6 @@ const messages: Record<string, string> = {
   'usage.rate': 'Rate',
   'usage.finalRate': 'Final billing rate',
   'usage.baseCost': 'Base cost',
-  'usage.centralPriceNotice': 'Recorded request multiplier',
   'usage.original': 'Original',
   'usage.billed': 'Billed',
   'usage.allApiKeys': 'All API Keys',

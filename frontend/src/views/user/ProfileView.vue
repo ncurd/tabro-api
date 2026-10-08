@@ -1,7 +1,6 @@
 <template>
   <AppLayout>
     <div class="mx-auto max-w-4xl space-y-6">
-      <OIDCBillingNotice />
       <div class="grid grid-cols-1 gap-6" :class="appStore.oidcBillingEnabled ? 'sm:grid-cols-2' : 'sm:grid-cols-3'">
         <StatCard v-if="!appStore.oidcBillingEnabled" :title="t('profile.accountBalance')" :value="formatCurrency(user?.balance || 0)" :icon="WalletIcon" icon-variant="success" />
         <StatCard :title="t('profile.concurrencyLimit')" :value="user?.concurrency || 0" :icon="BoltIcon" icon-variant="warning" />
@@ -31,7 +30,6 @@
 
 <script setup lang="ts">
 import { useAppStore } from '@/stores/app'
-import OIDCBillingNotice from '@/components/common/OIDCBillingNotice.vue'
 import { ref, computed, h, onMounted } from 'vue'; import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'; import { formatDate } from '@/utils/format'
 import { authAPI } from '@/api'; import AppLayout from '@/components/layout/AppLayout.vue'

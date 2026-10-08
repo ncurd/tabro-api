@@ -702,16 +702,10 @@ export default {
       "expired": "已过期"
     }
   },
-  "modelPricing": {
-    "oidcDescription": "当前账户可用分组的模型价格，已包含分组有效倍率和 OIDC 计费倍率，以 Auth 积分显示。",
-    "oidcNotice": "以下价格已包含 OIDC 计费倍率 {multiplier}。使用统计和计费明细按每次请求记录的倍率显示；修改当前倍率不会改变历史扣费。",
-    "oidcIncluded": "已包含 OIDC {multiplier}"
-  },
   "usage": {
     "title": "使用记录",
     "description": "查看和分析您的 API 使用历史",
     "costDetails": "成本明细",
-    "centralPriceNotice": "各项费用和单价已包含该次请求记录的最终计费倍率，历史扣费不随当前配置变化。",
     "finalRate": "最终计费倍率",
     "baseCost": "基础费用",
     "billingSource": "计费来源",
@@ -4473,7 +4467,6 @@ export default {
         "billingMultiplierInvalid": "计费倍数必须为大于 0 的有限数值。",
         "billingTimeInvalid": "结算时间格式须为 HH:MM，例如 00:00。",
         "billingTimezoneInvalid": "请输入有效的结算时区，例如 Asia/Shanghai。",
-        "billingUserNotice": "当前模型价格已包含 Auth 计费倍率 {multiplier}。统计中的实际费用和计费明细按每次请求记录的倍率显示，修改倍率不会改变历史扣费。每次调用先锁定积分，每天 {time}（{timezone}）结算为实际账单；本站积分、套餐和券不参与计费。",
         "onlyEnabled": "仅 OIDC 模式",
         "onlyEnabledHint": "先保存并启用 OIDC，再退出后台并以管理员身份通过 OIDC 重新登录。开启后会关闭本地登录、注册、密码重置和 LinuxDo；修改 OIDC 关键配置前需先关闭此模式。",
         "onlyPrerequisite": "请先保存并启用 OIDC，再通过 OIDC 重新登录当前管理员账号。",

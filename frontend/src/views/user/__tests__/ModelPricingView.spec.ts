@@ -1,20 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import zhCN from '@/i18n/locales/zh-CN'
 
 import ModelPricingView from '../ModelPricingView.vue'
 
 const { getAvailable } = vi.hoisted(() => ({ getAvailable: vi.fn() }))
 vi.mock('@/api/modelPricing', () => ({ modelPricingAPI: { getAvailable } }))
-vi.mock('vue-i18n', async () => ({
-  ...await vi.importActual<typeof import('vue-i18n')>('vue-i18n'),
-  useI18n: () => ({
-    t: (key: string, params: Record<string, string> = {}) => {
-      const message = (zhCN.modelPricing as Record<string, string>)[key.split('.')[1]] ?? key
-      return message.replace(/\{(\w+)\}/g, (_, name: string) => params[name] ?? '')
-    }
-  })
-}))
 
 function mountPricing() {
   return mount(ModelPricingView, {
@@ -103,7 +93,7 @@ describe('ModelPricingView media prices', () => {
     expect(audioRow?.findAll('td')[1].attributes('colspan')).toBe('8')
   })
 
-  it('shows the OIDC multiplier from the price response and preserves already converted prices on refresh', async () => {
+  it('preserves converted prices on refresh without billing explanations', async () => {
     const group = {
       id: 1, name: 'Auth 模型', platform: 'openai', rate_multiplier: 2, effective_rate_multiplier: 6,
       models: [
@@ -115,9 +105,10 @@ describe('ModelPricingView media prices', () => {
       .mockResolvedValueOnce({ groups: [{ ...group, effective_rate_multiplier: 2 }], oidc_billing_enabled: false, oidc_billing_rate_multiplier: 1 })
     const wrapper = mountPricing()
     await flushPromises()
-    expect(wrapper.get('[role="status"]').text()).toContain('OIDC 计费倍率 3.00x')
+    expect(wrapper.find('[role="status"]').exists()).toBe(false)
+    expect(wrapper.findAll('p').some(paragraph => paragraph.text() === '积分')).toBe(true)
     expect(wrapper.text()).toContain('有效倍率 6.00x')
-    expect(wrapper.text()).toContain('已包含 OIDC 3.00x')
+    expect(wrapper.text()).not.toContain('OIDC')
     expect(wrapper.text()).toContain('12.0000 ✦')
     expect(wrapper.text()).toContain('默认：0.6 ✦ / 秒')
     expect(wrapper.text()).toContain('1080P：1.2 ✦ / 秒')
@@ -125,7 +116,7 @@ describe('ModelPricingView media prices', () => {
     await wrapper.findAll('button').find(button => button.text() === '刷新')!.trigger('click')
     await flushPromises()
     expect(wrapper.find('[role="status"]').exists()).toBe(false)
-    expect(wrapper.text()).toContain('按分组倍率折算')
+    expect(wrapper.text()).toContain('有效倍率 2.00x')
   })
 
   it('keeps small positive OIDC multipliers and prices distinguishable from free pricing', async () => {
@@ -136,7 +127,6 @@ describe('ModelPricingView media prices', () => {
     })
     const wrapper = mountPricing()
     await flushPromises()
-    expect(wrapper.text()).toContain('OIDC 计费倍率 0.001x')
     expect(wrapper.text()).toContain('有效倍率 0.001x')
     expect(wrapper.text()).toContain('0.0000032 ✦')
     expect(wrapper.text()).not.toContain('0.00x')

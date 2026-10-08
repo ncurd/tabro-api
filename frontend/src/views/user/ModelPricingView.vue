@@ -5,17 +5,13 @@
       <div>
         <h1 class="text-2xl font-bold text-gray-900 dark:text-white">模型价格</h1>
         <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          {{ oidcBillingEnabled ? t('modelPricing.oidcDescription') : '当前账户可用分组的模型价格，按分组倍率折算为✦。' }}
+          当前账户可用分组的模型价格。
         </p>
       </div>
       <button class="btn btn-secondary inline-flex items-center gap-2 self-start lg:self-auto" :disabled="loading" @click="loadPricing">
         <Icon name="refresh" size="sm" :class="{ 'animate-spin': loading }" />
         <span>刷新</span>
       </button>
-    </div>
-
-    <div v-if="oidcBillingEnabled" class="rounded-xl border border-primary-200 bg-primary-50 p-4 text-sm text-primary-800 dark:border-primary-800 dark:bg-primary-900/20 dark:text-primary-200" role="status">
-      {{ t('modelPricing.oidcNotice', { multiplier: formatRate(oidcBillingMultiplier) }) }}
     </div>
 
     <div class="grid gap-4 md:grid-cols-3">
@@ -29,7 +25,7 @@
       </div>
       <div class="rounded-lg border border-gray-200 bg-white p-4 dark:border-dark-700 dark:bg-dark-800">
         <p class="text-sm text-gray-500 dark:text-gray-400">价格单位</p>
-        <p class="mt-2 text-xl font-semibold text-gray-900 dark:text-white">按模型计费单位</p>
+        <p class="mt-2 text-xl font-semibold text-gray-900 dark:text-white">积分</p>
       </div>
     </div>
 
@@ -92,7 +88,6 @@
             </div>
             <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
               有效倍率 {{ formatRate(group.effective_rate_multiplier) }}，{{ group.models.length }} 个模型
-              <span v-if="oidcBillingEnabled"> · {{ t('modelPricing.oidcIncluded', { multiplier: formatRate(oidcBillingMultiplier) }) }}</span>
             </p>
           </div>
         </div>
@@ -152,7 +147,6 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
 
 import { modelPricingAPI, type AvailableModelPricingGroup, type AvailableModelPricingModel } from '@/api/modelPricing'
 import AppLayout from '@/components/layout/AppLayout.vue'
@@ -162,9 +156,6 @@ import { formatCredits } from '@/utils/credits'
 import { formatMultiplier } from '@/utils/formatters'
 
 const groups = ref<AvailableModelPricingGroup[]>([])
-const { t } = useI18n()
-const oidcBillingEnabled = ref(false)
-const oidcBillingMultiplier = ref(1)
 const loading = ref(false)
 const error = ref('')
 const selectedGroupId = ref<number | 'all'>('all')
@@ -231,8 +222,6 @@ async function loadPricing() {
   try {
     const data = await modelPricingAPI.getAvailable()
     groups.value = data.groups ?? []
-    oidcBillingEnabled.value = data.oidc_billing_enabled === true
-    oidcBillingMultiplier.value = data.oidc_billing_rate_multiplier ?? 1
   } catch (err) {
     error.value = extractApiErrorMessage(err, '价格加载失败，请稍后重试')
   } finally {

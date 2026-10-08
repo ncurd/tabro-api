@@ -271,7 +271,6 @@
           <!-- Cost Breakdown -->
           <div class="mb-2 border-b border-gray-700 pb-1.5">
             <div class="text-xs font-semibold text-gray-300 mb-1">{{ t('usage.costDetails') }}</div>
-            <p v-if="isCentralUsage(tooltipData)" class="mb-2 max-w-xs whitespace-normal text-gray-400">{{ t('usage.centralPriceNotice') }}</p>
             <div v-if="tooltipData && tooltipData.input_cost > 0" class="flex items-center justify-between gap-4">
               <span class="text-gray-400">{{ t('admin.usage.inputCost') }}</span>
               <span class="font-medium text-white">{{ formatCredits(usageDisplayCost(tooltipData.input_cost, tooltipData), { fractionDigits: 6 }) }}</span>

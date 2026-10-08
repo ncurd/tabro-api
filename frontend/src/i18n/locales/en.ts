@@ -740,16 +740,10 @@ export default {
   },
 
   // Usage
-  modelPricing: {
-    oidcDescription: 'Available model prices include your effective group rate and the OIDC billing multiplier, in Auth credits.',
-    oidcNotice: 'Prices already include the {multiplier} OIDC multiplier. Usage statistics and billing details use the multiplier recorded for each request; changing the current multiplier does not change historical charges.',
-    oidcIncluded: 'Includes OIDC {multiplier}'
-  },
   usage: {
     title: 'Usage Records',
     description: 'View and analyze your API usage history',
     costDetails: 'Cost Breakdown',
-    centralPriceNotice: 'Line costs and unit prices include the final multiplier recorded for this request. Historical charges do not change with the current configuration.',
     finalRate: 'Final billing rate',
     baseCost: 'Base cost',
     billingSource: 'Billing source',
@@ -4476,7 +4470,6 @@ export default {
         "billingMultiplierInvalid": "The billing multiplier must be a finite number greater than 0.",
         "billingTimeInvalid": "Use HH:MM for settlement time, for example 00:00.",
         "billingTimezoneInvalid": "Enter a valid settlement timezone, for example Asia/Shanghai.",
-        "billingUserNotice": "Current model prices include the {multiplier}× Auth billing multiplier. Actual usage costs and billing details use the multiplier recorded for each request, so changing it does not affect historical charges. Calls reserve credits first and settle daily at {time} ({timezone}). Local credits, subscriptions and coupons do not apply.",
         onlyEnabled: 'OIDC-only mode',
         onlyEnabledHint: 'Save and enable OIDC, then sign out and sign back in as an administrator via OIDC. This mode disables local login, registration, password reset, and LinuxDo. Turn this mode off before changing key OIDC settings.',
         onlyPrerequisite: 'First save and enable OIDC, then sign back in to this administrator account through OIDC.',

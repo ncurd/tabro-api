@@ -2,7 +2,6 @@
   <AppLayout>
     <TablePageLayout>
       <template #actions>
-        <OIDCBillingNotice class="mb-4" />
         <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
           <!-- Total Requests -->
           <div class="card p-4">
@@ -440,7 +439,6 @@
           <!-- Cost Breakdown -->
           <div class="mb-2 border-b border-gray-700 pb-1.5">
             <div class="text-xs font-semibold text-gray-300 mb-1">{{ t('usage.costDetails') }}</div>
-            <p v-if="isCentralUsage(tooltipData)" class="mb-2 max-w-xs whitespace-normal text-gray-400">{{ t('usage.centralPriceNotice') }}</p>
             <div v-if="tooltipData && tooltipData.input_cost > 0" class="flex items-center justify-between gap-4">
               <span class="text-gray-400">{{ t('admin.usage.inputCost') }}</span>
               <span class="font-medium text-white">{{ formatCredits(usageDisplayCost(tooltipData.input_cost, tooltipData), { fractionDigits: 6 }) }}</span>
@@ -518,7 +516,6 @@ import EmptyState from '@/components/common/EmptyState.vue'
 import Select from '@/components/common/Select.vue'
 import DateRangePicker from '@/components/common/DateRangePicker.vue'
 import Icon from '@/components/icons/Icon.vue'
-import OIDCBillingNotice from '@/components/common/OIDCBillingNotice.vue'
 import type { UsageLog, ApiKey, UsageQueryParams, UsageStatsResponse } from '@/types'
 import type { Column } from '@/components/common/types'
 import { formatDateTime, formatReasoningEffort } from '@/utils/format'
