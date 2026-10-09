@@ -438,6 +438,23 @@ func (s *GatewayBillingCoordinator) prepareWithQuote(ctx context.Context, route 
 	if err != nil {
 		return nil, err
 	}
+	if previousOperation != nil && intent.RequestFingerprint != previousOperation.RequestFingerprint {
+		// JSONB expands small floating prices such as 1e-7 to 0.0000001.
+		// Recover only their original typed encoding, then require the complete
+		// historical identity to match. Never replace the stored price or permit
+		// a changed actor, owner, body, group, platform, deadline or price.
+		restoredPricing, restoreErr := restoreGatewayPricingNumberEncoding(intentPricing)
+		if restoreErr != nil {
+			return nil, restoreErr
+		}
+		intent, err = bc.NewScheduledIntent(key, route.ActorUserID, route.TenantID, route.Mode, quote.Request, settlementNotBefore, restoredPricing)
+		if err != nil {
+			return nil, err
+		}
+		if intent.RequestFingerprint != previousOperation.RequestFingerprint {
+			return nil, bc.ErrConflict
+		}
+	}
 	op, err := execution.Coordinator.Reserve(ctx, intent, gatewayBillingProof(route.OriginAppID, proof, credential, quote.Request))
 	if err != nil {
 		return nil, err
