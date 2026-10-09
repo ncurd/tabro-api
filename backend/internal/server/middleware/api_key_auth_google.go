@@ -111,6 +111,12 @@ func gatewayAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, sub
 			return
 		}
 
+		apiKey, err = resolveRequestGatewayGroup(c, apiKeyService, apiKey)
+		if err != nil {
+			status, _, message := gatewayGroupRoutingError(err)
+			abortWithGoogleError(c, status, message)
+			return
+		}
 		finishBilling, billingErr := prepareGatewayBilling(c, apiKeyService, apiKey, oidcPrincipal, apiKeyString)
 		if billingErr != nil {
 			status, _, message := gatewayBillingError(billingErr)

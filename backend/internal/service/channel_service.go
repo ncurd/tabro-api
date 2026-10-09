@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/tidwall/gjson"
@@ -80,6 +81,7 @@ type wildcardMappingEntry struct {
 
 // channelCache 渠道缓存快照（扁平化哈希结构，热路径 O(1) 查找）
 type channelCache struct {
+	loadError error
 	// 热路径查找
 	pricingByGroupModel     map[channelModelKey]*ChannelModelPricing            // (groupID, platform, model) → 定价
 	wildcardByGroupPlatform map[channelGroupPlatformKey][]*wildcardPricingEntry // (groupID, platform) → 通配符定价（按配置顺序，先匹配先使用）
@@ -161,7 +163,7 @@ func NewChannelService(repo ChannelRepository, authCacheInvalidator APIKeyAuthCa
 func (s *ChannelService) loadCache(ctx context.Context) (*channelCache, error) {
 	if cached, ok := s.cache.Load().(*channelCache); ok && cached != nil {
 		if time.Since(cached.loadedAt) < channelCacheTTL {
-			return cached, nil
+			return cached, cached.loadError
 		}
 	}
 
@@ -169,7 +171,7 @@ func (s *ChannelService) loadCache(ctx context.Context) (*channelCache, error) {
 		// 双重检查
 		if cached, ok := s.cache.Load().(*channelCache); ok && cached != nil {
 			if time.Since(cached.loadedAt) < channelCacheTTL {
-				return cached, nil
+				return cached, cached.loadError
 			}
 		}
 		return s.buildCache(ctx)
@@ -227,7 +229,14 @@ func expandPricingToCache(cache *channelCache, ch *Channel, gid int64, platform 
 // expandMappingToCache 将渠道的模型映射展开到缓存（按分组+平台维度）。
 // 各平台严格独立：antigravity 分组只匹配 antigravity 映射。
 func expandMappingToCache(cache *channelCache, ch *Channel, gid int64, platform string) {
-	for _, mappingPlatform := range matchingPlatforms(platform) {
+	platforms := matchingPlatforms(platform)
+	if platform == "all" {
+		platforms = make([]string, 0, len(ch.ModelMapping))
+		for mappingPlatform := range ch.ModelMapping {
+			platforms = append(platforms, mappingPlatform)
+		}
+	}
+	for _, mappingPlatform := range platforms {
 		platformMapping, ok := ch.ModelMapping[mappingPlatform]
 		if !ok {
 			continue
@@ -251,8 +260,9 @@ func expandMappingToCache(cache *channelCache, ch *Channel, gid int64, platform 
 
 // storeErrorCache 存入短 TTL 空缓存，防止 DB 错误后紧密重试。
 // 通过回退 loadedAt 使剩余 TTL = channelErrorTTL。
-func (s *ChannelService) storeErrorCache() {
+func (s *ChannelService) storeErrorCache(err error) {
 	errorCache := newEmptyChannelCache()
+	errorCache.loadError = err
 	errorCache.loadedAt = time.Now().Add(-(channelCacheTTL - channelErrorTTL))
 	s.cache.Store(errorCache)
 }
@@ -278,7 +288,7 @@ func (s *ChannelService) fetchChannelData(ctx context.Context) ([]Channel, map[i
 	channels, err := s.repo.ListAll(ctx)
 	if err != nil {
 		slog.Warn("failed to build channel cache", "error", err)
-		s.storeErrorCache()
+		s.storeErrorCache(err)
 		return nil, nil, fmt.Errorf("list all channels: %w", err)
 	}
 
@@ -292,7 +302,7 @@ func (s *ChannelService) fetchChannelData(ctx context.Context) ([]Channel, map[i
 		groupPlatforms, err = s.repo.GetGroupPlatforms(ctx, allGroupIDs)
 		if err != nil {
 			slog.Warn("failed to load group platforms for channel cache", "error", err)
-			s.storeErrorCache()
+			s.storeErrorCache(err)
 			return nil, nil, fmt.Errorf("get group platforms: %w", err)
 		}
 	}
@@ -325,7 +335,7 @@ func populateChannelCache(channels []Channel, groupPlatforms map[int64]string) *
 // isPlatformPricingMatch 判断定价条目的平台是否匹配分组平台。
 // 各平台（antigravity / anthropic / gemini / openai）严格独立，不跨平台匹配。
 func isPlatformPricingMatch(groupPlatform, pricingPlatform string) bool {
-	return groupPlatform == pricingPlatform
+	return groupPlatform == "all" || groupPlatform == pricingPlatform
 }
 
 // matchingPlatforms 返回分组平台对应的可匹配平台列表。
@@ -423,7 +433,20 @@ func (s *ChannelService) GetGroupPlatform(ctx context.Context, groupID int64) st
 	if err != nil {
 		return ""
 	}
-	return cache.groupPlatform[groupID]
+	return effectiveChannelPlatform(ctx, groupID, cache.groupPlatform[groupID])
+}
+
+// An all-platform group stores each provider's prices separately. Only the
+// authenticated, hydrated effective group may select a provider's entries.
+func effectiveChannelPlatform(ctx context.Context, groupID int64, stored string) string {
+	if stored != "all" {
+		return stored
+	}
+	if group, ok := ctx.Value(ctxkey.Group).(*Group); ok && IsGroupContextValid(group) && group.IsActive() &&
+		group.ID == groupID && group.Platform != "all" {
+		return group.Platform
+	}
+	return stored
 }
 
 // channelLookup 热路径公共查找结果
@@ -447,7 +470,7 @@ func (s *ChannelService) lookupGroupChannel(ctx context.Context, groupID int64) 
 	return &channelLookup{
 		cache:    cache,
 		channel:  ch,
-		platform: cache.groupPlatform[groupID],
+		platform: effectiveChannelPlatform(ctx, groupID, cache.groupPlatform[groupID]),
 	}, nil
 }
 
@@ -493,6 +516,7 @@ func (s *ChannelService) IsModelRestricted(ctx context.Context, groupID int64, m
 	lk, err := s.lookupGroupChannel(ctx, groupID)
 	if err != nil {
 		slog.Warn("failed to load channel cache for model restriction check", "group_id", groupID, "error", err)
+		return true
 	}
 	if lk == nil {
 		return false

@@ -82,6 +82,12 @@ type MediaAudioResourceRepository interface {
 	ListMediaResources(context.Context, int64, int64, *int64, string, int, int) ([]*MediaGenerationJob, error)
 }
 
+// The group set is already authorized from the live key owner. An empty set
+// grants nothing; it must never mean resources from every group.
+type MediaScopedResourceRepository interface {
+	ListMediaResourcesByGroupIDs(context.Context, int64, int64, []int64, string, int, int) ([]*MediaGenerationJob, error)
+}
+
 func normalizeAudioInput(audioURL, encoded, mediaType string, cloning bool) (string, error) {
 	if (audioURL == "") == (encoded == "") {
 		return "", &InvalidMediaRequestError{Message: "provide exactly one of audio_url or audio_base64"}

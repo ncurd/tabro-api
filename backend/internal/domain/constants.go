@@ -18,6 +18,9 @@ const (
 
 // Platform constants
 const (
+	// PlatformAll is a public, standard group that routes explicitly linked
+	// accounts by their actual provider. It is never an account platform.
+	PlatformAll           = "all"
 	PlatformAnthropic     = "anthropic"
 	PlatformOpenAI        = "openai"
 	PlatformGemini        = "gemini"

@@ -148,6 +148,12 @@ func (h *MediaGenerationHandler) getMediaJob(c *gin.Context, kind string) {
 		mediaError(c, http.StatusNotFound, "not_found_error", "Media generation job not found")
 		return
 	}
+	// Completed results do not depend on the upstream credential remaining
+	// available. Durable settlement retries continue in the background worker.
+	if kind == service.MediaJobKindAudioSpeech && (job.Status == service.MediaJobStatusSucceeded || job.Status == service.MediaJobStatusFailed || job.Status == service.MediaJobStatusCanceled) {
+		c.JSON(http.StatusOK, mediaJobResponse(job))
+		return
+	}
 	var account *service.Account
 	completedVideo := kind == service.MediaJobKindVideoGeneration && (job.Status == service.MediaJobStatusSucceeded || job.Status == service.MediaJobStatusFailed || job.Status == service.MediaJobStatusCanceled)
 	if !completedVideo {
@@ -419,6 +425,14 @@ func mediaJobResponse(job *service.MediaGenerationJob) gin.H {
 }
 
 func (h *MediaGenerationHandler) writeMediaServiceError(c *gin.Context, err error) {
+	if errors.Is(err, service.ErrGroupNotAllowed) {
+		mediaError(c, http.StatusForbidden, "permission_error", "API key does not grant an active media group")
+		return
+	}
+	if errors.Is(err, service.ErrGatewayRouteUnavailable) {
+		mediaError(c, http.StatusServiceUnavailable, "api_error", "Media resource routing is unavailable")
+		return
+	}
 	switch {
 	case errors.Is(err, service.ErrMediaPricingNotConfigured):
 		mediaError(c, http.StatusBadRequest, "pricing_not_configured", err.Error())

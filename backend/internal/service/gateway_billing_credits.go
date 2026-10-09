@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	bc "github.com/Wei-Shaw/sub2api/internal/billingcenter"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/shopspring/decimal"
 )
 
@@ -26,18 +27,38 @@ type gatewayCreditPricer interface {
 type gatewayCreditPriceCalculator struct{ gateway *GatewayService }
 
 type gatewayCreditPriceSnapshot struct {
-	BillingModel    string              `json:"billing_model"`
-	ServiceTier     string              `json:"service_tier"`
-	RateMultiplier  float64             `json:"rate_multiplier"`
-	Resolved        *ResolvedPricing    `json:"resolved"`
-	MediaKind       string              `json:"media_kind,omitempty"`
-	MediaTier       string              `json:"media_tier,omitempty"`
-	MediaPrice      *MediaPriceSnapshot `json:"media_price,omitempty"`
-	ImageUnitPrice  *float64            `json:"image_unit_price,omitempty"`
-	ImageUnitPrices map[string]float64  `json:"image_unit_prices,omitempty"`
+	EffectiveGroupID  int64               `json:"effective_group_id,omitempty"`
+	EffectivePlatform string              `json:"effective_platform,omitempty"`
+	BillingModel      string              `json:"billing_model"`
+	ServiceTier       string              `json:"service_tier"`
+	RateMultiplier    float64             `json:"rate_multiplier"`
+	Resolved          *ResolvedPricing    `json:"resolved"`
+	MediaKind         string              `json:"media_kind,omitempty"`
+	MediaTier         string              `json:"media_tier,omitempty"`
+	MediaPrice        *MediaPriceSnapshot `json:"media_price,omitempty"`
+	ImageUnitPrice    *float64            `json:"image_unit_price,omitempty"`
+	ImageUnitPrices   map[string]float64  `json:"image_unit_prices,omitempty"`
 }
 
 func (p *gatewayCreditPriceCalculator) MaximumCredit(ctx context.Context, key *APIKey, path string, quote bc.QuoteRequest) (bc.Decimal, json.RawMessage, error) {
+	if key != nil && IsGroupContextValid(key.Group) {
+		ctx = context.WithValue(ctx, ctxkey.Group, key.Group)
+	}
+	maximum, raw, err := p.maximumCredit(ctx, key, path, quote)
+	if err != nil {
+		return "", nil, err
+	}
+	var snapshot gatewayCreditPriceSnapshot
+	if json.Unmarshal(raw, &snapshot) != nil {
+		return "", nil, bc.ErrState
+	}
+	snapshot.EffectiveGroupID = *key.GroupID
+	snapshot.EffectivePlatform = key.Group.Platform
+	raw, err = json.Marshal(snapshot)
+	return maximum, raw, err
+}
+
+func (p *gatewayCreditPriceCalculator) maximumCredit(ctx context.Context, key *APIKey, path string, quote bc.QuoteRequest) (bc.Decimal, json.RawMessage, error) {
 	s := p.gateway
 	if s == nil || s.billingService == nil || s.resolver == nil || s.channelService == nil ||
 		key == nil || key.Group == nil || key.GroupID == nil || *key.GroupID != key.Group.ID ||
@@ -58,10 +79,13 @@ func (p *gatewayCreditPriceCalculator) MaximumCredit(ctx context.Context, key *A
 	if requestedModel == "" {
 		return "", nil, bc.ErrConflict
 	}
-	channel, err := s.channelService.GetChannelForGroup(ctx, key.Group.ID)
-	if err != nil || channel == nil {
-		return "", nil, fmt.Errorf("%w: active group channel is required for gateway credit pricing", bc.ErrState)
+	_, err := s.channelService.GetChannelForGroup(ctx, key.Group.ID)
+	if err != nil {
+		return "", nil, fmt.Errorf("%w: group channel pricing is unavailable", bc.ErrState)
 	}
+	// A group without a channel uses its requested-model catalogue price. The
+	// resulting model, price and multiplier are frozen before any supplier send.
+	// A failed channel lookup must not be mistaken for an absent channel.
 	mapping := s.channelService.ResolveChannelMapping(ctx, key.Group.ID, requestedModel)
 	if mapping.BillingModelSource == BillingModelSourceUpstream {
 		return "", nil, fmt.Errorf("%w: upstream-selected model has no frozen credit price", bc.ErrState)
@@ -120,6 +144,24 @@ func (p *gatewayCreditPriceCalculator) MaximumCredit(ctx context.Context, key *A
 		return "", nil, fmt.Errorf("%w: cannot freeze gateway credit price: %v", bc.ErrState, err)
 	}
 	return maximum, snapshot, nil
+}
+
+func validateGatewayPricingIdentity(raw json.RawMessage, key *APIKey) error {
+	var snapshot gatewayCreditPriceSnapshot
+	if json.Unmarshal(raw, &snapshot) != nil {
+		return bc.ErrConflict
+	}
+	// Existing operations predate request-scoped group routing. Preserve their
+	// immutable price snapshot and compatibility with the original key.
+	if snapshot.EffectiveGroupID == 0 && snapshot.EffectivePlatform == "" {
+		return nil
+	}
+	if key == nil || key.GroupID == nil || key.Group == nil ||
+		*key.GroupID != snapshot.EffectiveGroupID || key.Group.ID != snapshot.EffectiveGroupID ||
+		key.Group.Platform != snapshot.EffectivePlatform {
+		return bc.ErrConflict
+	}
+	return nil
 }
 
 func finiteNonnegativeCredit(value float64) bool {

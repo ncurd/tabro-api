@@ -50,6 +50,32 @@ WHERE deleted_at IS NULL
 	return &apiKeyRepository{client: client}, client
 }
 
+func TestAPIKeyRepository_GroupScopePersistsThroughAuthReadAndUpdate(t *testing.T) {
+	repo, client := newOIDCIdentityAPIKeyRepoSQLite(t)
+	ctx := context.Background()
+	user := mustCreateAPIKeyRepoUser(t, ctx, client, "scope-persistence@test.com")
+	key := &service.APIKey{UserID: user.ID, Key: "sk-scope-persistence", Name: "scoped", Status: service.StatusActive, GroupScope: service.APIKeyGroupScopeSelected, GroupIDs: []int64{12, 24}}
+	require.NoError(t, repo.Create(ctx, key))
+	authKey, err := repo.GetByKeyForAuth(ctx, key.Key)
+	require.NoError(t, err)
+	require.Equal(t, service.APIKeyGroupScopeSelected, authKey.GroupScope)
+	require.Equal(t, []int64{12, 24}, authKey.GroupIDs)
+	require.Nil(t, authKey.GroupID)
+	updated, err := repo.GetByID(ctx, key.ID)
+	require.NoError(t, err)
+	updated.GroupScope, updated.GroupIDs = service.APIKeyGroupScopePublic, []int64{}
+	require.NoError(t, repo.Update(ctx, updated))
+	got, err := repo.GetByID(ctx, key.ID)
+	require.NoError(t, err)
+	require.Equal(t, service.APIKeyGroupScopePublic, got.GroupScope)
+	require.Empty(t, got.GroupIDs)
+	legacy := &service.APIKey{UserID: user.ID, Key: "sk-scope-legacy", Name: "legacy", Status: service.StatusActive}
+	require.NoError(t, repo.Create(ctx, legacy))
+	got, err = repo.GetByKeyForAuth(ctx, legacy.Key)
+	require.NoError(t, err)
+	require.Equal(t, service.APIKeyGroupScopeSingle, got.GroupScope)
+}
+
 func TestAPIKeyRepository_BindOIDCIdentity_IsImmutableUniqueAndIdempotent(t *testing.T) {
 	repo, client := newOIDCIdentityAPIKeyRepoSQLite(t)
 	ctx := context.Background()

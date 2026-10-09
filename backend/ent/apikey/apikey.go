@@ -29,6 +29,10 @@ const (
 	FieldName = "name"
 	// FieldGroupID holds the string denoting the group_id field in the database.
 	FieldGroupID = "group_id"
+	// FieldGroupScope holds the string denoting the group_scope field in the database.
+	FieldGroupScope = "group_scope"
+	// FieldGroupIds holds the string denoting the group_ids field in the database.
+	FieldGroupIds = "group_ids"
 	// FieldStatus holds the string denoting the status field in the database.
 	FieldStatus = "status"
 	// FieldOidcManaged holds the string denoting the oidc_managed field in the database.
@@ -110,6 +114,8 @@ var Columns = []string{
 	FieldKey,
 	FieldName,
 	FieldGroupID,
+	FieldGroupScope,
+	FieldGroupIds,
 	FieldStatus,
 	FieldOidcManaged,
 	FieldAuthBillingOnly,
@@ -160,6 +166,12 @@ var (
 	KeyValidator func(string) error
 	// NameValidator is a validator for the "name" field. It is called by the builders before save.
 	NameValidator func(string) error
+	// DefaultGroupScope holds the default value on creation for the "group_scope" field.
+	DefaultGroupScope string
+	// GroupScopeValidator is a validator for the "group_scope" field. It is called by the builders before save.
+	GroupScopeValidator func(string) error
+	// DefaultGroupIds holds the default value on creation for the "group_ids" field.
+	DefaultGroupIds []int64
 	// DefaultStatus holds the default value on creation for the "status" field.
 	DefaultStatus string
 	// StatusValidator is a validator for the "status" field. It is called by the builders before save.
@@ -231,6 +243,11 @@ func ByName(opts ...sql.OrderTermOption) OrderOption {
 // ByGroupID orders the results by the group_id field.
 func ByGroupID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldGroupID, opts...).ToFunc()
+}
+
+// ByGroupScope orders the results by the group_scope field.
+func ByGroupScope(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldGroupScope, opts...).ToFunc()
 }
 
 // ByStatus orders the results by the status field.

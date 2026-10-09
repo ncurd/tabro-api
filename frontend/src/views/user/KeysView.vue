@@ -41,7 +41,7 @@
         >
           <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
         </button>
-        <button @click="showCreateModal = true" class="btn btn-primary" data-tour="keys-create-btn">
+        <button @click="openCreateModal" class="btn btn-primary" data-tour="keys-create-btn">
           <Icon name="plus" size="md" class="mr-2" />
           {{ t('keys.createKey') }}
         </button>
@@ -106,8 +106,10 @@
                 class="-mx-2 -my-1 flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 transition-all duration-200 hover:bg-gray-100 dark:hover:bg-dark-700"
                 :title="t('keys.clickToChangeGroup')"
               >
+                <span v-if="row.group_scope === 'public'" class="text-sm font-medium">{{ t('keys.scopePublic') }}</span>
+                <span v-else-if="row.group_scope === 'selected'" class="text-sm font-medium">{{ t('keys.selectedGroupsLabel', { count: row.group_ids?.length || 0 }) }}</span>
                 <GroupBadge
-                  v-if="row.group"
+                  v-else-if="row.group"
                   :name="row.group.name"
                   :platform="row.group.platform"
                   :subscription-type="row.group.subscription_type"
@@ -368,7 +370,7 @@
               :title="t('keys.noKeysYet')"
               :description="t('keys.createFirstKey')"
               :action-text="t('keys.createKey')"
-              @action="showCreateModal = true"
+              @action="openCreateModal"
             />
           </template>
         </DataTable>
@@ -406,7 +408,21 @@
           />
         </div>
 
-        <div>
+        <div v-if="!authStore.isSimpleMode || showEditModal">
+          <label class="input-label">{{ t('keys.scopeLabel') }}</label>
+          <Select v-model="formData.group_scope" :options="scopeOptions" data-tour="key-form-group" />
+        </div>
+        <div v-if="formData.group_scope === 'selected'" class="max-h-64 space-y-2 overflow-y-auto">
+          <label v-for="id in formData.group_ids.filter(id => !groups.some(group => group.id === id))" :key="`unavailable-${id}`" class="flex items-center gap-3 rounded-lg border border-amber-200 p-3 text-amber-700 dark:border-amber-800 dark:text-amber-300">
+            <input v-model="formData.group_ids" type="checkbox" :value="id" class="checkbox" />
+            <span>{{ t('keys.unavailableGroup', { id }) }}</span>
+          </label>
+          <label v-for="group in groups" :key="group.id" class="flex items-center gap-3 rounded-lg border border-gray-200 p-3 dark:border-dark-600">
+            <input v-model="formData.group_ids" type="checkbox" :value="group.id" class="checkbox" />
+            <GroupBadge :name="group.name" :platform="group.platform" :subscription-type="group.subscription_type" :rate-multiplier="group.rate_multiplier" :user-rate-multiplier="userGroupRates[group.id]" />
+          </label>
+        </div>
+        <div v-if="formData.group_scope === 'single' && (!authStore.isSimpleMode || formData.group_id !== null)">
           <label class="input-label">{{ t('keys.groupLabel') }}</label>
           <Select
             v-model="formData.group_id"
@@ -414,7 +430,6 @@
             :placeholder="t('keys.selectGroup')"
             :searchable="true"
             :search-placeholder="t('keys.searchGroup')"
-            data-tour="key-form-group"
           >
             <template #selected="{ option }">
               <GroupBadge
@@ -928,6 +943,7 @@
       :api-key="selectedKey?.key || ''"
       :base-url="publicSettings?.api_base_url || ''"
       :platform="selectedKey?.group?.platform || null"
+      :multi-platform="selectedKey?.group_scope === 'public' || selectedKey?.group_scope === 'selected'"
       :allow-messages-dispatch="selectedKey?.group?.allow_messages_dispatch || false"
       @close="closeUseKeyModal"
     />
@@ -944,6 +960,10 @@
           {{ t('keys.ccsClientSelect.description') }}
 	        </p>
 	        <div class="grid grid-cols-2 gap-3">
+            <button v-if="pendingCcsRow?.group_scope === 'public' || pendingCcsRow?.group_scope === 'selected' || pendingCcsRow?.group?.platform === 'all'" class="flex flex-col items-center gap-2 rounded-xl border-2 border-gray-200 p-4 dark:border-dark-600" @click="handleCcsClientSelect('codex')">
+              <Icon name="terminal" size="xl" />
+              <span>{{ t('keys.useKeyModal.cliTabs.codexCli') }}</span>
+            </button>
 	          <button
 	            @click="handleCcsClientSelect('claude')"
 	            class="flex flex-col items-center gap-2 p-4 rounded-xl border-2 border-gray-200 dark:border-dark-600 hover:border-primary-500 dark:hover:border-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-all"
@@ -1009,6 +1029,8 @@
         </div>
         <!-- Group list -->
         <div class="max-h-80 overflow-y-auto p-1.5">
+          <button class="flex w-full rounded-lg px-3 py-2.5 text-sm hover:bg-gray-100 dark:hover:bg-dark-700" @click="changePublicScope(selectedKeyForGroup!)">{{ t('keys.scopePublic') }}</button>
+          <button class="flex w-full rounded-lg px-3 py-2.5 text-sm hover:bg-gray-100 dark:hover:bg-dark-700" @click="editSelectedGroups(selectedKeyForGroup!)">{{ t('keys.scopeSelected') }}</button>
           <button
             v-for="option in filteredGroupOptions"
             :key="option.value ?? 'null'"
@@ -1050,6 +1072,7 @@
 	import { ref, computed, onMounted, onUnmounted, type ComponentPublicInstance } from 'vue'
 	import { useI18n } from 'vue-i18n'
 	import { useAppStore } from '@/stores/app'
+	import { useAuthStore } from '@/stores/auth'
 	import { useOnboardingStore } from '@/stores/onboarding'
 	import { useClipboard } from '@/composables/useClipboard'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
@@ -1094,6 +1117,7 @@ interface GroupOption {
 }
 
 const appStore = useAppStore()
+const authStore = useAuthStore()
 const onboardingStore = useOnboardingStore()
 const { copyToClipboard: clipboardCopy } = useClipboard()
 
@@ -1169,6 +1193,8 @@ const setGroupButtonRef = (keyId: number, el: Element | ComponentPublicInstance 
 const formData = ref({
   name: '',
   group_id: null as number | null,
+  group_scope: (authStore.isSimpleMode ? 'single' : 'public') as 'single' | 'public' | 'selected',
+  group_ids: [] as number[],
   status: 'active' as 'active' | 'inactive',
   use_custom_key: false,
   custom_key: '',
@@ -1207,6 +1233,12 @@ const customKeyError = computed(() => {
 const statusOptions = computed(() => [
   { value: 'active', label: t('common.active') },
   { value: 'inactive', label: t('common.inactive') }
+])
+
+const scopeOptions = computed(() => [
+  { value: 'public', label: t('keys.scopePublic') },
+  { value: 'selected', label: t('keys.scopeSelected') },
+  { value: 'single', label: t('keys.scopeSingle') }
 ])
 
 // Filter dropdown options
@@ -1390,6 +1422,13 @@ const handleSort = (key: string, order: 'asc' | 'desc') => {
   loadApiKeys()
 }
 
+const openCreateModal = () => {
+  formData.value.group_scope = authStore.isSimpleMode ? 'single' : 'public'
+  formData.value.group_id = null
+  formData.value.group_ids = []
+  showCreateModal.value = true
+}
+
 const editKey = (key: ApiKey) => {
   selectedKey.value = key
   const hasIPRestriction = (key.ip_whitelist?.length > 0) || (key.ip_blacklist?.length > 0)
@@ -1397,6 +1436,8 @@ const editKey = (key: ApiKey) => {
   formData.value = {
     name: key.name,
     group_id: key.group_id,
+    group_scope: key.group_scope || 'single',
+    group_ids: [...(key.group_ids || [])],
     status: key.status === 'quota_exhausted' || key.status === 'expired' ? 'inactive' : key.status,
     use_custom_key: false,
     custom_key: '',
@@ -1463,15 +1504,35 @@ const openGroupSelector = (key: ApiKey) => {
 const changeGroup = async (key: ApiKey, newGroupId: number | null) => {
   groupSelectorKeyId.value = null
   dropdownPosition.value = null
-  if (key.group_id === newGroupId) return
+  if ((key.group_scope || 'single') === 'single' && key.group_id === newGroupId) return
 
   try {
-    await keysAPI.update(key.id, { group_id: newGroupId })
+    await keysAPI.update(key.id, { group_scope: 'single', group_id: newGroupId, group_ids: [] })
     appStore.showSuccess(t('keys.groupChangedSuccess'))
     loadApiKeys()
   } catch (error) {
     appStore.showError(t('keys.failedToChangeGroup'))
   }
+}
+
+const changePublicScope = async (key: ApiKey) => {
+  groupSelectorKeyId.value = null
+  dropdownPosition.value = null
+  try {
+    await keysAPI.update(key.id, { group_scope: 'public', group_ids: [] })
+    appStore.showSuccess(t('keys.groupChangedSuccess'))
+    await loadApiKeys()
+  } catch {
+    appStore.showError(t('keys.failedToChangeGroup'))
+  }
+}
+
+const editSelectedGroups = (key: ApiKey) => {
+  groupSelectorKeyId.value = null
+  dropdownPosition.value = null
+  editKey(key)
+  formData.value.group_scope = 'selected'
+  if (!formData.value.group_ids.length && key.group_id) formData.value.group_ids = [key.group_id]
 }
 
 const closeGroupSelector = (event: MouseEvent) => {
@@ -1490,8 +1551,12 @@ const confirmDelete = (key: ApiKey) => {
 
 const handleSubmit = async () => {
   // Validate group_id is required
-  if (formData.value.group_id === null) {
+  if (!authStore.isSimpleMode && formData.value.group_scope === 'single' && formData.value.group_id === null) {
     appStore.showError(t('keys.groupRequired'))
+    return
+  }
+  if (formData.value.group_scope === 'selected' && formData.value.group_ids.length === 0) {
+    appStore.showError(t('keys.selectedGroupsRequired'))
     return
   }
 
@@ -1547,7 +1612,9 @@ const handleSubmit = async () => {
     if (showEditModal.value && selectedKey.value) {
       await keysAPI.update(selectedKey.value.id, {
         name: formData.value.name,
-        group_id: formData.value.group_id,
+        group_id: formData.value.group_scope === 'single' ? formData.value.group_id : null,
+        group_scope: formData.value.group_scope,
+        group_ids: formData.value.group_scope === 'selected' ? formData.value.group_ids : [],
         status: formData.value.status,
         ip_whitelist: ipWhitelist,
         ip_blacklist: ipBlacklist,
@@ -1562,13 +1629,14 @@ const handleSubmit = async () => {
       const customKey = formData.value.use_custom_key ? formData.value.custom_key : undefined
       await keysAPI.create(
         formData.value.name,
-        formData.value.group_id,
+        formData.value.group_scope === 'single' ? formData.value.group_id : null,
         customKey,
         ipWhitelist,
         ipBlacklist,
         quota,
         expiresInDays,
-        rateLimitData
+        rateLimitData,
+        authStore.isSimpleMode && formData.value.group_scope === 'single' && formData.value.group_id === null ? undefined : { group_scope: formData.value.group_scope, group_ids: formData.value.group_scope === 'selected' ? formData.value.group_ids : [] }
       )
       appStore.showSuccess(t('keys.keyCreatedSuccess'))
       // Only advance tour if active, on submit step, and creation succeeded
@@ -1614,6 +1682,8 @@ const closeModals = () => {
   formData.value = {
     name: '',
     group_id: null,
+    group_scope: authStore.isSimpleMode ? 'single' : 'public',
+    group_ids: [],
     status: 'active',
     use_custom_key: false,
     custom_key: '',
@@ -1697,7 +1767,7 @@ const importToCcswitch = (row: ApiKey) => {
   const platform = row.group?.platform || 'anthropic'
 
   // For antigravity platform, show client selection dialog
-  if (platform === 'antigravity') {
+  if (platform === 'antigravity' || platform === 'all' || row.group_scope === 'public' || row.group_scope === 'selected') {
     pendingCcsRow.value = row
     showCcsClientSelect.value = true
     return
@@ -1707,7 +1777,7 @@ const importToCcswitch = (row: ApiKey) => {
   executeCcsImport(row, platform === 'gemini' ? 'gemini' : 'claude')
 }
 
-const executeCcsImport = (row: ApiKey, clientType: 'claude' | 'gemini') => {
+const executeCcsImport = (row: ApiKey, clientType: 'claude' | 'gemini' | 'codex') => {
   const baseUrl = publicSettings.value?.api_base_url || window.location.origin
   const platform = row.group?.platform || 'anthropic'
 
@@ -1715,7 +1785,10 @@ const executeCcsImport = (row: ApiKey, clientType: 'claude' | 'gemini') => {
   let app: string
   let endpoint: string
 
-  if (platform === 'antigravity') {
+  if (row.group_scope === 'public' || row.group_scope === 'selected' || platform === 'all') {
+    app = clientType
+    endpoint = baseUrl
+  } else if (platform === 'antigravity') {
     // Antigravity always uses /antigravity suffix
     app = clientType === 'gemini' ? 'gemini' : 'claude'
     endpoint = `${baseUrl}/antigravity`
@@ -1782,7 +1855,7 @@ const executeCcsImport = (row: ApiKey, clientType: 'claude' | 'gemini') => {
   }
 }
 
-const handleCcsClientSelect = (clientType: 'claude' | 'gemini') => {
+const handleCcsClientSelect = (clientType: 'claude' | 'gemini' | 'codex') => {
   if (pendingCcsRow.value) {
     executeCcsImport(pendingCcsRow.value, clientType)
   }

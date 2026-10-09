@@ -4,7 +4,7 @@
  */
 
 import { apiClient } from '../client'
-import type { ApiKey } from '@/types'
+import type { ApiKey, ApiKeyGroupScope } from '@/types'
 
 export interface UpdateApiKeyGroupResult {
   api_key: ApiKey
@@ -44,8 +44,17 @@ export async function updateApiKeyGroup(id: number, groupId: number | null): Pro
   return data
 }
 
+export async function updateApiKeyScope(id: number, groupScope: ApiKeyGroupScope, groupIds: number[] = []): Promise<UpdateApiKeyGroupResult> {
+  const { data } = await apiClient.put<UpdateApiKeyGroupResult>(`/admin/api-keys/${id}`, {
+    group_scope: groupScope,
+    group_ids: groupIds
+  })
+  return data
+}
+
 export const apiKeysAPI = {
   updateApiKeyGroup,
+  updateApiKeyScope,
   provisionOIDCGatewayIdentity
 }
 

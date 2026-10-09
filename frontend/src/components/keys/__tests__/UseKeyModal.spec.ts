@@ -17,6 +17,25 @@ vi.mock('@/composables/useClipboard', () => ({
 import UseKeyModal from '../UseKeyModal.vue'
 
 describe('UseKeyModal', () => {
+  it('offers each client for a public key without an unassigned-group warning', async () => {
+    const wrapper = mount(UseKeyModal, {
+      props: { show: true, apiKey: 'sk-test', baseUrl: 'https://example.com/v1', platform: null, multiPlatform: true },
+      global: { stubs: { BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' }, Icon: { template: '<span />' } } }
+    })
+    expect(wrapper.text()).not.toContain('keys.useKeyModal.noGroupTitle')
+    expect(wrapper.text()).toContain('keys.useKeyModal.cliTabs.codexCli')
+    expect(wrapper.text()).toContain('keys.useKeyModal.cliTabs.claudeCode')
+    expect(wrapper.text()).toContain('keys.useKeyModal.cliTabs.geminiCli')
+    const gemini = wrapper.findAll('button').find(button => button.text().includes('keys.useKeyModal.cliTabs.geminiCli'))!
+    await gemini.trigger('click')
+    expect(wrapper.text()).toContain('GEMINI_API_KEY')
+    const claude = wrapper.findAll('button').find(button => button.text().includes('keys.useKeyModal.cliTabs.claudeCode'))!
+    await claude.trigger('click')
+    expect(wrapper.text()).toContain('ANTHROPIC_AUTH_TOKEN')
+    const opencode = wrapper.findAll('button').find(button => button.text().includes('keys.useKeyModal.cliTabs.opencode'))!
+    await opencode.trigger('click')
+    expect(wrapper.findAll('pre code')).toHaveLength(3)
+  })
   it('renders GPT-6.1 Sol and GPT-6 Astra/Sol/Luna with the expected limits and variants in OpenCode config', async () => {
     const wrapper = mount(UseKeyModal, {
       props: {

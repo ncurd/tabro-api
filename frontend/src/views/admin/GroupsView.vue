@@ -385,7 +385,7 @@
             data-tour="group-form-platform"
             @change="createForm.copy_accounts_from_group_ids = []"
           />
-          <p class="input-hint">{{ t("admin.groups.platformHint") }}</p>
+          <p class="input-hint">{{ t(createForm.platform === 'all' ? "admin.groups.universalPublicHint" : "admin.groups.platformHint") }}</p>
         </div>
         <!-- 从分组复制账号 -->
         <div v-if="copyAccountsGroupOptions.length > 0">
@@ -492,7 +492,7 @@
           <p class="input-hint">{{ t("admin.groups.rateMultiplierHint") }}</p>
         </div>
         <div
-          v-if="createForm.subscription_type !== 'subscription'"
+          v-if="createForm.platform !== 'all' && createForm.subscription_type !== 'subscription'"
           data-tour="group-form-exclusive"
         >
           <div class="mb-1.5 flex items-center gap-1">
@@ -575,6 +575,7 @@
             <Select
               v-model="createForm.subscription_type"
               :options="subscriptionTypeOptions"
+              :disabled="createForm.platform === 'all'"
             />
             <p class="input-hint">
               {{ t("admin.groups.subscription.typeHint") }}
@@ -632,7 +633,7 @@
         <div
           v-if="
             createForm.platform === 'antigravity' ||
-            createForm.platform === 'gemini'
+            createForm.platform === 'gemini' || createForm.platform === 'all'
           "
           class="border-t pt-4"
         >
@@ -890,7 +891,7 @@
 
         <!-- OpenAI Messages 调度配置（仅 openai 平台） -->
         <div
-          v-if="createForm.platform === 'openai'"
+          v-if="createForm.platform === 'openai' || createForm.platform === 'all'"
           class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
         >
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
@@ -1118,7 +1119,7 @@
         <!-- 账号过滤控制 (OpenAI/Antigravity/Anthropic/Gemini) -->
         <div
           v-if="
-            ['openai', 'antigravity', 'anthropic', 'gemini'].includes(
+            ['all', 'openai', 'antigravity', 'anthropic', 'gemini'].includes(
               createForm.platform,
             )
           "
@@ -1505,6 +1506,7 @@
             data-tour="group-form-platform"
           />
           <p class="input-hint">{{ t("admin.groups.platformNotEditable") }}</p>
+          <p v-if="editForm.platform === 'all'" class="input-hint">{{ t("admin.groups.universalPublicHint") }}</p>
         </div>
         <!-- 从分组复制账号（编辑时） -->
         <div v-if="copyAccountsGroupOptionsForEdit.length > 0">
@@ -1611,7 +1613,7 @@
             data-tour="group-form-multiplier"
           />
         </div>
-        <div v-if="editForm.subscription_type !== 'subscription'">
+        <div v-if="editForm.platform !== 'all' && editForm.subscription_type !== 'subscription'">
           <div class="mb-1.5 flex items-center gap-1">
             <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
               {{ t("admin.groups.form.exclusive") }}
@@ -1754,7 +1756,7 @@
         <div
           v-if="
             editForm.platform === 'antigravity' ||
-            editForm.platform === 'gemini'
+            editForm.platform === 'gemini' || editForm.platform === 'all'
           "
           class="border-t pt-4"
         >
@@ -2008,7 +2010,7 @@
 
         <!-- OpenAI Messages 调度配置（仅 openai 平台） -->
         <div
-          v-if="editForm.platform === 'openai'"
+          v-if="editForm.platform === 'openai' || editForm.platform === 'all'"
           class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
         >
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
@@ -2236,7 +2238,7 @@
         <!-- 账号过滤控制 (OpenAI/Antigravity/Anthropic/Gemini) -->
         <div
           v-if="
-            ['openai', 'antigravity', 'anthropic', 'gemini'].includes(
+            ['all', 'openai', 'antigravity', 'anthropic', 'gemini'].includes(
               editForm.platform,
             )
           "
@@ -2778,6 +2780,7 @@ const exclusiveOptions = computed(() => [
 ]);
 
 const platformOptions = computed(() => [
+  { value: "all", label: t("admin.groups.platforms.all") },
   { value: "anthropic", label: "Anthropic" },
   { value: "openai", label: "OpenAI" },
   { value: "gemini", label: "Gemini" },
@@ -2789,6 +2792,7 @@ const platformOptions = computed(() => [
 
 const platformFilterOptions = computed(() => [
   { value: "", label: t("admin.groups.allPlatforms") },
+  { value: "all", label: t("admin.groups.platforms.all") },
   { value: "anthropic", label: "Anthropic" },
   { value: "openai", label: "OpenAI" },
   { value: "gemini", label: "Gemini" },
@@ -2885,7 +2889,7 @@ const invalidRequestFallbackOptionsForEdit = computed(() => {
 // 复制账号的源分组选项（创建时）- 仅包含相同平台且有账号的分组
 const copyAccountsGroupOptions = computed(() => {
   const eligibleGroups = groups.value.filter(
-    (g) => g.platform === createForm.platform && (g.account_count || 0) > 0,
+    (g) => (createForm.platform === 'all' || g.platform === createForm.platform) && (g.account_count || 0) > 0,
   );
   return eligibleGroups.map((g) => ({
     value: g.id,
@@ -2898,7 +2902,7 @@ const copyAccountsGroupOptionsForEdit = computed(() => {
   const currentId = editingGroup.value?.id;
   const eligibleGroups = groups.value.filter(
     (g) =>
-      g.platform === editForm.platform &&
+      (editForm.platform === 'all' || g.platform === editForm.platform) &&
       (g.account_count || 0) > 0 &&
       g.id !== currentId,
   );
@@ -3493,7 +3497,7 @@ const handleCreateGroup = async () => {
         createModelRoutingRules.value,
       ),
       messages_dispatch_model_config:
-        createForm.platform === "openai"
+        ["openai", "all"].includes(createForm.platform)
           ? messagesDispatchFormStateToConfig({
               allow_messages_dispatch: createForm.allow_messages_dispatch,
               opus_mapped_model: createForm.opus_mapped_model,
@@ -3617,7 +3621,7 @@ const handleUpdateGroup = async () => {
         editModelRoutingRules.value,
       ),
       messages_dispatch_model_config:
-        editForm.platform === "openai"
+        ["openai", "all"].includes(editForm.platform)
           ? messagesDispatchFormStateToConfig({
               allow_messages_dispatch: editForm.allow_messages_dispatch,
               opus_mapped_model: editForm.opus_mapped_model,
@@ -3711,13 +3715,18 @@ watch(
 watch(
   () => createForm.platform,
   (newVal) => {
+    if (newVal === "all") {
+      createForm.subscription_type = "standard";
+      createForm.is_exclusive = false;
+      createForm.allow_messages_dispatch = true;
+    }
     if (!["anthropic", "antigravity"].includes(newVal)) {
       createForm.fallback_group_id_on_invalid_request = null;
     }
-    if (newVal !== "openai") {
+    if (!["openai", "all"].includes(newVal)) {
       resetMessagesDispatchFormState(createForm);
     }
-    if (!["openai", "antigravity", "anthropic", "gemini"].includes(newVal)) {
+    if (!["all", "openai", "antigravity", "anthropic", "gemini"].includes(newVal)) {
       createForm.require_oauth_only = false;
       createForm.require_privacy_set = false;
     }
@@ -3730,10 +3739,10 @@ watch(
     if (!["anthropic", "antigravity"].includes(newVal)) {
       editForm.fallback_group_id_on_invalid_request = null;
     }
-    if (newVal !== "openai") {
+    if (!["openai", "all"].includes(newVal)) {
       resetMessagesDispatchFormState(editForm);
     }
-    if (!["openai", "antigravity", "anthropic", "gemini"].includes(newVal)) {
+    if (!["all", "openai", "antigravity", "anthropic", "gemini"].includes(newVal)) {
       editForm.require_oauth_only = false;
       editForm.require_privacy_set = false;
     }
@@ -3746,7 +3755,7 @@ watch(
     if (!['anthropic', 'antigravity'].includes(newVal)) {
       editForm.fallback_group_id_on_invalid_request = null
     }
-    if (newVal !== 'openai') {
+    if (!['openai', 'all'].includes(newVal)) {
       editForm.allow_messages_dispatch = false
       editForm.default_mapped_model = ''
     }

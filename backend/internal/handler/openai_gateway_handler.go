@@ -1392,11 +1392,35 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		return
 	}
 	previousResponseIDKind := service.ClassifyOpenAIPreviousResponseIDKind(previousResponseID)
+	// The upgrade has no model. Choose the effective permitted pool from the
+	// first turn, before acquiring an upstream account or reserving Auth credit.
+	routingKey := service.GatewayRoutingKeyFromContext(ctx)
+	if routingKey == nil {
+		routingKey = apiKey
+	}
+	if routingKey.EffectiveGroupScope() != service.APIKeyGroupScopeSingle || (routingKey.Group != nil && routingKey.Group.Platform == service.PlatformAll) {
+		selected, _, routeErr := h.apiKeyService.ResolveGatewayGroup(ctx, routingKey, service.GatewayGroupRequest{
+			Path: c.Request.URL.Path, Model: reqModel, ForcePlatform: service.PlatformOpenAI,
+			RequiredTransport: service.OpenAIUpstreamTransportResponsesWebsocketV2,
+		})
+		if routeErr != nil {
+			closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "no allowed group supports this websocket model")
+			return
+		}
+		apiKey = selected
+		ctx = context.WithValue(ctx, ctxkey.Group, apiKey.Group)
+		if session := service.GatewayBillingSessionFromContext(ctx); session != nil {
+			ctx = service.WithGatewayBillingSession(ctx, session.WithKey(apiKey))
+		}
+		c.Request = c.Request.WithContext(ctx)
+		c.Set(string(middleware2.ContextKeyAPIKey), apiKey)
+	}
 	reqLog = reqLog.With(
 		zap.Bool("ws_ingress", true),
 		zap.String("model", reqModel),
 		zap.Bool("has_previous_response_id", previousResponseID != ""),
 		zap.String("previous_response_id_kind", previousResponseIDKind),
+		zap.Any("effective_group_id", apiKey.GroupID),
 	)
 	setOpsRequestContext(c, reqModel, true, firstMessage)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeWSV2))
@@ -1465,6 +1489,19 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	addTurnSlot(1, wrapReleaseOnDone(ctx, userReleaseFunc), nil)
 
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
+	if apiKey.EffectiveGroupScope() != service.APIKeyGroupScopeSingle && !bc.IsCentral(ctx) && (h.cfg == nil || h.cfg.RunMode != config.RunModeSimple) {
+		var subscriptionErr error
+		subscription, subscriptionErr = h.apiKeyService.GatewayRequestSubscription(ctx, apiKey)
+		if subscriptionErr != nil {
+			closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "no active subscription for this websocket group")
+			return
+		}
+		if subscription != nil {
+			c.Set(string(middleware2.ContextKeySubscription), subscription)
+		} else {
+			delete(c.Keys, string(middleware2.ContextKeySubscription))
+		}
+	}
 	if err := h.billingCacheService.CheckBillingEligibility(ctx, apiKey.User, apiKey, apiKey.Group, subscription); err != nil {
 		reqLog.Info("openai.websocket_billing_eligibility_check_failed", zap.Error(err))
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "billing check failed")

@@ -577,6 +577,15 @@ export default {
 
   // API Keys
   keys: {
+    'scopeLabel': 'Model access',
+    'scopePublic': 'Default public models',
+    'scopeSingle': 'Single group',
+    'scopeSelected': 'Selected groups',
+    'selectedGroupsLabel': 'Selected groups ({count})',
+    'selectedGroupsRequired': 'Select at least one group',
+    'unavailableGroup': 'Unavailable group #{id}',
+    'multiPlatform': 'Choose a client for the model you want to use.',
+
     title: 'API Keys',
     description: 'Manage your API keys and access tokens',
     searchPlaceholder: 'Search name or key...',
@@ -1661,6 +1670,7 @@ export default {
       enterGroupName: 'Enter group name',
       optionalDescription: 'Optional description',
       platformHint: 'Select the platform this group is associated with',
+      universalPublicHint: 'All-platform groups are public and route requests to linked accounts by model.',
       platformNotEditable: 'Platform cannot be changed after creation',
       rateMultiplierHint: 'Cost multiplier for this group (e.g., 1.5 = 150% of base cost)',
       exclusiveHint: 'Exclusive group, manually assign to specific users',
@@ -1706,7 +1716,7 @@ export default {
       revertChanges: 'Revert',
       userInfo: 'User Info',
       platforms: {
-        all: 'All Platforms',
+        all: 'All Models',
         anthropic: 'Anthropic',
         openai: 'OpenAI',
         gemini: 'Gemini',
@@ -1773,8 +1783,8 @@ export default {
       },
       copyAccounts: {
         title: 'Copy Accounts from Groups',
-        tooltip: 'Select one or more groups of the same platform. After creation, all accounts from these groups will be automatically bound to the new group (deduplicated).',
-        tooltipEdit: 'Select one or more groups of the same platform. After saving, current group accounts will be replaced with accounts from these groups (deduplicated).',
+        tooltip: 'Select source groups. Their accounts will be linked to the new group without duplicates.',
+        tooltipEdit: 'Select source groups. Their accounts will replace the current group bindings without duplicates.',
         selectPlaceholder: 'Select groups to copy accounts from...',
         hint: 'Multiple groups can be selected, accounts will be deduplicated',
         hintEdit: '⚠️ Warning: This will replace all existing account bindings'

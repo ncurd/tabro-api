@@ -543,6 +543,15 @@ export default {
     "subscription": "订阅"
   },
   "keys": {
+    'scopeLabel': '模型访问范围',
+    'scopePublic': '默认公共模型',
+    'scopeSingle': '单个分组',
+    'scopeSelected': '选择多个分组',
+    'selectedGroupsLabel': '已选分组（{count}）',
+    'selectedGroupsRequired': '请至少选择一个分组',
+    'unavailableGroup': '不可用分组 #{id}',
+    'multiPlatform': '根据需要调用的模型选择客户端。',
+
     "title": "API 密钥",
     "description": "管理您的 API 密钥和访问令牌",
     "searchPlaceholder": "搜索名称或Key...",
@@ -1674,7 +1683,7 @@ export default {
       },
       "rateMultiplierHint": "1.0 = 标准费率，0.5 = 半价，2.0 = 双倍",
       "platforms": {
-        "all": "全部平台",
+        "all": "全模型",
         "anthropic": "Anthropic",
         "openai": "OpenAI",
         "gemini": "Gemini",
@@ -1700,6 +1709,7 @@ export default {
       "enterGroupName": "请输入分组名称",
       "optionalDescription": "可选描述",
       "platformHint": "选择此分组关联的平台",
+      "universalPublicHint": "全平台分组对所有用户开放，按请求模型选择已关联的账号。",
       "platformNotEditable": "创建后不可更改平台",
       "noGroupsYet": "暂无分组",
       "createFirstGroup": "创建您的第一个分组来组织 API 密钥。",
@@ -1790,8 +1800,8 @@ export default {
       },
       "copyAccounts": {
         "title": "从分组复制账号",
-        "tooltip": "选择一个或多个相同平台的分组，创建后会自动将这些分组的所有账号绑定到新分组（去重）。",
-        "tooltipEdit": "选择一个或多个相同平台的分组，保存后当前分组的账号会被替换为这些分组的账号（去重）。",
+        "tooltip": "选择来源分组，创建后将所选分组的账号关联到新分组，并自动去重。",
+        "tooltipEdit": "选择来源分组，保存后用所选分组的账号替换当前账号关联，并自动去重。",
         "selectPlaceholder": "选择分组以复制其账号...",
         "hint": "可选多个分组，账号会自动去重",
         "hintEdit": "⚠️ 注意：这会替换当前分组的所有账号绑定"

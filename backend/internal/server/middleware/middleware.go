@@ -110,6 +110,12 @@ func RequireGroupAssignment(settingService *service.SettingService, writeError G
 			c.Next()
 			return
 		}
+		// Scoped metadata has no selected upstream pool. An empty model
+		// catalogue is valid and must not become global ungrouped scheduling.
+		if apiKey.EffectiveGroupScope() != service.APIKeyGroupScopeSingle && (c.Request.Method == http.MethodGet || c.Request.Method == http.MethodDelete) {
+			c.Next()
+			return
+		}
 		// 未分组 Key — 检查系统设置
 		if settingService.IsUngroupedKeySchedulingAllowed(c.Request.Context()) {
 			c.Next()

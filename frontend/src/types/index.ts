@@ -390,7 +390,7 @@ export interface PaginationConfig {
 
 // ==================== API Key & Group Types ====================
 
-export type GroupPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'azure_speech' | 'dashscope' | 'volcengine_ark'
+export type GroupPlatform = 'all' | 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'azure_speech' | 'dashscope' | 'volcengine_ark'
 
 export type SubscriptionType = 'standard' | 'subscription'
 
@@ -455,12 +455,16 @@ export interface AdminGroup extends Group {
   sort_order: number
 }
 
+export type ApiKeyGroupScope = 'single' | 'public' | 'selected'
+
 export interface ApiKey {
   id: number
   user_id: number
   key: string
   oidc_managed?: boolean
   name: string
+  group_scope?: ApiKeyGroupScope
+  group_ids?: number[]
   group_id: number | null
   status: 'active' | 'inactive' | 'quota_exhausted' | 'expired'
   ip_whitelist: string[]
@@ -487,6 +491,8 @@ export interface ApiKey {
 }
 
 export interface CreateApiKeyRequest {
+  group_scope?: ApiKeyGroupScope
+  group_ids?: number[]
   name: string
   group_id?: number | null
   custom_key?: string // Optional custom API Key
@@ -500,6 +506,8 @@ export interface CreateApiKeyRequest {
 }
 
 export interface UpdateApiKeyRequest {
+  group_scope?: ApiKeyGroupScope
+  group_ids?: number[]
   name?: string
   group_id?: number | null
   status?: 'active' | 'inactive'

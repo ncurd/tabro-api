@@ -48,6 +48,8 @@ type APIKey struct {
 	OIDCManaged bool       `json:"oidc_managed,omitempty"`
 	Name        string     `json:"name"`
 	GroupID     *int64     `json:"group_id"`
+	GroupScope  string     `json:"group_scope"`
+	GroupIDs    []int64    `json:"group_ids"`
 	Status      string     `json:"status"`
 	IPWhitelist []string   `json:"ip_whitelist"`
 	IPBlacklist []string   `json:"ip_blacklist"`

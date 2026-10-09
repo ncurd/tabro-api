@@ -44,6 +44,8 @@ func (APIKey) Fields() []ent.Field {
 		field.Int64("group_id").
 			Optional().
 			Nillable(),
+		field.String("group_scope").MaxLen(20).Default("single"),
+		field.JSON("group_ids", []int64{}).Default([]int64{}),
 		field.String("status").
 			MaxLen(20).
 			Default(domain.StatusActive),

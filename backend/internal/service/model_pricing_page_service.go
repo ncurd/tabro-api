@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/gemini"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 )
@@ -140,10 +141,48 @@ func (s *ModelPricingPageService) ListAvailablePricing(ctx context.Context, user
 			effectiveRate *= oidcRate
 		}
 
-		modelIDs := s.availableModelIDsForGroup(ctx, group)
+		var modelIDs []string
+		var allAccounts []Account
+		if group.Platform == PlatformAll {
+			allAccounts, err = s.accountProvider.ListSchedulableByGroupID(ctx, group.ID)
+			if err != nil {
+				return nil, fmt.Errorf("get all-platform model pricing accounts: %w", err)
+			}
+			allAccounts = gatewayEligibleGroupAccounts(&group, allAccounts)
+			modelIDs = gatewayAccountsModelIDs(allAccounts)
+		} else {
+			modelIDs = s.availableModelIDsForGroup(ctx, group)
+		}
 		models := make([]AvailableModelPricingModel, 0, len(modelIDs))
 		for _, modelID := range modelIDs {
-			model := s.resolveModelPricing(ctx, group.ID, modelID, effectiveRate)
+			priceCtx, priceModel := ctx, modelID
+			if group.Platform == PlatformAll {
+				var channels *ChannelService
+				if resolver, ok := s.resolver.(*ModelPricingResolver); ok {
+					channels = resolver.channelService
+				}
+				platform, platformErr := gatewayModelPlatform(ctx, &group, allAccounts, modelID, channels)
+				if platformErr != nil {
+					return nil, fmt.Errorf("get all-platform model channel prices: %w", platformErr)
+				}
+				if platform == "" {
+					continue
+				}
+				effective := group
+				effective.Platform, effective.Hydrated = platform, true
+				priceCtx = context.WithValue(ctx, ctxkey.Group, &effective)
+				if channels != nil {
+					if _, channelErr := channels.GetChannelForGroup(priceCtx, group.ID); channelErr != nil {
+						return nil, fmt.Errorf("get all-platform model channel prices: %w", channelErr)
+					}
+					mapping := channels.ResolveChannelMapping(priceCtx, group.ID, modelID)
+					if mapping.BillingModelSource == BillingModelSourceChannelMapped && mapping.MappedModel != "" {
+						priceModel = mapping.MappedModel
+					}
+				}
+			}
+			model := s.resolveModelPricing(priceCtx, group.ID, priceModel, effectiveRate)
+			model.ID = modelID
 			if policy.Enabled && !finiteConvertedModelPricing(model) {
 				return nil, fmt.Errorf("invalid converted model price for group %d model %q", group.ID, modelID)
 			}
@@ -186,6 +225,9 @@ func finiteConvertedModelPricing(model AvailableModelPricingModel) bool {
 
 func (s *ModelPricingPageService) availableModelIDsForGroup(ctx context.Context, group Group) []string {
 	accounts, err := s.accountProvider.ListSchedulableByGroupID(ctx, group.ID)
+	if group.Platform == PlatformAll {
+		return gatewayAccountsModelIDs(gatewayEligibleGroupAccounts(&group, accounts))
+	}
 	if err != nil || len(accounts) == 0 {
 		return defaultModelIDsForPricingPlatform(group.Platform)
 	}

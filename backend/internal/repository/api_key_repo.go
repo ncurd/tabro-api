@@ -46,6 +46,8 @@ func (r *apiKeyRepository) Create(ctx context.Context, key *service.APIKey) erro
 		SetOidcManaged(key.OIDCManaged).
 		SetAuthBillingOnly(key.AuthBillingOnly).
 		SetNillableGroupID(key.GroupID).
+		SetGroupScope(key.EffectiveGroupScope()).
+		SetGroupIds(append([]int64{}, key.GroupIDs...)).
 		SetNillableLastUsedAt(key.LastUsedAt).
 		SetQuota(key.Quota).
 		SetQuotaUsed(key.QuotaUsed).
@@ -184,6 +186,8 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 			apikey.FieldID,
 			apikey.FieldUserID,
 			apikey.FieldGroupID,
+			apikey.FieldGroupScope,
+			apikey.FieldGroupIds,
 			apikey.FieldStatus,
 			apikey.FieldOidcManaged,
 			apikey.FieldAuthBillingOnly,
@@ -259,6 +263,8 @@ func (r *apiKeyRepository) Update(ctx context.Context, key *service.APIKey) erro
 	builder := client.APIKey.Update().
 		Where(apikey.IDEQ(key.ID), apikey.DeletedAtIsNil()).
 		SetName(key.Name).
+		SetGroupScope(key.EffectiveGroupScope()).
+		SetGroupIds(append([]int64{}, key.GroupIDs...)).
 		SetStatus(key.Status).
 		SetQuota(key.Quota).
 		SetQuotaUsed(key.QuotaUsed).
@@ -685,6 +691,8 @@ func apiKeyEntityToService(m *dbent.APIKey) *service.APIKey {
 		CreatedAt:       m.CreatedAt,
 		UpdatedAt:       m.UpdatedAt,
 		GroupID:         m.GroupID,
+		GroupScope:      m.GroupScope,
+		GroupIDs:        append([]int64{}, m.GroupIds...),
 		Quota:           m.Quota,
 		QuotaUsed:       m.QuotaUsed,
 		ExpiresAt:       m.ExpiresAt,

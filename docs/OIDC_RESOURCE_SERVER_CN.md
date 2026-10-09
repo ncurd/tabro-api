@@ -2,6 +2,8 @@
 
 本文说明如何让 Tabro 的 LLM 网关以 OAuth 2.0 Resource Server 方式接收访问令牌。`gateway.resource_server.auto_provision` 开启后，网关首次收到有效的外部 Bearer Token 时自动建立内部路由与用量身份，客户扣费由 Auth 统一计费中心负责。旧有手动绑定路径继续保留，资金权威按模式隔离。中心计费部署和迁移要求见 [网关中心计费实施说明](BILLING_CENTER_GATEWAY_CN.md)。
 
+默认全平台分组、Key 的全部公开/多分组范围与升级兼容行为见 [分组路由说明](GROUP_ROUTING_CN.md)。
+
 ## 先区分两种 OIDC 用途
 
 `oidc_connect` 和 `gateway.resource_server` 是两套独立的安全边界。它们可以使用同一个身份提供方（IdP），但 `gateway.resource_server` 本身只是令牌验证方，不需要 Client registration 或 Client Secret。`oidc_connect` 应保留已有的后台登录 Client；Agent 的授权码、刷新和 Token Exchange 则复用已有的 confidential `tabro-agent` Client。不要为了网关验证或 Token Exchange 再创建重复 Client，也不能混用两条链路的登录令牌、网关令牌或权限。Client Secret 始终只能由受信任后端持有。

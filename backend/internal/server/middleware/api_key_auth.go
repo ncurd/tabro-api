@@ -127,6 +127,12 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 			return
 		}
 
+		apiKey, err = resolveRequestGatewayGroup(c, apiKeyService, apiKey)
+		if err != nil {
+			status, code, message := gatewayGroupRoutingError(err)
+			AbortWithError(c, status, code, message)
+			return
+		}
 		finishBilling, billingErr := prepareGatewayBilling(c, apiKeyService, apiKey, oidcPrincipal, apiKeyString)
 		if billingErr != nil {
 			status, code, message := gatewayBillingError(billingErr)

@@ -168,6 +168,8 @@ type APIKeyAuthCacheInvalidator interface {
 type CreateAPIKeyRequest struct {
 	Name        string   `json:"name"`
 	GroupID     *int64   `json:"group_id"`
+	GroupScope  string   `json:"group_scope"`
+	GroupIDs    []int64  `json:"group_ids"`
 	CustomKey   *string  `json:"custom_key"`   // 可选的自定义key
 	IPWhitelist []string `json:"ip_whitelist"` // IP 白名单
 	IPBlacklist []string `json:"ip_blacklist"` // IP 黑名单
@@ -186,6 +188,8 @@ type CreateAPIKeyRequest struct {
 type UpdateAPIKeyRequest struct {
 	Name        *string  `json:"name"`
 	GroupID     *int64   `json:"group_id"`
+	GroupScope  *string  `json:"group_scope"`
+	GroupIDs    *[]int64 `json:"group_ids"`
 	Status      *string  `json:"status"`
 	IPWhitelist []string `json:"ip_whitelist"` // IP 白名单（空数组清空）
 	IPBlacklist []string `json:"ip_blacklist"` // IP 黑名单（空数组清空）
@@ -212,6 +216,7 @@ type RateLimitCacheInvalidator interface {
 type APIKeyService struct {
 	// GatewayBilling is configured once at bootstrap and never mutated at runtime.
 	GatewayBilling        *GatewayBillingCoordinator
+	GatewayMediaResources MediaGenerationJobRepository
 	apiKeyRepo            APIKeyRepository
 	userRepo              UserRepository
 	groupRepo             GroupRepository
@@ -371,11 +376,6 @@ func (s *APIKeyService) ensureOIDCGatewayKey(ctx context.Context, userID int64) 
 		return existing, nil
 	}
 
-	groupID, err := s.preferredOIDCGatewayGroupID(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-
 	for attempt := 0; attempt < oidcGatewayKeyMaxCreateAttempts; attempt++ {
 		candidate, err := generateOIDCGatewayKeyValue()
 		if err != nil {
@@ -385,7 +385,8 @@ func (s *APIKeyService) ensureOIDCGatewayKey(ctx context.Context, userID int64) 
 			UserID:      userID,
 			Key:         candidate,
 			Name:        oidcGatewayKeyName,
-			GroupID:     groupID,
+			GroupScope:  APIKeyGroupScopePublic,
+			GroupIDs:    []int64{},
 			Status:      StatusAPIKeyActive,
 			OIDCManaged: true,
 		}
@@ -465,47 +466,6 @@ func generateOIDCGatewayKeyValue() (string, error) {
 	return oidcGatewayKeyPrefix + hex.EncodeToString(bytes), nil
 }
 
-func (s *APIKeyService) preferredOIDCGatewayGroupID(ctx context.Context, userID int64) (*int64, error) {
-	keys, _, err := s.apiKeyRepo.ListByUserID(ctx, userID, pagination.PaginationParams{
-		Page:      1,
-		PageSize:  1000,
-		SortBy:    "id",
-		SortOrder: pagination.SortOrderDesc,
-	}, APIKeyListFilters{Status: StatusAPIKeyActive})
-	if err != nil {
-		return nil, fmt.Errorf("list api keys for oidc gateway group: %w", err)
-	}
-	for i := range keys {
-		if keys[i].OIDCManaged || keys[i].GroupID == nil {
-			continue
-		}
-		groupID := *keys[i].GroupID
-		return &groupID, nil
-	}
-
-	// Fresh users may not have created a key yet. Reuse the same permission
-	// filtering as the API-key creation screen and pick the administrator's
-	// first sorted usable group, preferring one that currently has capacity.
-	if s.userRepo == nil || s.groupRepo == nil || s.userSubRepo == nil {
-		return nil, nil
-	}
-	groups, err := s.GetAvailableGroups(ctx, userID)
-	if err != nil {
-		return nil, fmt.Errorf("list groups for oidc gateway key: %w", err)
-	}
-	for i := range groups {
-		if groups[i].ActiveAccountCount > 0 {
-			groupID := groups[i].ID
-			return &groupID, nil
-		}
-	}
-	if len(groups) > 0 {
-		groupID := groups[0].ID
-		return &groupID, nil
-	}
-	return nil, nil
-}
-
 // ValidateCustomKey 验证自定义API Key格式
 func (s *APIKeyService) ValidateCustomKey(key string) error {
 	// 检查长度
@@ -561,6 +521,9 @@ func (s *APIKeyService) incrementAPIKeyErrorCount(ctx context.Context, userID in
 func (s *APIKeyService) canUserBindGroup(ctx context.Context, user *User, group *Group) bool {
 	// 订阅类型分组：需要有效订阅
 	if group.IsSubscriptionType() {
+		if s.userSubRepo == nil {
+			return false
+		}
 		_, err := s.userSubRepo.GetActiveByUserIDAndGroupID(ctx, user.ID, group.ID)
 		return err == nil // 有有效订阅则允许
 	}
@@ -590,17 +553,15 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 		}
 	}
 
-	// 验证分组权限（如果指定了分组）
-	if req.GroupID != nil {
-		group, err := s.groupRepo.GetByID(ctx, *req.GroupID)
-		if err != nil {
-			return nil, fmt.Errorf("get group: %w", err)
-		}
-
-		// 检查用户是否可以绑定该分组
-		if !s.canUserBindGroup(ctx, user, group) {
-			return nil, ErrGroupNotAllowed
-		}
+	requestedScope := req.GroupScope
+	if strings.TrimSpace(requestedScope) == "" && req.GroupID == nil && len(req.GroupIDs) == 0 && s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
+		// Simplified installations historically schedule ungrouped ordinary keys
+		// globally. Only an explicitly selected public/multi-group scope changes it.
+		requestedScope = APIKeyGroupScopeSingle
+	}
+	groupScope, groupID, groupIDs, err := s.normalizeAPIKeyGroupScope(ctx, user, requestedScope, req.GroupID, req.GroupIDs)
+	if err != nil {
+		return nil, err
 	}
 
 	var key string
@@ -643,7 +604,9 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 		UserID:      userID,
 		Key:         key,
 		Name:        req.Name,
-		GroupID:     req.GroupID,
+		GroupID:     groupID,
+		GroupScope:  groupScope,
+		GroupIDs:    groupIDs,
 		Status:      StatusActive,
 		IPWhitelist: req.IPWhitelist,
 		IPBlacklist: req.IPBlacklist,
@@ -784,23 +747,34 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 		apiKey.Name = *req.Name
 	}
 
-	if req.GroupID != nil {
-		// 验证分组权限
+	if req.GroupScope != nil || req.GroupIDs != nil || req.GroupID != nil {
 		user, err := s.userRepo.GetByID(ctx, userID)
 		if err != nil {
-			return nil, fmt.Errorf("get user: %w", err)
+			return nil, err
 		}
-
-		group, err := s.groupRepo.GetByID(ctx, *req.GroupID)
+		scope, groupID, groupIDs := apiKey.EffectiveGroupScope(), apiKey.GroupID, apiKey.GroupIDs
+		if req.GroupScope != nil {
+			scope = *req.GroupScope
+			if scope != apiKey.EffectiveGroupScope() {
+				groupIDs = nil
+			}
+		} else if req.GroupID != nil {
+			scope, groupIDs = APIKeyGroupScopeSingle, nil
+		} else if req.GroupIDs != nil {
+			scope = APIKeyGroupScopeSelected
+		}
+		if req.GroupID != nil {
+			groupID = req.GroupID
+		}
+		if req.GroupIDs != nil {
+			groupIDs = *req.GroupIDs
+		}
+		scope, groupID, groupIDs, err = s.normalizeAPIKeyGroupScope(ctx, user, scope, groupID, groupIDs)
 		if err != nil {
-			return nil, fmt.Errorf("get group: %w", err)
+			return nil, err
 		}
-
-		if !s.canUserBindGroup(ctx, user, group) {
-			return nil, ErrGroupNotAllowed
-		}
-
-		apiKey.GroupID = req.GroupID
+		apiKey.GroupScope, apiKey.GroupID, apiKey.GroupIDs = scope, groupID, groupIDs
+		apiKey.Group = nil
 	}
 
 	if req.Status != nil {
@@ -841,8 +815,12 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 	}
 
 	// 更新 IP 限制（空数组会清空设置）
-	apiKey.IPWhitelist = req.IPWhitelist
-	apiKey.IPBlacklist = req.IPBlacklist
+	if req.IPWhitelist != nil {
+		apiKey.IPWhitelist = req.IPWhitelist
+	}
+	if req.IPBlacklist != nil {
+		apiKey.IPBlacklist = req.IPBlacklist
+	}
 
 	// Update rate limit configuration
 	if req.RateLimit5h != nil {

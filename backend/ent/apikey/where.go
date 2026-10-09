@@ -90,6 +90,11 @@ func GroupID(v int64) predicate.APIKey {
 	return predicate.APIKey(sql.FieldEQ(FieldGroupID, v))
 }
 
+// GroupScope applies equality check predicate on the "group_scope" field. It's identical to GroupScopeEQ.
+func GroupScope(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldGroupScope, v))
+}
+
 // Status applies equality check predicate on the "status" field. It's identical to StatusEQ.
 func Status(v string) predicate.APIKey {
 	return predicate.APIKey(sql.FieldEQ(FieldStatus, v))
@@ -488,6 +493,71 @@ func GroupIDIsNil() predicate.APIKey {
 // GroupIDNotNil applies the NotNil predicate on the "group_id" field.
 func GroupIDNotNil() predicate.APIKey {
 	return predicate.APIKey(sql.FieldNotNull(FieldGroupID))
+}
+
+// GroupScopeEQ applies the EQ predicate on the "group_scope" field.
+func GroupScopeEQ(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldGroupScope, v))
+}
+
+// GroupScopeNEQ applies the NEQ predicate on the "group_scope" field.
+func GroupScopeNEQ(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNEQ(FieldGroupScope, v))
+}
+
+// GroupScopeIn applies the In predicate on the "group_scope" field.
+func GroupScopeIn(vs ...string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldIn(FieldGroupScope, vs...))
+}
+
+// GroupScopeNotIn applies the NotIn predicate on the "group_scope" field.
+func GroupScopeNotIn(vs ...string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNotIn(FieldGroupScope, vs...))
+}
+
+// GroupScopeGT applies the GT predicate on the "group_scope" field.
+func GroupScopeGT(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldGT(FieldGroupScope, v))
+}
+
+// GroupScopeGTE applies the GTE predicate on the "group_scope" field.
+func GroupScopeGTE(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldGTE(FieldGroupScope, v))
+}
+
+// GroupScopeLT applies the LT predicate on the "group_scope" field.
+func GroupScopeLT(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldLT(FieldGroupScope, v))
+}
+
+// GroupScopeLTE applies the LTE predicate on the "group_scope" field.
+func GroupScopeLTE(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldLTE(FieldGroupScope, v))
+}
+
+// GroupScopeContains applies the Contains predicate on the "group_scope" field.
+func GroupScopeContains(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldContains(FieldGroupScope, v))
+}
+
+// GroupScopeHasPrefix applies the HasPrefix predicate on the "group_scope" field.
+func GroupScopeHasPrefix(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldHasPrefix(FieldGroupScope, v))
+}
+
+// GroupScopeHasSuffix applies the HasSuffix predicate on the "group_scope" field.
+func GroupScopeHasSuffix(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldHasSuffix(FieldGroupScope, v))
+}
+
+// GroupScopeEqualFold applies the EqualFold predicate on the "group_scope" field.
+func GroupScopeEqualFold(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEqualFold(FieldGroupScope, v))
+}
+
+// GroupScopeContainsFold applies the ContainsFold predicate on the "group_scope" field.
+func GroupScopeContainsFold(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldContainsFold(FieldGroupScope, v))
 }
 
 // StatusEQ applies the EQ predicate on the "status" field.

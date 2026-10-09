@@ -856,6 +856,7 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 
 	var groupID *int64
 	var platform string
+	cataloguePlatform := ""
 
 	if apiKey != nil && apiKey.Group != nil {
 		groupID = &apiKey.Group.ID
@@ -863,13 +864,15 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 	}
 	if forcedPlatform, ok := middleware2.GetForcePlatformFromContext(c); ok && strings.TrimSpace(forcedPlatform) != "" {
 		platform = forcedPlatform
+		cataloguePlatform = forcedPlatform
 	}
 
 	// Get available models from account configurations (without platform filter)
-	availableModels := h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, "")
+	availableModels := h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, cataloguePlatform)
 
 	if availableModels != nil {
-		if platform == service.PlatformOpenAI || service.DefaultMediaModels(platform) != nil {
+		_, scoped := service.GatewayModelGroups(c.Request.Context())
+		if scoped || platform == "all" || platform == service.PlatformOpenAI || service.DefaultMediaModels(platform) != nil {
 			defaults := make(map[string]openai.Model, len(openai.DefaultModels))
 			for _, model := range openai.DefaultModels {
 				defaults[model.ID] = model
@@ -933,6 +936,15 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 // AntigravityModels 返回 Antigravity 支持的全部模型
 // GET /antigravity/models
 func (h *GatewayHandler) AntigravityModels(c *gin.Context) {
+	if _, scoped := service.GatewayModelGroups(c.Request.Context()); scoped {
+		models := h.gatewayService.GetAvailableModels(c.Request.Context(), nil, service.PlatformAntigravity)
+		catalogue := make([]openai.Model, 0, len(models))
+		for _, model := range models {
+			catalogue = append(catalogue, openai.Model{ID: model, Object: "model", Type: "model", OwnedBy: "system", DisplayName: model})
+		}
+		c.JSON(http.StatusOK, gin.H{"object": "list", "data": catalogue})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"object": "list",
 		"data":   antigravity.DefaultModels(),

@@ -10,8 +10,28 @@ import (
 )
 
 var _ service.MediaAudioResourceRepository = (*mediaGenerationJobRepository)(nil)
+var _ service.MediaScopedResourceRepository = (*mediaGenerationJobRepository)(nil)
 
 func (r *mediaGenerationJobRepository) ListMediaResources(ctx context.Context, userID, apiKeyID int64, groupID *int64, kind string, limit, offset int) ([]*service.MediaGenerationJob, error) {
+	var ids []int64
+	if groupID != nil {
+		ids = []int64{*groupID}
+	}
+	return r.listMediaResourcesByScope(ctx, userID, apiKeyID, ids, groupID == nil, kind, limit, offset)
+}
+
+func (r *mediaGenerationJobRepository) ListMediaResourcesByGroupIDs(ctx context.Context, userID, apiKeyID int64, groupIDs []int64, kind string, limit, offset int) ([]*service.MediaGenerationJob, error) {
+	return r.listMediaResourcesByScope(ctx, userID, apiKeyID, groupIDs, false, kind, limit, offset)
+}
+
+func (r *mediaGenerationJobRepository) listMediaResourcesByScope(ctx context.Context, userID, apiKeyID int64, groupIDs []int64, includeUngrouped bool, kind string, limit, offset int) ([]*service.MediaGenerationJob, error) {
+	if len(groupIDs) == 0 && !includeUngrouped {
+		return []*service.MediaGenerationJob{}, nil
+	}
+	allowed := make(map[int64]bool, len(groupIDs))
+	for _, id := range groupIDs {
+		allowed[id] = true
+	}
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
@@ -26,7 +46,7 @@ func (r *mediaGenerationJobRepository) ListMediaResources(ctx context.Context, u
 			if job.UserID != userID || job.APIKeyID != apiKeyID || job.Kind != kind || job.Status != service.MediaJobStatusSucceeded {
 				continue
 			}
-			if (job.GroupID == nil) != (groupID == nil) || (job.GroupID != nil && *job.GroupID != *groupID) {
+			if (job.GroupID == nil && !includeUngrouped) || (job.GroupID != nil && !allowed[*job.GroupID]) {
 				continue
 			}
 			jobs = append(jobs, cloneMediaGenerationJob(job))
@@ -46,10 +66,10 @@ func (r *mediaGenerationJobRepository) ListMediaResources(ctx context.Context, u
 		dbmediagenerationjob.UserIDEQ(userID), dbmediagenerationjob.APIKeyIDEQ(apiKeyID),
 		dbmediagenerationjob.KindEQ(kind), dbmediagenerationjob.StatusEQ(service.MediaJobStatusSucceeded),
 	)
-	if groupID == nil {
+	if includeUngrouped {
 		query.Where(dbmediagenerationjob.GroupIDIsNil())
 	} else {
-		query.Where(dbmediagenerationjob.GroupIDEQ(*groupID))
+		query.Where(dbmediagenerationjob.GroupIDIn(groupIDs...))
 	}
 	rows, err := query.Order(dbent.Desc(dbmediagenerationjob.FieldCreatedAt), dbent.Desc(dbmediagenerationjob.FieldPublicID)).Limit(limit).Offset(offset).All(ctx)
 	if err != nil {

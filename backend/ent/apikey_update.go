@@ -120,6 +120,32 @@ func (_u *APIKeyUpdate) ClearGroupID() *APIKeyUpdate {
 	return _u
 }
 
+// SetGroupScope sets the "group_scope" field.
+func (_u *APIKeyUpdate) SetGroupScope(v string) *APIKeyUpdate {
+	_u.mutation.SetGroupScope(v)
+	return _u
+}
+
+// SetNillableGroupScope sets the "group_scope" field if the given value is not nil.
+func (_u *APIKeyUpdate) SetNillableGroupScope(v *string) *APIKeyUpdate {
+	if v != nil {
+		_u.SetGroupScope(*v)
+	}
+	return _u
+}
+
+// SetGroupIds sets the "group_ids" field.
+func (_u *APIKeyUpdate) SetGroupIds(v []int64) *APIKeyUpdate {
+	_u.mutation.SetGroupIds(v)
+	return _u
+}
+
+// AppendGroupIds appends value to the "group_ids" field.
+func (_u *APIKeyUpdate) AppendGroupIds(v []int64) *APIKeyUpdate {
+	_u.mutation.AppendGroupIds(v)
+	return _u
+}
+
 // SetStatus sets the "status" field.
 func (_u *APIKeyUpdate) SetStatus(v string) *APIKeyUpdate {
 	_u.mutation.SetStatus(v)
@@ -623,6 +649,11 @@ func (_u *APIKeyUpdate) check() error {
 			return &ValidationError{Name: "name", err: fmt.Errorf(`ent: validator failed for field "APIKey.name": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.GroupScope(); ok {
+		if err := apikey.GroupScopeValidator(v); err != nil {
+			return &ValidationError{Name: "group_scope", err: fmt.Errorf(`ent: validator failed for field "APIKey.group_scope": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.Status(); ok {
 		if err := apikey.StatusValidator(v); err != nil {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "APIKey.status": %w`, err)}
@@ -670,6 +701,17 @@ func (_u *APIKeyUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.Name(); ok {
 		_spec.SetField(apikey.FieldName, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.GroupScope(); ok {
+		_spec.SetField(apikey.FieldGroupScope, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.GroupIds(); ok {
+		_spec.SetField(apikey.FieldGroupIds, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.AppendedGroupIds(); ok {
+		_spec.AddModifier(func(u *sql.UpdateBuilder) {
+			sqljson.Append(u, apikey.FieldGroupIds, value)
+		})
 	}
 	if value, ok := _u.mutation.Status(); ok {
 		_spec.SetField(apikey.FieldStatus, field.TypeString, value)
@@ -1000,6 +1042,32 @@ func (_u *APIKeyUpdateOne) SetNillableGroupID(v *int64) *APIKeyUpdateOne {
 // ClearGroupID clears the value of the "group_id" field.
 func (_u *APIKeyUpdateOne) ClearGroupID() *APIKeyUpdateOne {
 	_u.mutation.ClearGroupID()
+	return _u
+}
+
+// SetGroupScope sets the "group_scope" field.
+func (_u *APIKeyUpdateOne) SetGroupScope(v string) *APIKeyUpdateOne {
+	_u.mutation.SetGroupScope(v)
+	return _u
+}
+
+// SetNillableGroupScope sets the "group_scope" field if the given value is not nil.
+func (_u *APIKeyUpdateOne) SetNillableGroupScope(v *string) *APIKeyUpdateOne {
+	if v != nil {
+		_u.SetGroupScope(*v)
+	}
+	return _u
+}
+
+// SetGroupIds sets the "group_ids" field.
+func (_u *APIKeyUpdateOne) SetGroupIds(v []int64) *APIKeyUpdateOne {
+	_u.mutation.SetGroupIds(v)
+	return _u
+}
+
+// AppendGroupIds appends value to the "group_ids" field.
+func (_u *APIKeyUpdateOne) AppendGroupIds(v []int64) *APIKeyUpdateOne {
+	_u.mutation.AppendGroupIds(v)
 	return _u
 }
 
@@ -1519,6 +1587,11 @@ func (_u *APIKeyUpdateOne) check() error {
 			return &ValidationError{Name: "name", err: fmt.Errorf(`ent: validator failed for field "APIKey.name": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.GroupScope(); ok {
+		if err := apikey.GroupScopeValidator(v); err != nil {
+			return &ValidationError{Name: "group_scope", err: fmt.Errorf(`ent: validator failed for field "APIKey.group_scope": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.Status(); ok {
 		if err := apikey.StatusValidator(v); err != nil {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "APIKey.status": %w`, err)}
@@ -1583,6 +1656,17 @@ func (_u *APIKeyUpdateOne) sqlSave(ctx context.Context) (_node *APIKey, err erro
 	}
 	if value, ok := _u.mutation.Name(); ok {
 		_spec.SetField(apikey.FieldName, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.GroupScope(); ok {
+		_spec.SetField(apikey.FieldGroupScope, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.GroupIds(); ok {
+		_spec.SetField(apikey.FieldGroupIds, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.AppendedGroupIds(); ok {
+		_spec.AddModifier(func(u *sql.UpdateBuilder) {
+			sqljson.Append(u, apikey.FieldGroupIds, value)
+		})
 	}
 	if value, ok := _u.mutation.Status(); ok {
 		_spec.SetField(apikey.FieldStatus, field.TypeString, value)

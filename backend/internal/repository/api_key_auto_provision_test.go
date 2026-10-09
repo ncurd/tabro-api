@@ -43,7 +43,7 @@ func TestAutoProvisionOIDCGatewayIdentityCreatesAtomicallyAndReusesIdentity(t *t
 	require.NoError(t, err)
 	require.Zero(t, users)
 
-	groupID := createAutoProvisionPublicRoute(t, repo)
+	createAutoProvisionPublicRoute(t, repo)
 	first, err := repo.AutoProvisionOIDCGatewayIdentity(ctx, issuer, subject, "oidc-internal:first")
 	require.NoError(t, err)
 	require.NotNil(t, first.User)
@@ -54,9 +54,9 @@ func TestAutoProvisionOIDCGatewayIdentityCreatesAtomicallyAndReusesIdentity(t *t
 	require.Equal(t, service.StatusAPIKeyAuthBillingOnly, first.Status)
 	require.Equal(t, issuer, first.OIDCIssuer)
 	require.Equal(t, subject, first.OIDCSubject)
-	require.NotNil(t, first.GroupID)
-	require.Equal(t, groupID, *first.GroupID)
-	require.NotNil(t, first.Group)
+	require.Nil(t, first.GroupID)
+	require.Nil(t, first.Group)
+	require.Equal(t, service.APIKeyGroupScopePublic, first.GroupScope)
 	require.NotEqual(t, "stable-subject", first.User.Email)
 
 	second, err := repo.AutoProvisionOIDCGatewayIdentity(ctx, issuer, subject, "oidc-internal:second")

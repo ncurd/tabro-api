@@ -8,7 +8,10 @@ import (
 
 // API Key status constants
 const (
-	StatusAPIKeyActive = "active"
+	APIKeyGroupScopeSingle   = "single"
+	APIKeyGroupScopePublic   = "public"
+	APIKeyGroupScopeSelected = "selected"
+	StatusAPIKeyActive       = "active"
 	// Older gateway binaries reject this status, so an Auth-only key can never
 	// become locally billed during a rolling rollback.
 	StatusAPIKeyAuthBillingOnly = "auth_billing_only"
@@ -36,6 +39,8 @@ type APIKey struct {
 	Key         string
 	Name        string
 	GroupID     *int64
+	GroupScope  string
+	GroupIDs    []int64
 	Status      string
 	OIDCManaged bool
 	// AuthBillingOnly prevents this automatically provisioned identity from ever

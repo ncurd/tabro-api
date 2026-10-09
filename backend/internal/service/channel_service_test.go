@@ -1148,22 +1148,22 @@ func TestBuildCache_DBError(t *testing.T) {
 	require.Contains(t, err.Error(), "database down")
 	require.Equal(t, 1, callCount)
 
-	// Second call within error-TTL should use error cache, but still return error
-	// Because buildCache stores error-TTL cache and returns error, the cached value
-	// is still within TTL and loadCache returns it (which is an empty cache).
-	// Actually, re-reading the code: buildCache returns nil, err, and the error cache
-	// only serves as a "don't retry immediately" mechanism. The singleflight.Do
-	// returns the error. On next call within error-TTL, the cache has an empty but
-	// valid entry, so loadCache returns it (with empty maps). GetChannelForGroup
-	// will find nothing and return nil, nil.
+	// The short error cache avoids a retry without turning a failed policy
+	// lookup into a successful no-channel catalogue fallback.
 	result, err := svc.GetChannelForGroup(context.Background(), 10)
-	require.NoError(t, err)
+	require.ErrorContains(t, err, "database down")
 	require.Nil(t, result)
+	require.True(t, svc.IsModelRestricted(context.Background(), 10, "claude-opus-5"))
+	cache, cacheErr := svc.loadCache(context.Background())
+	require.ErrorContains(t, cacheErr, "database down")
+	require.NotNil(t, cache)
+	require.Empty(t, cache.channelByGroupID)
 	// Should NOT have hit DB again (error-TTL cache is active)
 	require.Equal(t, 1, callCount)
 }
 
 func TestBuildCache_GroupPlatformError(t *testing.T) {
+	callCount := 0
 	ch := Channel{
 		ID:       1,
 		Status:   StatusActive,
@@ -1177,6 +1177,7 @@ func TestBuildCache_GroupPlatformError(t *testing.T) {
 			return []Channel{ch}, nil
 		},
 		getGroupPlatformsFn: func(_ context.Context, _ []int64) (map[int64]string, error) {
+			callCount++
 			return nil, errors.New("group platforms failed")
 		},
 	}
@@ -1187,10 +1188,17 @@ func TestBuildCache_GroupPlatformError(t *testing.T) {
 	require.Error(t, err)
 	require.Nil(t, result)
 
-	// Within error-TTL, second call should hit cache (empty) and return nil, nil
+	// Cached lookup failures must keep denying policy-dependent requests.
 	result2, err2 := svc.GetChannelForGroup(context.Background(), 10)
-	require.NoError(t, err2)
+	require.ErrorContains(t, err2, "group platforms failed")
 	require.Nil(t, result2)
+	require.True(t, svc.IsModelRestricted(context.Background(), 10, "claude-opus-4"))
+	cache, cacheErr := svc.loadCache(context.Background())
+	require.ErrorContains(t, cacheErr, "group platforms failed")
+	require.NotNil(t, cache)
+	require.Empty(t, cache.channelByGroupID)
+	require.Empty(t, cache.groupPlatform)
+	require.Equal(t, 1, callCount)
 }
 
 func TestBuildCache_MultipleGroupsSameChannel(t *testing.T) {

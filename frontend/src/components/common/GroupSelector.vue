@@ -67,11 +67,11 @@ const filteredGroups = computed(() => {
   // antigravity 账户启用混合调度后，可选择 anthropic/gemini 分组
   if (props.platform === 'antigravity' && props.mixedScheduling) {
     return props.groups.filter(
-      (g) => g.platform === 'antigravity' || g.platform === 'anthropic' || g.platform === 'gemini'
+      (g) => g.platform === 'all' || g.platform === 'antigravity' || g.platform === 'anthropic' || g.platform === 'gemini'
     )
   }
-  // 默认：只能选择同 platform 的分组
-  return props.groups.filter((g) => g.platform === props.platform)
+  // Every provider can be explicitly linked to a shared all-platform pool.
+  return props.groups.filter((g) => g.platform === 'all' || g.platform === props.platform)
 })
 
 const handleChange = (groupId: number, checked: boolean) => {

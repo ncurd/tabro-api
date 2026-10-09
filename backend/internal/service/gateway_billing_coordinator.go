@@ -371,6 +371,11 @@ func (s *GatewayBillingCoordinator) prepareWithQuote(ctx context.Context, route 
 		}
 	}
 	if route.Mode == "central" && s.creditPricer != nil {
+		if len(pricingSnapshot) > 0 {
+			if err := validateGatewayPricingIdentity(pricingSnapshot, apiKey); err != nil {
+				return nil, err
+			}
+		}
 		maximum := quote.Request.MaximumUsage[gatewayCreditMeter]
 		if len(pricingSnapshot) == 0 {
 			priceCtx := ctx

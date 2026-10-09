@@ -16,6 +16,7 @@ type GatewayBillingSession struct {
 	Prepare       func(context.Context, string, []byte) (*bc.Execution, []byte, error)
 	Finish        func(context.Context, *bc.Execution) error
 	ValidateModel func(*bc.Execution, string) error
+	withKey       func(*APIKey) *GatewayBillingSession
 }
 
 func WithGatewayBillingSession(ctx context.Context, s *GatewayBillingSession) context.Context {
@@ -26,11 +27,22 @@ func GatewayBillingSessionFromContext(ctx context.Context) *GatewayBillingSessio
 	return s
 }
 
+// WithKey pins the model-selected pool before the first WebSocket reservation,
+// while retaining the authenticated proof and the connector's frozen runtime.
+func (s *GatewayBillingSession) WithKey(key *APIKey) *GatewayBillingSession {
+	if s == nil || s.withKey == nil {
+		return s
+	}
+	return s.withKey(key)
+}
+
 func (s *GatewayBillingCoordinator) Session(route GatewayBillingRoute, principal *GatewayOIDCPrincipal, proof string, binding *GatewayBillingCredential, key *APIKey) *GatewayBillingSession {
 	if route.runtime != nil && route.runtime != s {
 		return route.runtime.Session(route, principal, proof, binding, key)
 	}
-	return &GatewayBillingSession{Mode: route.Mode, Finish: s.Finish, ValidateModel: s.ValidateBillingModelCaps, Prepare: func(ctx context.Context, id string, body []byte) (*bc.Execution, []byte, error) {
+	return &GatewayBillingSession{Mode: route.Mode, Finish: s.Finish, ValidateModel: s.ValidateBillingModelCaps, withKey: func(selected *APIKey) *GatewayBillingSession {
+		return s.Session(route, principal, proof, binding, selected)
+	}, Prepare: func(ctx context.Context, id string, body []byte) (*bc.Execution, []byte, error) {
 		bounded := body
 		var err error
 		if route.Mode == "central" {

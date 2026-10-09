@@ -218,6 +218,10 @@ func (h *MediaGenerationHandler) pinnedVoiceAccount(c *gin.Context, key *service
 		mediaError(c, http.StatusServiceUnavailable, "api_error", "Voice account is not available for synthesis")
 		return nil, nil, false
 	}
+	if billable && key.Group != nil && ((key.Group.RequireOAuthOnly && account.Type == service.AccountTypeAPIKey) || (key.Group.RequirePrivacySet && !account.IsPrivacySet())) {
+		mediaError(c, http.StatusForbidden, "permission_error", "Voice account no longer meets this group's requirements")
+		return nil, nil, false
+	}
 	if billable && !h.checkBillingEligibility(c, key) {
 		return nil, nil, false
 	}

@@ -51,8 +51,10 @@
                 class="-mx-1 -my-0.5 flex cursor-pointer items-center gap-1 rounded-md px-1 py-0.5 transition-colors hover:bg-gray-100 dark:hover:bg-dark-700"
                 :disabled="updatingKeyIds.has(key.id)"
               >
+                <span v-if="key.group_scope === 'public'">{{ t('keys.scopePublic') }}</span>
+                <span v-else-if="key.group_scope === 'selected'">{{ t('keys.selectedGroupsLabel', { count: key.group_ids?.length || 0 }) }}</span>
                 <GroupBadge
-                  v-if="key.group_id && key.group"
+                  v-else-if="key.group_id && key.group"
                   :name="key.group.name"
                   :platform="key.group.platform"
                   :subscription-type="key.group.subscription_type"
@@ -79,19 +81,21 @@
       :style="{ top: dropdownPosition.top + 'px', left: dropdownPosition.left + 'px' }"
     >
       <div class="max-h-64 overflow-y-auto p-1.5">
+        <button class="flex w-full rounded-lg px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-dark-700" @click="changeScope(selectedKeyForGroup!, 'public')">{{ t('keys.scopePublic') }}</button>
+        <button class="flex w-full rounded-lg px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-dark-700" @click="openMultiGroupSelector(selectedKeyForGroup!)">{{ t('keys.scopeSelected') }}</button>
         <!-- Unbind option -->
         <button
           @click="changeGroup(selectedKeyForGroup!, null)"
           :class="[
             'flex w-full items-center rounded-lg px-3 py-2 text-sm transition-colors',
-            !selectedKeyForGroup?.group_id
+            (selectedKeyForGroup?.group_scope || 'single') === 'single' && !selectedKeyForGroup?.group_id
               ? 'bg-primary-50 dark:bg-primary-900/20'
               : 'hover:bg-gray-100 dark:hover:bg-dark-700'
           ]"
         >
           <span class="text-gray-500 italic">{{ t('admin.users.none') }}</span>
           <svg
-            v-if="!selectedKeyForGroup?.group_id"
+            v-if="(selectedKeyForGroup?.group_scope || 'single') === 'single' && !selectedKeyForGroup?.group_id"
             class="ml-auto h-4 w-4 shrink-0 text-primary-600 dark:text-primary-400"
             fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"
           ><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg>
@@ -120,6 +124,21 @@
       </div>
     </div>
   </Teleport>
+  <BaseDialog :show="!!scopeEditingKey" :title="t('keys.scopeSelected')" width="normal" @close="scopeEditingKey = null">
+    <div class="max-h-80 space-y-2 overflow-y-auto">
+      <label v-for="id in scopeGroupIds.filter(id => !allGroups.some(group => group.id === id && group.status === 'active'))" :key="`unavailable-${id}`" class="flex items-center gap-3 rounded-lg border border-amber-200 p-3 text-amber-700 dark:border-amber-800 dark:text-amber-300">
+        <input v-model="scopeGroupIds" type="checkbox" :value="id" class="checkbox" />
+        <span>{{ t('keys.unavailableGroup', { id }) }}</span>
+      </label>
+      <label v-for="group in allGroups.filter(group => group.status === 'active')" :key="group.id" class="flex items-center gap-3 rounded-lg border border-gray-200 p-3 dark:border-dark-600">
+        <input v-model="scopeGroupIds" type="checkbox" :value="group.id" class="checkbox" />
+        <GroupBadge :name="group.name" :platform="group.platform" :subscription-type="group.subscription_type" :rate-multiplier="group.rate_multiplier" />
+      </label>
+    </div>
+    <template #footer>
+      <button class="btn btn-primary" :disabled="!scopeGroupIds.length || !!scopeEditingKey && updatingKeyIds.has(scopeEditingKey.id)" @click="changeScope(scopeEditingKey!, 'selected', scopeGroupIds)">{{ t('common.save') }}</button>
+    </template>
+  </BaseDialog>
 </template>
 
 <script setup lang="ts">
@@ -140,6 +159,8 @@ const appStore = useAppStore()
 
 const apiKeys = ref<ApiKey[]>([])
 const allGroups = ref<AdminGroup[]>([])
+const scopeEditingKey = ref<ApiKey | null>(null)
+const scopeGroupIds = ref<number[]>([])
 const loading = ref(false)
 const provisioning = ref(false)
 const oidcIdentity = ref({ issuer: '', subject: '' })
@@ -242,7 +263,7 @@ const closeGroupSelector = () => {
 
 const changeGroup = async (key: ApiKey, newGroupId: number | null) => {
   closeGroupSelector()
-  if (key.group_id === newGroupId || (!key.group_id && newGroupId === null)) return
+  if ((key.group_scope || 'single') === 'single' && (key.group_id === newGroupId || (!key.group_id && newGroupId === null))) return
 
   updatingKeyIds.value.add(key.id)
   try {
@@ -257,6 +278,32 @@ const changeGroup = async (key: ApiKey, newGroupId: number | null) => {
     } else {
       appStore.showSuccess(t('admin.users.groupChangedSuccess'))
     }
+  } catch (error: any) {
+    appStore.showError(error?.message || t('admin.users.groupChangeFailed'))
+  } finally {
+    updatingKeyIds.value.delete(key.id)
+  }
+}
+
+const openMultiGroupSelector = (key: ApiKey) => {
+  closeGroupSelector()
+  scopeEditingKey.value = key
+  scopeGroupIds.value = [...(key.group_ids || (key.group_id ? [key.group_id] : []))]
+}
+
+const changeScope = async (key: ApiKey, scope: 'public' | 'selected', ids: number[] = []) => {
+  closeGroupSelector()
+  if (scope === 'selected' && !ids.length) {
+    appStore.showError(t('keys.selectedGroupsRequired'))
+    return
+  }
+  updatingKeyIds.value.add(key.id)
+  try {
+    const result = await adminAPI.apiKeys.updateApiKeyScope(key.id, scope, ids)
+    const idx = apiKeys.value.findIndex(item => item.id === key.id)
+    if (idx !== -1) apiKeys.value[idx] = result.api_key
+    scopeEditingKey.value = null
+    appStore.showSuccess(t('admin.users.groupChangedSuccess'))
   } catch (error: any) {
     appStore.showError(error?.message || t('admin.users.groupChangeFailed'))
   } finally {
@@ -283,6 +330,7 @@ const handleClickOutside = (event: MouseEvent) => {
 }
 
 const handleClose = () => {
+  scopeEditingKey.value = null
   closeGroupSelector()
   emit('close')
 }

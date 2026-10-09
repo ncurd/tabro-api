@@ -26,7 +26,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
@@ -8942,8 +8941,12 @@ func (s *GatewayService) validateUpstreamBaseURL(raw string) (string, error) {
 // It aggregates supported mapping targets and account-specific default catalogs.
 // A nil result requests the handler fallback; an empty result is an empty catalog.
 func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64, platform string) []string {
+	if groups, scoped := GatewayModelGroups(ctx); scoped {
+		return s.scopedAvailableModels(ctx, groups, platform)
+	}
+	_, scopedLookup := ctx.Value(gatewayScopedModelLookupKey{}).(bool)
 	cacheKey := modelsListCacheKey(groupID, platform)
-	if s.modelsListCache != nil {
+	if s.modelsListCache != nil && !scopedLookup {
 		if cached, found := s.modelsListCache.Get(cacheKey); found {
 			if models, ok := cached.([]string); ok {
 				modelsListCacheHitTotal.Add(1)
@@ -8965,12 +8968,22 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 	if err != nil || len(accounts) == 0 {
 		return nil
 	}
+	if scopedLookup {
+		group, _ := ctx.Value(ctxkey.Group).(*Group)
+		accounts = gatewayEligibleGroupAccounts(group, accounts)
+	}
 
 	// Filter by platform if specified
 	if platform != "" {
 		filtered := make([]Account, 0)
 		for _, acc := range accounts {
-			if acc.Platform == platform {
+			matches := acc.Platform == platform
+			if platform == gatewayGeminiCataloguePlatform {
+				matches = acc.Platform == PlatformGemini || acc.Platform == PlatformAntigravity
+			} else if platform == gatewayAntigravityGeminiCataloguePlatform {
+				matches = acc.Platform == PlatformAntigravity
+			}
+			if matches {
 				filtered = append(filtered, acc)
 			}
 		}
@@ -8982,51 +8995,42 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 	hasAnyMapping := false
 
 	for _, acc := range accounts {
-		if DefaultMediaModels(acc.Platform) != nil {
-			hasAnyMapping = true
-			for _, model := range acc.AvailableMediaModels() {
-				modelSet[model.ID] = struct{}{}
-			}
-			continue
+		catalogueCtx := ctx
+		if group, ok := ctx.Value(ctxkey.Group).(*Group); ok && IsGroupContextValid(group) &&
+			groupID != nil && group.ID == *groupID && group.Platform == "all" {
+			effective := *group
+			effective.Platform = acc.Platform
+			catalogueCtx = context.WithValue(ctx, ctxkey.Group, &effective)
 		}
-		if acc.IsOpenAI() {
-			// OAuth and API-key defaults have different retirement schedules.
-			hasAnyMapping = true
-			for _, model := range acc.AvailableOpenAIModels() {
-				modelSet[model.ID] = struct{}{}
+		addModel := func(model string) {
+			if acc.Platform == PlatformAntigravity && (platform == gatewayGeminiCataloguePlatform || platform == gatewayAntigravityGeminiCataloguePlatform) &&
+				!strings.HasPrefix(strings.ToLower(resolveAccountUpstreamModel(&acc, model)), "gemini-") {
+				return
 			}
-			continue
-		}
-		mapping := acc.GetModelMapping()
-		if len(mapping) == 0 {
-			// Include every supported platform's defaults in mixed groups;
-			// adding OpenAI defaults must not hide unmapped Claude/Gemini accounts.
-			switch acc.Platform {
-			case PlatformAnthropic:
-				hasAnyMapping = true
-				for _, model := range claude.DefaultModels {
-					modelSet[model.ID] = struct{}{}
+			if groupID != nil && s.channelService != nil {
+				mapping := s.channelService.ResolveChannelMapping(catalogueCtx, *groupID, model)
+				billingModel := billingModelForRestriction(mapping.BillingModelSource, model, mapping.MappedModel)
+				if mapping.BillingModelSource == BillingModelSourceUpstream {
+					billingModel = resolveAccountUpstreamModel(&acc, model)
 				}
-			case PlatformGemini:
-				hasAnyMapping = true
-				for _, model := range geminicli.DefaultModels {
-					modelSet[model.ID] = struct{}{}
+				if billingModel != "" && s.channelService.IsModelRestricted(catalogueCtx, *groupID, billingModel) {
+					return
 				}
 			}
+			modelSet[model] = struct{}{}
 		}
-		if len(mapping) > 0 {
+		ids := gatewayAccountModelIDs(&acc)
+		if ids != nil {
 			hasAnyMapping = true
-			for model, upstreamModel := range mapping {
-				if !acc.IsRetiredModel(upstreamModel) {
-					modelSet[model] = struct{}{}
-				}
-			}
+		}
+		for _, model := range ids {
+			addModel(model)
 		}
 	}
 
 	// No explicit catalog: let the handler use the platform default list.
 	if !hasAnyMapping {
-		if s.modelsListCache != nil {
+		if s.modelsListCache != nil && !scopedLookup {
 			s.modelsListCache.Set(cacheKey, []string(nil), s.modelsListCacheTTL)
 			modelsListCacheStoreTotal.Add(1)
 		}
@@ -9040,7 +9044,7 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 	}
 	sort.Strings(models)
 
-	if s.modelsListCache != nil {
+	if s.modelsListCache != nil && !scopedLookup {
 		s.modelsListCache.Set(cacheKey, cloneStringSlice(models), s.modelsListCacheTTL)
 		modelsListCacheStoreTotal.Add(1)
 	}

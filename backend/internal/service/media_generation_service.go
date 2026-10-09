@@ -29,6 +29,7 @@ type MediaGenerationService struct {
 	httpUpstream HTTPUpstream
 	cfg          *config.Config
 	mediaBilling *MediaBillingService
+	gatewayKeys  *APIKeyService
 	workerMu     sync.Mutex
 	workerCancel context.CancelFunc
 	workerDone   chan struct{}
@@ -59,7 +60,7 @@ func NewMediaGenerationService(
 	cfg *config.Config,
 	mediaBilling *MediaBillingService,
 ) *MediaGenerationService {
-	return &MediaGenerationService{
+	svc := &MediaGenerationService{
 		accountRepo:  accountRepo,
 		jobRepo:      jobRepo,
 		usageRepo:    usageRepo,
@@ -67,6 +68,11 @@ func NewMediaGenerationService(
 		cfg:          cfg,
 		mediaBilling: mediaBilling,
 	}
+	if mediaBilling != nil && mediaBilling.apiKeys != nil {
+		svc.gatewayKeys = mediaBilling.apiKeys
+		svc.gatewayKeys.GatewayMediaResources = jobRepo
+	}
+	return svc
 }
 
 func (s *MediaGenerationService) ForwardAzureSpeech(ctx context.Context, account *Account, req AzureSpeechRequest, metas ...MediaRequestMeta) (*MediaSyncAudioResult, []byte, http.Header, error) {

@@ -165,6 +165,9 @@ func (s *GroupService) Update(ctx context.Context, id int64, req UpdateGroupRequ
 	if req.Status != nil {
 		group.Status = *req.Status
 	}
+	if err := validateUniversalGroupAccess(group.Platform, group.IsExclusive, group.SubscriptionType); err != nil {
+		return nil, err
+	}
 
 	if err := s.groupRepo.Update(ctx, group); err != nil {
 		return nil, fmt.Errorf("update group: %w", err)

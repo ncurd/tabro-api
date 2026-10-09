@@ -139,7 +139,7 @@ func TestEnsureOIDCGatewayKeyReusesExistingWithoutOverwritingPolicy(t *testing.T
 	require.Equal(t, 0, repo.creates)
 }
 
-func TestEnsureOIDCGatewayKeyUsesNewestGroupedKey(t *testing.T) {
+func TestEnsureOIDCGatewayKeyDefaultsPublicInsteadOfCopyingNewestGroupedKey(t *testing.T) {
 	groupID := int64(23)
 	repo := &oidcGatewayKeyRepoStub{
 		keys: make(map[string]*APIKey),
@@ -152,14 +152,14 @@ func TestEnsureOIDCGatewayKeyUsesNewestGroupedKey(t *testing.T) {
 
 	got, err := svc.EnsureOIDCGatewayKey(context.Background(), 8)
 	require.NoError(t, err)
-	require.NotNil(t, got.GroupID)
-	require.Equal(t, groupID, *got.GroupID)
+	require.Nil(t, got.GroupID)
+	require.Equal(t, APIKeyGroupScopePublic, got.GroupScope)
 	require.Equal(t, oidcGatewayKeyName, repo.keys[got.Key].Name)
 	require.Equal(t, StatusAPIKeyActive, got.Status)
 	require.Equal(t, 1, repo.creates)
 }
 
-func TestEnsureOIDCGatewayKeyFallsBackToFirstAvailableGroupWithCapacity(t *testing.T) {
+func TestEnsureOIDCGatewayKeyDefaultsPublicAcrossAvailableGroups(t *testing.T) {
 	repo := &oidcGatewayKeyRepoStub{keys: make(map[string]*APIKey)}
 	user := &User{ID: 9, Status: StatusActive}
 	groups := []Group{
@@ -175,8 +175,8 @@ func TestEnsureOIDCGatewayKeyFallsBackToFirstAvailableGroupWithCapacity(t *testi
 
 	got, err := svc.EnsureOIDCGatewayKey(context.Background(), user.ID)
 	require.NoError(t, err)
-	require.NotNil(t, got.GroupID)
-	require.Equal(t, int64(32), *got.GroupID)
+	require.Nil(t, got.GroupID)
+	require.Equal(t, APIKeyGroupScopePublic, got.GroupScope)
 }
 
 func TestEnsureOIDCGatewayKeyCreatesUngroupedWhenNoGroupsExist(t *testing.T) {

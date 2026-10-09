@@ -39,6 +39,16 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		googleError(c, http.StatusUnauthorized, "Invalid API key")
 		return
 	}
+	if _, scoped := service.GatewayModelGroups(c.Request.Context()); scoped {
+		forced, _ := middleware.GetForcePlatformFromContext(c)
+		ids := h.gatewayService.GetAvailableGeminiModels(c.Request.Context(), nil, forced == service.PlatformAntigravity)
+		models := make([]gemini.Model, 0, len(ids))
+		for _, id := range ids {
+			models = append(models, gemini.FallbackModel(id))
+		}
+		c.JSON(http.StatusOK, gemini.ModelsListResponse{Models: models})
+		return
+	}
 	// 检查平台：优先使用强制平台（/antigravity 路由），否则要求 gemini 分组
 	forcePlatform, hasForcePlatform := middleware.GetForcePlatformFromContext(c)
 	if !hasForcePlatform && (apiKey.Group == nil || apiKey.Group.Platform != service.PlatformGemini) {
@@ -83,6 +93,18 @@ func (h *GatewayHandler) GeminiV1BetaGetModel(c *gin.Context) {
 	apiKey, ok := middleware.GetAPIKeyFromContext(c)
 	if !ok || apiKey == nil {
 		googleError(c, http.StatusUnauthorized, "Invalid API key")
+		return
+	}
+	if _, scoped := service.GatewayModelGroups(c.Request.Context()); scoped {
+		name := strings.TrimPrefix(strings.TrimSpace(c.Param("model")), "models/")
+		forced, _ := middleware.GetForcePlatformFromContext(c)
+		for _, id := range h.gatewayService.GetAvailableGeminiModels(c.Request.Context(), nil, forced == service.PlatformAntigravity) {
+			if id == name {
+				c.JSON(http.StatusOK, gemini.FallbackModel(id))
+				return
+			}
+		}
+		googleError(c, http.StatusNotFound, "Model is not available to this API key")
 		return
 	}
 	// 检查平台：优先使用强制平台（/antigravity 路由），否则要求 gemini 分组

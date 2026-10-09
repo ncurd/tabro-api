@@ -51,7 +51,7 @@ func (r *apiKeyRepository) AutoProvisionOIDCGatewayIdentity(ctx context.Context,
 
 	// Only public standard groups with an active upstream account can be the
 	// initial route. Without one, rollback the whole provision and fail closed.
-	defaultGroup, err := tx.Group.Query().Where(
+	_, err = tx.Group.Query().Where(
 		group.StatusEQ(service.StatusActive),
 		group.DeletedAtIsNil(),
 		group.IsExclusiveEQ(false),
@@ -92,7 +92,8 @@ func (r *apiKeyRepository) AutoProvisionOIDCGatewayIdentity(ctx context.Context,
 		SetUserID(user.ID).
 		SetKey(keyValue).
 		SetName("OIDC Access Token").
-		SetGroupID(defaultGroup.ID).
+		SetGroupScope(service.APIKeyGroupScopePublic).
+		SetGroupIds([]int64{}).
 		SetStatus(service.StatusAPIKeyAuthBillingOnly).
 		SetOidcManaged(true).
 		SetAuthBillingOnly(true).

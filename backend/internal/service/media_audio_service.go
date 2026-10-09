@@ -157,13 +157,44 @@ func (s *MediaGenerationService) ListClonedVoices(ctx context.Context, meta Medi
 	if limit > 100 || offset < 0 {
 		return nil, &InvalidMediaRequestError{Message: "limit must be between 1 and 100 and offset must not be negative"}
 	}
-	jobs, err := repo.ListMediaResources(ctx, meta.UserID, meta.APIKeyID, meta.GroupID, MediaJobKindVoiceClone, limit, offset)
+	var jobs []*MediaGenerationJob
+	var err error
+	allowedGroups := make(map[int64]bool)
+	dynamic := meta.APIKey.UsesDynamicGatewayGroups()
+	if dynamic {
+		if s.gatewayKeys == nil || meta.APIKey.ID != meta.APIKeyID || meta.APIKey.UserID != meta.UserID {
+			return nil, ErrGroupNotAllowed
+		}
+		groups, groupErr := s.gatewayKeys.GatewayMediaAllowedGroups(ctx, meta.APIKey)
+		if groupErr != nil {
+			return nil, groupErr
+		}
+		ids := make([]int64, 0, len(groups))
+		for _, group := range groups {
+			ids = append(ids, group.ID)
+			allowedGroups[group.ID] = true
+		}
+		scopedRepo, ok := s.jobRepo.(MediaScopedResourceRepository)
+		if !ok {
+			return nil, ErrGatewayRouteUnavailable
+		}
+		jobs, err = scopedRepo.ListMediaResourcesByGroupIDs(ctx, meta.UserID, meta.APIKeyID, ids, MediaJobKindVoiceClone, limit, offset)
+	} else {
+		jobs, err = repo.ListMediaResources(ctx, meta.UserID, meta.APIKeyID, meta.GroupID, MediaJobKindVoiceClone, limit, offset)
+	}
 	if err != nil {
 		return nil, err
 	}
 	voices := make([]*VoiceResource, 0, len(jobs))
 	for _, job := range jobs {
-		if ownsClonedVoice(meta, job) && job.Status == MediaJobStatusSucceeded {
+		resourceMeta := meta
+		if dynamic {
+			if job == nil || job.GroupID == nil || !allowedGroups[*job.GroupID] {
+				continue
+			}
+			resourceMeta.GroupID = job.GroupID
+		}
+		if ownsClonedVoice(resourceMeta, job) && job.Status == MediaJobStatusSucceeded {
 			voices = append(voices, clonedVoiceResource(job))
 		}
 	}

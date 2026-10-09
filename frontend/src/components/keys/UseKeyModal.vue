@@ -7,7 +7,7 @@
   >
     <div class="space-y-4">
       <!-- No Group Assigned Warning -->
-      <div v-if="!platform" class="flex items-start gap-3 p-4 rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800">
+      <div v-if="!platform && !multiPlatform" class="flex items-start gap-3 p-4 rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800">
         <svg class="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
           <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
         </svg>
@@ -146,6 +146,7 @@ interface Props {
   apiKey: string
   baseUrl: string
   platform: GroupPlatform | null
+  multiPlatform?: boolean
   allowMessagesDispatch?: boolean
 }
 
@@ -178,6 +179,7 @@ const activeClientTab = ref<string>('claude')
 
 // Reset tabs when platform changes
 const defaultClientTab = computed(() => {
+  if (props.multiPlatform || props.platform === 'all') return 'codex'
   switch (props.platform) {
     case 'openai':
       return 'codex'
@@ -190,7 +192,7 @@ const defaultClientTab = computed(() => {
   }
 })
 
-watch(() => props.platform, () => {
+watch(() => [props.platform, props.multiPlatform], () => {
   activeTab.value = 'unix'
   activeClientTab.value = defaultClientTab.value
 }, { immediate: true })
@@ -264,6 +266,12 @@ const SparkleIcon = {
 }
 
 const clientTabs = computed((): TabConfig[] => {
+  if (props.multiPlatform || props.platform === 'all') return [
+    { id: 'codex', label: t('keys.useKeyModal.cliTabs.codexCli'), icon: TerminalIcon },
+    { id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon },
+    { id: 'gemini', label: t('keys.useKeyModal.cliTabs.geminiCli'), icon: SparkleIcon },
+    { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon }
+  ]
   if (!props.platform) return []
   switch (props.platform) {
     case 'openai': {
@@ -320,6 +328,7 @@ const currentTabs = computed(() => {
 })
 
 const platformDescription = computed(() => {
+  if (props.multiPlatform || props.platform === 'all') return t('keys.multiPlatform')
   switch (props.platform) {
     case 'openai':
       if (activeClientTab.value === 'claude') {
@@ -336,6 +345,11 @@ const platformDescription = computed(() => {
 })
 
 const platformNote = computed(() => {
+  if (props.multiPlatform || props.platform === 'all') {
+    if (activeClientTab.value === 'claude') return t('keys.useKeyModal.note')
+    if (activeClientTab.value === 'gemini') return t('keys.useKeyModal.gemini.note')
+    return activeTab.value === 'windows' ? t('keys.useKeyModal.openai.noteWindows') : t('keys.useKeyModal.openai.note')
+  }
   switch (props.platform) {
     case 'openai':
       if (activeClientTab.value === 'claude') {
@@ -393,6 +407,17 @@ const currentFiles = computed((): FileConfig[] => {
     const trimmed = baseRoot.replace(/\/+$/, '')
     return trimmed.endsWith('/v1beta') ? trimmed : `${trimmed}/v1beta`
   })()
+
+  if (props.multiPlatform || props.platform === 'all') {
+    if (activeClientTab.value === 'claude') return generateAnthropicFiles(baseUrl, apiKey)
+    if (activeClientTab.value === 'gemini') return [generateGeminiCliContent(baseUrl, apiKey)]
+    if (activeClientTab.value === 'opencode') return [
+      generateOpenCodeConfig('openai', apiBase, apiKey, 'opencode.json (OpenAI)'),
+      generateOpenCodeConfig('anthropic', apiBase, apiKey, 'opencode.json (Claude)'),
+      generateOpenCodeConfig('gemini', geminiBase, apiKey, 'opencode.json (Gemini)')
+    ]
+    return generateOpenAIFiles(baseUrl, apiKey)
+  }
 
   if (activeClientTab.value === 'opencode') {
     switch (props.platform) {
