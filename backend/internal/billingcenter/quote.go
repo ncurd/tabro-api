@@ -14,6 +14,7 @@ type QuoteRequest struct {
 	ServiceTier        string             `json:"service_tier"`
 	RequestPayloadHash string             `json:"request_payload_hash,omitempty"`
 	QuoteMode          string             `json:"quote_mode,omitempty"`
+	ChargeMode         string             `json:"charge_mode,omitempty"`
 }
 type Quote struct {
 	QuoteID         string         `json:"quote_id"`
@@ -66,6 +67,9 @@ func (c *Client) Quote(ctx context.Context, request ProofRequest[QuoteRequest]) 
 	}
 	if json.Unmarshal(data, &result) != nil || result.QuoteID == "" || result.Request.OperationID != request.Request.OperationID || result.Request.BillingAccountID == "" || result.Request.PriceVersionID == "" || result.Request.BalanceID == "" {
 		return result, ErrConflict
+	}
+	if result.Request.ChargeMode != request.Request.ChargeMode {
+		return result, ErrState
 	}
 	return result, nil
 }

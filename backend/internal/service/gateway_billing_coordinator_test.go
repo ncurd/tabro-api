@@ -103,6 +103,7 @@ func (s *gatewayBillingAuthorityStub) Quote(_ context.Context, q bc.ProofRequest
 	result.Request.OperationID = q.Request.OperationID
 	result.Request.MaximumUsage = q.Request.MaximumUsage
 	result.Request.RequestPayloadHash = q.Request.RequestPayloadHash
+	result.Request.ChargeMode = q.Request.ChargeMode
 	return result, nil
 }
 
@@ -145,14 +146,14 @@ func TestGatewayPricedCreditQuoteAndSettlementUseOneTechnicalMeter(t *testing.T)
 }
 func (s *gatewayBillingAuthorityStub) Reserve(_ context.Context, q bc.ProofRequest[bc.ReserveRequest]) (bc.Reservation, error) {
 	s.reserves++
-	return bc.Reservation{OperationID: q.Request.OperationID, ReservationID: "reservation", State: "reserved", Version: 1, OwnerEpoch: q.Request.OwnerEpoch}, nil
+	return bc.Reservation{OperationID: q.Request.OperationID, ReservationID: "reservation", State: "reserved", Version: 1, OwnerEpoch: q.Request.OwnerEpoch, ChargeMode: q.Request.ChargeMode, ReservedAmount: "0"}, nil
 }
 func (s *gatewayBillingAuthorityStub) GetOperation(_ context.Context, k bc.Key) (bc.Reservation, error) {
-	return bc.Reservation{OperationID: k.OperationID, ReservationID: "reservation", State: "reserved", Version: 1, OwnerEpoch: 4}, nil
+	return bc.Reservation{OperationID: k.OperationID, ReservationID: "reservation", State: "reserved", Version: 1, OwnerEpoch: 4, ChargeMode: s.quoted.ChargeMode, ReservedAmount: "0"}, nil
 }
 func (s *gatewayBillingAuthorityStub) Dispatch(_ context.Context, k bc.Key, _ string, _ bc.TransitionRequest) (bc.Reservation, error) {
 	s.dispatches++
-	return bc.Reservation{OperationID: k.OperationID, ReservationID: "reservation", State: "dispatched", Version: 2, OwnerEpoch: 4}, nil
+	return bc.Reservation{OperationID: k.OperationID, ReservationID: "reservation", State: "dispatched", Version: 2, OwnerEpoch: 4, ChargeMode: s.quoted.ChargeMode, ReservedAmount: "0"}, nil
 }
 
 func gatewayBillingFixture() (*GatewayBillingCoordinator, *gatewayBillingStoreStub, *gatewayBillingAuthorityStub, *GatewayOIDCPrincipal) {

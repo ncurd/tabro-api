@@ -154,3 +154,87 @@ func TestServiceTokenFailureNeverLeaksOrAttemptsReserve(t *testing.T) {
 	require.False(t, strings.Contains(err.Error(), "private"))
 	require.Zero(t, calls.Load())
 }
+
+func TestClientOnlyRetriesExactActualUsageFundingConflict(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status int
+		body   string
+		retry  bool
+	}{
+		{"pending_funds", 409, `{"code":"billing_actual_usage_pending_funds","message":"private response"}`, true},
+		{"other_conflict", 409, `{"code":"conflict","message":"private response"}`, false},
+		{"wrong_status", 403, `{"code":"billing_actual_usage_pending_funds"}`, false},
+		{"nested_code", 409, `{"error":{"code":"billing_actual_usage_pending_funds"}}`, false},
+		{"malformed_json", 409, `{"code":"billing_actual_usage_pending_funds"`, false},
+		{"oversized_body", 409, `{"code":"billing_actual_usage_pending_funds","message":"` + strings.Repeat("x", 4096) + `"}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tc.status)
+				_, _ = io.WriteString(w, tc.body)
+			}))
+			defer server.Close()
+			client, err := NewClient(Config{ProducerClientID: "gateway-billing", BaseURL: server.URL, InsecureLocal: true}, tokenFunc(func(context.Context) (string, error) { return "service", nil }), nil)
+			require.NoError(t, err)
+			_, err = client.Reserve(context.Background(), testReserve())
+			var remote *RemoteError
+			require.ErrorAs(t, err, &remote)
+			require.Equal(t, tc.status, remote.Status)
+			require.Equal(t, tc.retry, remote.Retryable)
+			require.False(t, remote.UnknownOutcome)
+			require.NotContains(t, err.Error(), "private")
+			require.NotContains(t, err.Error(), "pending_funds")
+		})
+	}
+}
+
+func TestClientActualReserveRequiresModeAcknowledgementAndZeroHold(t *testing.T) {
+	for _, tc := range []struct {
+		name, mode string
+		reserved   Decimal
+		valid      bool
+	}{
+		{"actual_zero", ChargeModeActualUsage, "0.0000000000", true},
+		{"old_auth", "", "0", false},
+		{"speculative_hold", ChargeModeActualUsage, "200", false},
+		{"missing_amount", ChargeModeActualUsage, "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				reservation := testReservation("reserved", 1)
+				reservation.ChargeMode = tc.mode
+				reservation.ReservedAmount = tc.reserved
+				if tc.reserved == "" {
+					_, _ = io.WriteString(w, `{"operation_id":"operation","reservation_id":"reservation","charge_mode":"actual_usage"}`)
+					return
+				}
+				require.NoError(t, json.NewEncoder(w).Encode(reservation))
+			}))
+			defer server.Close()
+			client, err := NewClient(Config{ProducerClientID: "gateway-billing", BaseURL: server.URL, InsecureLocal: true}, tokenFunc(func(context.Context) (string, error) { return "service", nil }), nil)
+			require.NoError(t, err)
+			request := testReserve()
+			request.Request.ChargeMode = ChargeModeActualUsage
+			request.Request.MaximumUsage = map[string]Decimal{"credit_amount": "0"}
+			_, err = client.Reserve(context.Background(), request)
+			if tc.valid {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+			}
+		})
+	}
+}
+
+func TestClientActualQuoteRejectsAuthorityWithoutModeAcknowledgement(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		quote := Quote{QuoteID: "quote", Request: testReserve().Request, EstimatedAmount: "0", WalletUnit: "credit"}
+		require.NoError(t, json.NewEncoder(w).Encode(quote))
+	}))
+	defer server.Close()
+	client, err := NewClient(Config{ProducerClientID: "gateway-billing", BaseURL: server.URL, InsecureLocal: true}, tokenFunc(func(context.Context) (string, error) { return "service", nil }), nil)
+	require.NoError(t, err)
+	_, err = client.Quote(context.Background(), ProofRequest[QuoteRequest]{OriginAppID: "agent", SubjectProof: "proof", Request: QuoteRequest{OperationID: "operation", ProductKey: "gateway:credits", MaximumUsage: map[string]Decimal{"credit_amount": "0"}, ChargeMode: ChargeModeActualUsage}})
+	require.ErrorIs(t, err, ErrState)
+}

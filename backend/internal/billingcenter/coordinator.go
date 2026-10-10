@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math/big"
 	"time"
 
 	"github.com/google/uuid"
@@ -114,6 +115,9 @@ func (c Coordinator) Reserve(ctx context.Context, intent Operation, request Proo
 	return c.bind(ctx, o, remote)
 }
 func (c Coordinator) bind(ctx context.Context, o Operation, remote Reservation) (Operation, error) {
+	if err := validateReservationChargeMode(o, remote); err != nil {
+		return o, err
+	}
 	if err := c.Store.BindReservation(ctx, o.Key, o.Version, remote); err != nil {
 		return o, err
 	}
@@ -140,5 +144,36 @@ func (c Coordinator) Dispatch(ctx context.Context, key Key) (bool, error) {
 	if err != nil {
 		return false, err
 	} // dispatching is intentionally never auto-reclaimed.
+	if err := validateReservationChargeMode(o, remote); err != nil {
+		return false, err
+	}
 	return c.Store.ConfirmDispatched(ctx, key, o.Version+1, attemptID, remote)
+}
+
+// Both fresh Reserve and recovery by GetOperation must acknowledge the frozen
+// contract. An old authority must never silently turn actual billing into a
+// speculative hold, or grant a dispatch it cannot subsequently charge.
+func validateReservationChargeMode(o Operation, remote Reservation) error {
+	var request ReserveRequest
+	if err := json.Unmarshal(o.RequestPayload, &request); err != nil {
+		return ErrConflict
+	}
+	return validateChargeModeResult(request.ChargeMode, remote)
+}
+
+func validateChargeModeResult(mode string, remote Reservation) error {
+	if mode != remote.ChargeMode {
+		return ErrState
+	}
+	if mode != ChargeModeActualUsage {
+		return nil
+	}
+	if _, err := remote.ReservedAmount.MarshalJSON(); err != nil {
+		return ErrConflict
+	}
+	amount, ok := new(big.Rat).SetString(string(remote.ReservedAmount))
+	if !ok || amount.Sign() != 0 {
+		return ErrConflict
+	}
+	return nil
 }

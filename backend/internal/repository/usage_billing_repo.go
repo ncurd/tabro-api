@@ -157,6 +157,12 @@ func isRetryableUsageBillingError(err error) bool {
 }
 
 func insertGatewayUsageLedger(ctx context.Context, tx *sql.Tx, cmd *service.UsageBillingCommand) error {
+	var producerID, appID, operationID any
+	if cmd.CentralEvent != nil {
+		producerID = cmd.CentralEvent.ProducerClientID
+		appID = cmd.CentralEvent.OriginAppID
+		operationID = cmd.CentralEvent.OperationID
+	}
 	_, err := tx.ExecContext(ctx, `
 		INSERT INTO gateway_usage_ledger (
 			request_id,
@@ -200,13 +206,16 @@ func insertGatewayUsageLedger(ctx context.Context, tx *sql.Tx, cmd *service.Usag
 			subscription_cost,
 			api_key_quota_cost,
 			api_key_rate_limit_cost,
-			account_quota_cost
+			account_quota_cost,
+			billing_producer_client_id,
+			billing_origin_app_id,
+			billing_operation_id
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
 			$11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
 			$21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
 			$31, $32, $33, $34, $35, $36, $37, $38, $39, $40,
-			$41, $42
+			$41, $42, $43, $44, $45
 		)
 	`,
 		cmd.RequestID,
@@ -251,6 +260,9 @@ func insertGatewayUsageLedger(ctx context.Context, tx *sql.Tx, cmd *service.Usag
 		cmd.APIKeyQuotaCost,
 		cmd.APIKeyRateLimitCost,
 		cmd.AccountQuotaCost,
+		producerID,
+		appID,
+		operationID,
 	)
 	return err
 }

@@ -22,7 +22,7 @@ func gatewayBillingUsageSchema(t *testing.T, db *sql.DB) {
  CREATE TABLE accounts(id bigint PRIMARY KEY,extra jsonb NOT NULL DEFAULT '{}',updated_at timestamptz DEFAULT NOW(),deleted_at timestamptz);
  INSERT INTO users(id) VALUES(1);INSERT INTO accounts(id) VALUES(2);`)
 	require.NoError(t, err)
-	for _, name := range []string{"071_add_usage_billing_dedup.sql", "073_add_usage_billing_dedup_archive.sql", "114_add_gateway_usage_ledger.sql", "115_add_gateway_upstream_request_id.sql", "119_billing_center_account_routes.sql", "121_billing_center_workspace_routes.sql"} {
+	for _, name := range []string{"071_add_usage_billing_dedup.sql", "073_add_usage_billing_dedup_archive.sql", "114_add_gateway_usage_ledger.sql", "115_add_gateway_upstream_request_id.sql", "119_billing_center_account_routes.sql", "121_billing_center_workspace_routes.sql", "132_gateway_billing_usage_identity.sql"} {
 		data, err := migrations.FS.ReadFile(name)
 		require.NoError(t, err)
 		_, err = db.Exec(string(data))

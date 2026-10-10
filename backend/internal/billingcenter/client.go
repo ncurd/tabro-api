@@ -44,6 +44,7 @@ type Reservation struct {
 	BalanceID          string    `json:"balance_id"`
 	PeriodIDs          []string  `json:"period_ids"`
 	ExpiresAt          time.Time `json:"expires_at"`
+	ChargeMode         string    `json:"charge_mode,omitempty"`
 }
 
 // RemoteError deliberately excludes response bodies, URLs and credentials.
@@ -120,7 +121,11 @@ func (c *Client) Reserve(ctx context.Context, request ProofRequest[ReserveReques
 	if err != nil {
 		return Reservation{}, err
 	}
-	return c.request(ctx, http.MethodPost, "/internal/billing/v1/reservations", nil, body)
+	result, err := c.request(ctx, http.MethodPost, "/internal/billing/v1/reservations", nil, body)
+	if err == nil {
+		err = validateChargeModeResult(request.Request.ChargeMode, result)
+	}
+	return result, err
 }
 func (c *Client) Extend(ctx context.Context, id string, request ProofRequest[ExtendRequest]) (Reservation, error) {
 	if err := request.Validate(); err != nil {
@@ -208,7 +213,17 @@ func (c *Client) requestJSON(ctx context.Context, method, path string, query url
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
+		// Only this exact protocol code makes an actual-usage bill retryable
+		// after funds are added. Never expose upstream messages or body content.
+		errorBody, bodyErr := io.ReadAll(io.LimitReader(response.Body, 4097))
+		if response.StatusCode == http.StatusConflict && bodyErr == nil && len(errorBody) <= 4096 {
+			var failure struct {
+				Code string `json:"code"`
+			}
+			if json.Unmarshal(errorBody, &failure) == nil && failure.Code == "billing_actual_usage_pending_funds" {
+				return result, &RemoteError{Status: response.StatusCode, Retryable: true}
+			}
+		}
 		if response.StatusCode == http.StatusUnauthorized {
 			if invalidator, ok := c.tokens.(interface{ Invalidate() }); ok {
 				invalidator.Invalidate()

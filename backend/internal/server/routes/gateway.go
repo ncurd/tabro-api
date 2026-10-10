@@ -28,6 +28,10 @@ func RegisterGatewayRoutes(
 	opsErrorLogger := handler.OpsErrorLoggerMiddleware(opsService)
 	endpointNorm := handler.InboundEndpointMiddleware()
 
+	// Financial reads validate their bearer directly and never enter model
+	// routing, invocation idempotency, admission or supplier dispatch middleware.
+	r.GET("/v1/billing/usage", h.BillingUsage.List)
+
 	// 未分组 Key 拦截中间件（按协议格式区分错误响应）
 	requireGroupAnthropic := middleware.RequireGroupAssignment(settingService, middleware.AnthropicErrorWriter)
 	requireGroupGoogle := middleware.RequireGroupAssignment(settingService, middleware.GoogleErrorWriter)

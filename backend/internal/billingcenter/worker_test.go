@@ -80,6 +80,8 @@ func TestOutboxRetriesUnknownOutcomeAndBlocksPermanentRejectionWithoutCompleting
 	}{
 		{"timeout", &RemoteError{Retryable: true, UnknownOutcome: true}, false},
 		{"forbidden", &RemoteError{Status: 403}, true},
+		{"actual_usage_pending_funds", &RemoteError{Status: 409, Retryable: true}, false},
+		{"unrelated_conflict", &RemoteError{Status: 409}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := &recoveryOutbox{event: Event{Key: testKey(), ID: "event", Kind: SettleEvent, ReservationID: "reservation"}}

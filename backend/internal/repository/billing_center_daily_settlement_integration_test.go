@@ -9,9 +9,74 @@ import (
 	"time"
 
 	bc "github.com/Wei-Shaw/sub2api/internal/billingcenter"
+	"github.com/Wei-Shaw/sub2api/migrations"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
+
+func TestMeasuredOIDCChargeUpgradeReleasesUnusedHoldWithoutChangingEvidence(t *testing.T) {
+	repo, db := billingCenterTestRepository(t)
+	ctx := context.Background()
+	cutoff := time.Now().Add(24 * time.Hour).UTC().Truncate(time.Microsecond)
+	key := bc.Key{ProducerClientID: "gateway-billing", OriginAppID: "agent", OperationID: uuid.NewString()}
+	request := bc.ReserveRequest{OperationID: key.OperationID, BillingAccountID: "payer", BalanceID: "balance", PriceVersionID: "price", OwnerEpoch: 7, ServiceTier: "default", MaximumUsage: map[string]bc.Decimal{"credit_amount": "200"}}
+	intent, err := bc.NewScheduledIntent(key, "user", "tenant", "central", request, cutoff, json.RawMessage(`{"billing_model":"gpt-test","rate_multiplier":10}`))
+	require.NoError(t, err)
+	measured, _, err := repo.CreateIntent(ctx, intent)
+	require.NoError(t, err)
+	require.NoError(t, repo.BindReservation(ctx, key, measured.Version, billingCenterTestRemote(measured, "reserved", 1)))
+	measured, err = repo.Get(ctx, key)
+	require.NoError(t, err)
+	claimedDispatch, err := repo.ClaimDispatch(ctx, key, measured.Version, "attempt")
+	require.NoError(t, err)
+	require.True(t, claimedDispatch)
+	permit, err := repo.ConfirmDispatched(ctx, key, measured.Version+1, "attempt", billingCenterTestRemote(measured, "dispatched", 2))
+	require.NoError(t, err)
+	require.True(t, permit)
+	measured, err = repo.Get(ctx, key)
+	require.NoError(t, err)
+	event, err := bc.NewSettlement(measured.Key, measured.ReservationID, bc.SettleRequest{
+		TransitionRequest: bc.TransitionRequest{EventID: "settle:" + measured.OperationID, ExpectedVersion: measured.RemoteVersion},
+		UsageItemID:       measured.OperationID, Usage: map[string]bc.Decimal{"credit_amount": "0.125"},
+		EvidenceReference: "gateway_usage_ledger:request", UsageComplete: true,
+	})
+	require.NoError(t, err)
+	_, err = repo.Enqueue(ctx, event)
+	require.NoError(t, err)
+	var queuedAt time.Time
+	require.NoError(t, db.QueryRow(`SELECT available_at FROM billing_center_outbox WHERE operation_id=$1`, measured.OperationID).Scan(&queuedAt))
+	require.False(t, queuedAt.After(time.Now()), "old in-flight credit usage is due as soon as it is measured")
+	// The migration must also accelerate rows queued by the old binary.
+	_, err = db.Exec(`UPDATE billing_center_outbox SET available_at=$2 WHERE operation_id=$1`, measured.OperationID, cutoff)
+	require.NoError(t, err)
+	var expectedFingerprint string
+	require.NoError(t, db.QueryRow(`SELECT payload_fingerprint FROM billing_center_outbox WHERE operation_id=$1`, measured.OperationID).Scan(&expectedFingerprint))
+	unknown := billingCenterTestDispatched(t, repo, cutoff)
+	require.NoError(t, repo.MarkReconciliation(ctx, unknown.Key, unknown.Version))
+	otherProduct := billingCenterTestDispatched(t, repo, cutoff)
+	_, err = repo.Enqueue(ctx, billingCenterTestSettlement(t, otherProduct))
+	require.NoError(t, err)
+
+	migration, err := migrations.FS.ReadFile("131_complete_measured_oidc_charges.sql")
+	require.NoError(t, err)
+	for range 2 {
+		_, err = db.Exec(string(migration))
+		require.NoError(t, err)
+	}
+	claimed, err := repo.Claim(ctx, time.Minute, 10)
+	require.NoError(t, err)
+	require.Len(t, claimed, 1)
+	require.Equal(t, measured.Key, claimed[0].Key)
+	require.JSONEq(t, string(event.Body), string(claimed[0].Body))
+	require.Equal(t, expectedFingerprint, claimed[0].Fingerprint)
+	unchanged, err := repo.Get(ctx, unknown.Key)
+	require.NoError(t, err)
+	require.Equal(t, bc.ReconciliationRequired, unchanged.State)
+	stored, err := repo.Get(ctx, measured.Key)
+	require.NoError(t, err)
+	require.Equal(t, measured.RequestFingerprint, stored.RequestFingerprint)
+	require.True(t, stored.SettlementNotBefore.Equal(cutoff))
+}
 
 func TestBillingCenterDailySettlementDefersUsageButReleasesImmediately(t *testing.T) {
 	repo, db := billingCenterTestRepository(t)

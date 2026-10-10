@@ -351,12 +351,6 @@ func (s *GatewayBillingCoordinator) prepareWithQuote(ctx context.Context, route 
 	var pricingSnapshot json.RawMessage
 	var previousOperation *bc.Operation
 	var settlementNotBefore time.Time
-	if policy.Enabled {
-		settlementNotBefore, err = policy.NextSettlementAt(time.Now())
-		if err != nil {
-			return nil, err
-		}
-	}
 	if route.Mode == "central" {
 		previous, getErr := s.repo.Get(ctx, key)
 		if getErr == nil {
@@ -370,6 +364,15 @@ func (s *GatewayBillingCoordinator) prepareWithQuote(ctx context.Context, route 
 			return nil, getErr
 		}
 	}
+	// The charge contract is immutable even for an intent whose Reserve has
+	// not completed. Only new OIDC-billed operations use actual usage; legacy
+	// operations keep their original reservation and daily settlement deadline.
+	if previousOperation != nil {
+		quoteReq.ChargeMode = quote.Request.ChargeMode
+	} else if policy.Enabled {
+		quoteReq.ChargeMode = bc.ChargeModeActualUsage
+	}
+	actualUsage := quoteReq.ChargeMode == bc.ChargeModeActualUsage
 	if route.Mode == "central" && s.creditPricer != nil {
 		if len(pricingSnapshot) > 0 {
 			if err := validateGatewayPricingIdentity(pricingSnapshot, apiKey); err != nil {
@@ -388,6 +391,11 @@ func (s *GatewayBillingCoordinator) prepareWithQuote(ctx context.Context, route 
 				return nil, priceErr
 			}
 		}
+		if actualUsage {
+			// Freeze prices and model limits above, but never reserve the output
+			// cap's speculative price. Auth debits the measured usage at settlement.
+			maximum = "0"
+		}
 		if quote.Request.OperationID != "" {
 			reserved, parseErr := decimal.NewFromString(string(quote.Request.MaximumUsage[gatewayCreditMeter]))
 			needed, neededErr := decimal.NewFromString(string(maximum))
@@ -403,6 +411,15 @@ func (s *GatewayBillingCoordinator) prepareWithQuote(ctx context.Context, route 
 		quote, err = s.authority.Quote(ctx, gatewayBillingProof(route.OriginAppID, proof, credential, quoteReq))
 		if err != nil {
 			return nil, err
+		}
+	}
+	if quote.Request.ChargeMode != quoteReq.ChargeMode {
+		return nil, bc.ErrState
+	}
+	if actualUsage {
+		amount, amountErr := decimal.NewFromString(string(quote.Request.MaximumUsage[gatewayCreditMeter]))
+		if amountErr != nil || !amount.IsZero() || len(quote.Request.MaximumUsage) != 1 || quote.Request.ServiceTier != "default" {
+			return nil, bc.ErrConflict
 		}
 	}
 	if route.DynamicAuthority {
@@ -523,7 +540,7 @@ func (s *GatewayBillingCoordinator) Restore(ctx context.Context, snapshot *bc.Ex
 			return nil, err
 		}
 		var request bc.ReserveRequest
-		if json.Unmarshal(op.RequestPayload, &request) != nil || op.Mode != "central" || request.PriceVersionID != snapshot.Quote.Request.PriceVersionID || request.RequestPayloadHash != snapshot.RequestPayloadHash {
+		if json.Unmarshal(op.RequestPayload, &request) != nil || op.Mode != "central" || request.PriceVersionID != snapshot.Quote.Request.PriceVersionID || request.RequestPayloadHash != snapshot.RequestPayloadHash || request.ChargeMode != snapshot.Quote.Request.ChargeMode {
 			return nil, bc.ErrConflict
 		}
 		if !op.SettlementNotBefore.Equal(snapshot.SettlementNotBefore) {

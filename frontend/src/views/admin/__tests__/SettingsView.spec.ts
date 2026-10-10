@@ -337,7 +337,7 @@ describe('admin SettingsView', () => {
     wrapper.unmount()
   })
 
-  it('saves billing multiplier and the daily cutoff without submitting capability', async () => {
+  it('saves actual-usage multiplier and billing timezone without a daily debit cutoff', async () => {
     const settings = {
       backend_mode_enabled: false,
       oidc_connect_enabled: true,
@@ -351,7 +351,7 @@ describe('admin SettingsView', () => {
     await flushPromises()
     await wrapper.get('[data-testid="oidc-billing-toggle"]').trigger('click')
     await wrapper.get('#oidc-billing-multiplier').setValue('2.5')
-    await wrapper.get('#oidc-billing-time').setValue('01:30')
+    expect(wrapper.find('#oidc-billing-time').exists()).toBe(false)
     await wrapper.get('#oidc-billing-timezone').setValue('Asia/Shanghai')
     await wrapper.get('form').trigger('submit')
     await flushPromises()
@@ -359,7 +359,7 @@ describe('admin SettingsView', () => {
     expect(payload).toMatchObject({
       oidc_billing_enabled: true,
       oidc_billing_rate_multiplier: 2.5,
-      oidc_billing_settlement_time: '01:30',
+      oidc_billing_settlement_time: '00:00',
       oidc_billing_settlement_timezone: 'Asia/Shanghai'
     })
     expect(payload).not.toHaveProperty('oidc_billing_supported')
@@ -369,8 +369,7 @@ describe('admin SettingsView', () => {
 
   it.each([
     ['#oidc-billing-multiplier', '0', 'billingMultiplierInvalid'],
-    ['#oidc-billing-timezone', 'Invalid/Timezone', 'billingTimezoneInvalid'],
-    ['#oidc-billing-time', '', 'billingTimeInvalid']
+    ['#oidc-billing-timezone', 'Invalid/Timezone', 'billingTimezoneInvalid']
   ])('rejects invalid billing input %s', async (selector, value, error) => {
     settingsApi.getSettings.mockResolvedValue({
       backend_mode_enabled: false,

@@ -142,6 +142,22 @@ func TestReserveRejectsChangedRequestUnderSameFingerprint(t *testing.T) {
 	require.ErrorIs(t, err, ErrConflict)
 }
 
+func TestReserveChargeModeIsPartOfFrozenFinancialIdentity(t *testing.T) {
+	request := testReserve()
+	intent, err := NewIntent(testKey(), "actor", "tenant", "central", request.Request)
+	require.NoError(t, err)
+	require.NotContains(t, string(intent.RequestPayload), "charge_mode", "old operations retain the historical JSON identity")
+	request.Request.ChargeMode = ChargeModeActualUsage
+	request.Request.MaximumUsage = map[string]Decimal{"credit_amount": "0"}
+	client, err := NewClient(Config{ProducerClientID: "gateway-billing", BaseURL: "https://billing.invalid"}, tokenFunc(func(context.Context) (string, error) {
+		t.Fatal("a mode change must be rejected before contacting Auth")
+		return "", nil
+	}), nil)
+	require.NoError(t, err)
+	_, err = (Coordinator{Store: &memoryOperationStore{}, Authority: client}).Reserve(context.Background(), intent, request)
+	require.ErrorIs(t, err, ErrConflict)
+}
+
 func TestScheduledIntentFreezesDeadlineAndPricingWithoutChangingLegacyFingerprint(t *testing.T) {
 	request := testReserve().Request
 	key := testKey()
@@ -193,4 +209,65 @@ func TestScheduledReserveRejectsMutatedDeadlineOrPricingBeforeNetwork(t *testing
 	}
 	_, err = NewScheduledIntent(testKey(), "actor", "tenant", "central", request.Request, time.Now(), json.RawMessage(`{"access_token":"secret"}`))
 	require.ErrorIs(t, err, ErrCredentialsInPayload)
+}
+
+type actualUsageAuthorityStub struct {
+	result       Reservation
+	reserveCalls int
+}
+
+func (s *actualUsageAuthorityStub) Reserve(context.Context, ProofRequest[ReserveRequest]) (Reservation, error) {
+	s.reserveCalls++
+	return s.result, nil
+}
+
+func (s *actualUsageAuthorityStub) GetOperation(context.Context, Key) (Reservation, error) {
+	return s.result, nil
+}
+
+func (s *actualUsageAuthorityStub) Dispatch(context.Context, Key, string, TransitionRequest) (Reservation, error) {
+	return s.result, nil
+}
+
+func TestActualReserveRecoveryRequiresModeAcknowledgementAndZeroHold(t *testing.T) {
+	for _, tc := range []struct {
+		name, mode string
+		amount     Decimal
+		valid      bool
+	}{
+		{"actual_zero", ChargeModeActualUsage, "0", true},
+		{"old_auth", "", "0", false},
+		{"unexpected_hold", ChargeModeActualUsage, "208", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			request := testReserve()
+			request.Request.ChargeMode = ChargeModeActualUsage
+			request.Request.MaximumUsage = map[string]Decimal{"credit_amount": "0"}
+			intent, err := NewIntent(testKey(), "actor", "tenant", "central", request.Request)
+			require.NoError(t, err)
+			store := &memoryOperationStore{}
+			_, _, err = store.CreateIntent(context.Background(), intent)
+			require.NoError(t, err)
+			result := testReservation("reserved", 1)
+			result.ChargeMode, result.ReservedAmount = tc.mode, tc.amount
+			authority := &actualUsageAuthorityStub{result: result}
+			coordinator := Coordinator{Store: store, Authority: authority}
+			_, err = coordinator.Reserve(context.Background(), intent, request)
+			if tc.valid {
+				require.NoError(t, err)
+				require.Equal(t, Reserved, store.op.State)
+				// A response that drops the mode after remote dispatch must never
+				// grant local permission to call the supplier.
+				authority.result.ChargeMode = ""
+				permit, err := coordinator.Dispatch(context.Background(), testKey())
+				require.ErrorIs(t, err, ErrState)
+				require.False(t, permit)
+				require.Equal(t, Dispatching, store.op.State)
+			} else {
+				require.Error(t, err)
+				require.Equal(t, Intent, store.op.State)
+			}
+			require.Zero(t, authority.reserveCalls, "recovery must query the original operation instead of reserving another one")
+		})
+	}
 }

@@ -29,7 +29,7 @@
 
 管理员 API Key 可用于在 IdP 故障时访问设置并关闭此模式；它不会自动生成。如需要这条恢复路径，应在切换前生成并妥善保存。
 
-仅 OIDC 模式保存后，同一设置页可开启「OIDC 计费」并设置计费倍数、每日结算时间和时区。此功能还要求有效的 Auth 计费连接器、已启用网关 Resource Server，且两套 OIDC 配置的 issuer 相同。默认按北京时间 00:00 结算，每次调用先锁定 Auth 积分，网关记录实际费用，到点逐笔结算；开启后停用本地余额、套餐与兑换券。具体公式、预扣占用、失败处理和迁移要求见 [每日计费说明](BILLING_CENTER_GATEWAY_CN.md#仅-oidc-模式下的每日计费)。
+仅 OIDC 模式保存后，可开启「OIDC 计费」并设置计费倍数、账单时区。需有效的 Auth 计费连接器、已启用网关 Resource Server，且两套 OIDC 配置的 issuer 相同。新请求使用 `actual_usage` 零金额执行授权，完成后按真实费用逐笔扣积分，账单按天汇总；不冻结模型最大费用。旧资金、失败处理及升级要求见 [实际用量计费说明](BILLING_CENTER_GATEWAY_CN.md#仅-oidc-模式下的实际用量计费)。
 
 ## 调用链路
 
@@ -42,7 +42,7 @@ LLM 网关
   1. 验证签名、iss、唯一 aud、exp/nbf、scope、Client 和 act
   2. 按已验证的 (iss, sub) 查找或自动建立内部路由 Key
   3. 自动模式将原始 Token 作为短暂的 subject proof 提交给 Auth
-  4. Auth 核验身份、团队资格与余额/预算，Quote 选付款账户，Reserve 预占资金
+  4. Auth 核验身份、团队资格与余额/预算，Quote 选付款账户，Reserve 建立执行授权
   5. 网关取得执行许可，选择配置的上游账号
       │
       │ 使用网关自己保管的 OpenAI/Anthropic 等上游凭证
@@ -249,7 +249,7 @@ Token Exchange 不配置第二份模型 Client Secret；它复用安装页面中
 
 此类身份查询 `/v1/usage` 时，响应的 `mode` 为 `auth_billing`，只报告网关记录的用量；Auth 账户余额和预算应从 Auth 获取，网关不会把本地钱包余额显示为可用资金。
 
-网关将当前 Bearer Token 短暂交给 Auth 的 Quote/Reserve 作为 subject proof。Auth 独立验证 Token 和调用应用、确定实际付款账户及 owner epoch，并检查团队成员资格、可用资金和预算。网关冻结 Auth 返回的付款账户及 epoch，在供应商执行前完成预占；用量产生后由 Auth 结算。Auth 中没有该租户的计费账户、余额或预算不足、授权被撤销、中心连接器关闭或中心服务不可用时，请求直接失败，不会退回本地余额/订阅扣费。网关也不相信 Token、Header 或本地用户记录里自报的付款账户。
+网关将当前 Bearer Token 短暂交给 Auth 的 Quote/Reserve 作为 subject proof。Auth 独立验证 Token 和调用应用、确定实际付款账户及 owner epoch，并检查团队成员资格、可用资金和预算。网关冻结 Auth 返回的付款账户及 epoch，在供应商执行前完成授权；仅 OIDC 计费的新请求不冻结最大费用，用量产生后由 Auth 按真实积分扣款。Auth 中没有该租户的计费账户、余额或预算不足、授权被撤销、中心连接器关闭或中心服务不可用时，请求直接失败，不会退回本地余额/订阅扣费。网关也不相信 Token、Header 或本地用户记录里自报的付款账户。
 
 已显式迁移到 `central` 的旧 route 继续与 Auth Quote 返回的付款账户和 epoch 严格核对。没有中心 workspace route 时，显式处于 `local`、`shadow`、`fenced`、`draining` 或 `frozen` 的个人 route 会拒绝外部 OIDC Bearer 请求。若该租户已有独立登记的中心 workspace route，团队资金与个人旧资金分离，仍需由 Auth Quote 校验团队实际付款账户及成员资格，个人旧余额不能用于本次调用。普通 API Key 继续遵守原有资金权威与迁移流程。关闭 `auto_provision` 后，原有显式绑定行为不变；已经自动生成、带 `auth_billing_only` 标记的 Key 继续 fail closed，不能回退本地扣费。
 
@@ -346,7 +346,7 @@ Header 约束与语义：
 
 自动中心计费中，Auth 的 reservation、资金流水和结算结果是客户扣费权威；网关保存供应商实际用量、operation 和待投递结算事件，用于对账与故障恢复，不改本地用户余额或套餐使用量。旧本地计费路径的 `gateway_usage_ledger` 仍保留原有去重与审计职责。`request_id` 是网关 operation 标识，`upstream_request_id` 是供应商调用 ID，二者不能互相覆盖；`X-Tabro-*` 只作为关联元数据。
 
-中心模式先预占再派发；供应商调用后，网关把用量与结算 outbox 原子保存，由 worker 向 Auth 投递同一事件。Auth 暂时不可用时不得重新用本地余额扣费；保留未完成 operation 和 outbox 以便重试或核对。供应商调用已经发生但网关未保存实际 usage 的故障仍需用供应商 request ID 对账，不能依赖客户端补报 token。
+中心模式先授权再派发（旧中心路径仍预占）；供应商调用后，网关把用量与结算 outbox 原子保存，由 worker 向 Auth 投递同一事件。Auth 暂时不可用时不得重新用本地余额扣费；保留未完成 operation 和 outbox 以便重试或核对。供应商调用已经发生但网关未保存实际 usage 的故障仍需用供应商 request ID 对账，不能依赖客户端补报 token。
 
 ## 上游 OpenAI / Anthropic 凭证
 

@@ -71,7 +71,7 @@ Outbox 包含 schema version、稳定事件 ID、计量证据引用、冻结价�
 - 改造 [gateway_service.go](../backend/internal/service/gateway_service.go)、[openai_gateway_service.go](../backend/internal/service/openai_gateway_service.go) 的统一用量结算入口，同时覆盖不同 handler/协议，避免只改某一个模型端点。
 - 当前计价异常存在 `ActualCost: 0` 回退。中心路径改为 `pending_pricing`；保留 usage、价格版本和预占等待补偿。
 - 流被客户端中断或 HTTP 返回错误不代表无成本。有可信用量按产品政策结算；明确未执行才 Release；不完整 usage 进入 `pending_usage/reconciliation_required`。
-- 预占须覆盖允许执行的费用上界，限制输出/任务规格，或在进一步产生费用前 Extend。超过预占的异常用量记录差异，不能静默扣成负数或挤占其他成员已分配预算。
+- 旧预占模式须覆盖允许执行的费用上界，或在进一步产生费用前 Extend。仅 OIDC 新 `actual_usage` 模式使用零金额授权，收到完整用量后逐笔扣款；资金不足持久保存未清偿明细、阻止新调用并重试，不能静默扣成负数或挤占其他成员预算。参见 [实际用量计费](BILLING_CENTER_GATEWAY_CN.md#仅-oidc-模式下的实际用量计费)。
 - [media_billing_service.go](../backend/internal/service/media_billing_service.go) 的快照增加 reservation、billing account、owner epoch、价格/权益版本与 period IDs，继续保留原模型和供应商计价证据。
 - [media_billing_worker.go](../backend/internal/service/media_billing_worker.go) 和 [media_billing_reconciliation_repo.go](../backend/internal/repository/media_billing_reconciliation_repo.go) 复用现有数据库租约，分别记录 `usage_persisted_at`、`settlement_enqueued_at`、`settled_at`。原 `UsageRecordedAt` 不可独自表示中心已扣费完成。
 - 已 dispatch/运行中/提交未知的媒体任务不得仅因预占 TTL 到期释放资金；续租和核对都用固定责任快照。用户退出团队后禁止新授权，原合法消费仍可结清。

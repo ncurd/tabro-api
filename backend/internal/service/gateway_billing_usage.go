@@ -133,7 +133,8 @@ func attachCentralUsageMeters(ctx context.Context, cmd *UsageBillingCommand, usa
 		}
 		limit, limitErr := decimal.NewFromString(string(maximum))
 		value, valueErr := decimal.NewFromString(string(actual))
-		if limitErr != nil || valueErr != nil || limit.IsNegative() || value.GreaterThan(limit) {
+		if limitErr != nil || valueErr != nil || limit.IsNegative() ||
+			(e.Quote.Request.ChargeMode != bc.ChargeModeActualUsage && value.GreaterThan(limit)) {
 			return fmt.Errorf("%w: calculated gateway credits exceed the frozen reservation", bc.ErrState)
 		}
 		settlementUsage = map[string]bc.Decimal{gatewayCreditMeter: actual}

@@ -46,6 +46,7 @@ type Handlers struct {
 	ModelPricing    *ModelPricingHandler
 	Admin           *AdminHandlers
 	Gateway         *GatewayHandler
+	BillingUsage    *GatewayBillingUsageHandler
 	OpenAIGateway   *OpenAIGatewayHandler
 	MediaGeneration *MediaGenerationHandler
 	Setting         *SettingHandler

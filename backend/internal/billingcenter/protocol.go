@@ -63,7 +63,13 @@ type ReserveRequest struct {
 	MemberAllocationID string             `json:"member_allocation_id,omitempty"`
 	ExpiresAt          *time.Time         `json:"expires_at,omitempty"`
 	RequestPayloadHash string             `json:"request_payload_hash,omitempty"`
+	// Empty preserves the historical maximum-usage reservation contract.
+	// Actual usage authorizes execution without freezing a speculative debit.
+	ChargeMode string `json:"charge_mode,omitempty"`
 }
+
+const ChargeModeActualUsage = "actual_usage"
+
 type TransitionRequest struct {
 	EventID         string `json:"event_id"`
 	ExpectedVersion int64  `json:"expected_version"`

@@ -53,21 +53,19 @@ func (p *policyCreditPricer) MaximumCredit(ctx context.Context, _ *APIKey, _ str
 	return maximum, snapshot, err
 }
 
-func TestOIDCBillingFreezesMultiplierAndDailyCutoffAcrossRetriesAndSettingsChanges(t *testing.T) {
+func TestOIDCBillingUsesActualCreditsImmediatelyAndFreezesPricingAcrossSettingsChanges(t *testing.T) {
 	s, repo, authority, principal := gatewayBillingFixture()
 	settings, settingsRepo := gatewayOIDCBillingSettings()
 	s.settings = settings
 	pricer := &policyCreditPricer{}
 	s.creditPricer = pricer
 	body := []byte(`{"model":"gpt-6-sol","max_output_tokens":50}`)
-	before := time.Now()
 	e, err := s.PrepareForKey(context.Background(), *repo.route, principal, "proof", "/v1/responses", "daily", body, nil)
 	require.NoError(t, err)
-	require.True(t, e.SettlementNotBefore.After(before))
-	zone, err := time.LoadLocation("Asia/Shanghai")
-	require.NoError(t, err)
-	require.Equal(t, "00:00", e.SettlementNotBefore.In(zone).Format("15:04"))
-	require.Equal(t, bc.Decimal("25.0000000001"), e.Quote.Request.MaximumUsage[gatewayCreditMeter], "admission rounds upward with the existing floating-point safety margin")
+	require.True(t, e.SettlementNotBefore.IsZero(), "actual usage must not wait for the historical daily cutoff")
+	require.Equal(t, bc.ChargeModeActualUsage, e.Quote.Request.ChargeMode)
+	require.Equal(t, bc.Decimal("0"), e.Quote.Request.MaximumUsage[gatewayCreditMeter], "model output limits must never freeze a speculative credit amount")
+	require.Equal(t, bc.ChargeModeActualUsage, authority.quoted.ChargeMode)
 	require.NotEmpty(t, repo.op.GatewayPricingSnapshot)
 
 	settingsRepo.values[SettingKeyOIDCBillingRateMultiplier] = "9"
@@ -78,6 +76,7 @@ func TestOIDCBillingFreezesMultiplierAndDailyCutoffAcrossRetriesAndSettingsChang
 	require.Equal(t, e.GatewayPricingSnapshot, again.GatewayPricingSnapshot)
 	require.Equal(t, e.SettlementNotBefore, again.SettlementNotBefore)
 	require.Equal(t, e.Quote.Request.MaximumUsage, again.Quote.Request.MaximumUsage)
+	require.Equal(t, e.Quote.Request.ChargeMode, again.Quote.Request.ChargeMode)
 	require.Equal(t, 1, authority.reserves)
 	require.Equal(t, 1, pricer.calls)
 	restored, err := s.Restore(context.Background(), e.Snapshot())
@@ -105,6 +104,58 @@ func TestOIDCBillingFreezesMultiplierAndDailyCutoffAcrossRetriesAndSettingsChang
 	tampered.SettlementNotBefore = tampered.SettlementNotBefore.Add(-time.Hour)
 	_, err = s.Restore(context.Background(), tampered)
 	require.ErrorIs(t, err, bc.ErrConflict)
+	tampered = e.Snapshot()
+	tampered.Quote.Request.ChargeMode = ""
+	_, err = s.Restore(context.Background(), tampered)
+	require.ErrorIs(t, err, bc.ErrConflict)
+}
+
+func TestOIDCBillingRetainsLegacyReservationAndDailyCutoffIncludingUnboundIntent(t *testing.T) {
+	for _, state := range []bc.State{bc.Reserved, bc.Intent} {
+		t.Run(string(state), func(t *testing.T) {
+			s, repo, authority, principal := gatewayBillingFixture()
+			pricer := &policyCreditPricer{}
+			s.creditPricer = pricer
+			body := []byte(`{"model":"gpt-6-sol","max_output_tokens":50}`)
+			first, err := s.PrepareForKey(context.Background(), *repo.route, principal, "proof", "/v1/responses", "legacy", body, nil)
+			require.NoError(t, err)
+			cutoff := time.Now().Add(time.Hour).UTC().Truncate(time.Microsecond)
+			intent, err := bc.NewScheduledIntent(first.Key, principal.Subject, principal.Tenant, "central", first.Quote.Request, cutoff, first.GatewayPricingSnapshot)
+			require.NoError(t, err)
+			repo.op.SettlementNotBefore = cutoff
+			repo.op.RequestFingerprint = intent.RequestFingerprint
+			repo.op.State = state
+			s.settings, _ = gatewayOIDCBillingSettings()
+			again, err := s.PrepareForKey(context.Background(), *repo.route, principal, "fresh-proof", "/v1/responses", "legacy", body, nil)
+			require.NoError(t, err)
+			require.Empty(t, again.Quote.Request.ChargeMode)
+			require.Equal(t, first.Quote.Request.MaximumUsage, again.Quote.Request.MaximumUsage)
+			require.Equal(t, cutoff, again.SettlementNotBefore)
+			require.Equal(t, 1, authority.quoteCalls)
+			require.Equal(t, 1, authority.reserves)
+			require.Equal(t, 1, pricer.calls)
+		})
+	}
+}
+
+type unsupportedActualBillingAuthority struct{ *gatewayBillingAuthorityStub }
+
+func (s *unsupportedActualBillingAuthority) Quote(ctx context.Context, request bc.ProofRequest[bc.QuoteRequest]) (bc.Quote, error) {
+	quote, err := s.gatewayBillingAuthorityStub.Quote(ctx, request)
+	quote.Request.ChargeMode = ""
+	return quote, err
+}
+
+func TestOIDCBillingRequiresAuthToAcknowledgeActualUsageContract(t *testing.T) {
+	s, repo, baseAuthority, principal := gatewayBillingFixture()
+	s.settings, _ = gatewayOIDCBillingSettings()
+	s.creditPricer = &policyCreditPricer{}
+	s.authority = &unsupportedActualBillingAuthority{baseAuthority}
+	execution, err := s.PrepareForKey(context.Background(), *repo.route, principal, "proof", "/v1/responses", "unsupported", []byte(`{"model":"gpt-6-sol","max_output_tokens":50}`), nil)
+	require.ErrorIs(t, err, bc.ErrState)
+	require.Nil(t, execution)
+	require.Zero(t, baseAuthority.reserves)
+	require.Empty(t, repo.op.OperationID)
 }
 
 func TestOIDCBillingSwitchEnablesVerifiedAutomaticIdentity(t *testing.T) {

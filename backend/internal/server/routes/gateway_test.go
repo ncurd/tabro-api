@@ -38,6 +38,20 @@ func newGatewayRoutesTestRouter() *gin.Engine {
 	return router
 }
 
+func TestGatewayBillingUsageRouteBypassesInvocationAuthenticationAndRouting(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	authCalls := 0
+	RegisterGatewayRoutes(router, &handler.Handlers{}, servermiddleware.APIKeyAuthMiddleware(func(c *gin.Context) {
+		authCalls++
+		c.AbortWithStatus(http.StatusTeapot)
+	}), nil, nil, nil, nil, nil, &config.Config{})
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/billing/usage", nil))
+	require.Equal(t, http.StatusServiceUnavailable, w.Code)
+	require.Zero(t, authCalls, "billing reads never enter the supplier admission chain")
+}
+
 func TestGatewayRoutesOpenAIResponsesCompactPathIsRegistered(t *testing.T) {
 	router := newGatewayRoutesTestRouter()
 

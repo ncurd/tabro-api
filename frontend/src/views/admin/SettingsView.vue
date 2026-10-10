@@ -1179,15 +1179,11 @@
                   :disabled="!form.oidc_billing_enabled && !oidcBillingCanEnable"
                 />
               </div>
-              <div v-if="form.oidc_billing_enabled" class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+              <div v-if="form.oidc_billing_enabled" class="grid grid-cols-1 gap-4 lg:grid-cols-2">
                 <div>
                   <label for="oidc-billing-multiplier" class="input-label">{{ t('admin.settings.oidc.billingMultiplier') }}</label>
                   <input id="oidc-billing-multiplier" v-model.number="form.oidc_billing_rate_multiplier" type="number" min="0" step="any" required class="input" />
                   <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.oidc.billingMultiplierHint') }}</p>
-                </div>
-                <div>
-                  <label for="oidc-billing-time" class="input-label">{{ t('admin.settings.oidc.billingTime') }}</label>
-                  <input id="oidc-billing-time" v-model="form.oidc_billing_settlement_time" type="time" required class="input" />
                 </div>
                 <div>
                   <label for="oidc-billing-timezone" class="input-label">{{ t('admin.settings.oidc.billingTimezone') }}</label>

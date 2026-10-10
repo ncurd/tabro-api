@@ -261,11 +261,11 @@ func (r *BillingCenterRepository) EnqueueTx(ctx context.Context, tx *sql.Tx, eve
 			return false, bc.ErrState
 		}
 	}
-	// The frozen operation owns the cutoff. Releases free failed-call holds
-	// immediately; successful usage remains durable and held until the cutoff.
-	// A call that finishes after its cutoff is eligible immediately.
+	// Legacy products retain their frozen cutoff. Measured gateway credits are
+	// due immediately, including an old request that completes after upgrading;
+	// its original admission identity and cutoff remain intact for replay.
 	var notBefore any
-	if event.Kind == bc.SettleEvent {
+	if event.Kind == bc.SettleEvent && !isMeasuredGatewayCreditOperation(o) {
 		notBefore = billingSettlementDeadline(o)
 	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO billing_center_outbox
@@ -277,6 +277,18 @@ func (r *BillingCenterRepository) EnqueueTx(ctx context.Context, tx *sql.Tx, eve
 	_, err = tx.ExecContext(ctx, `UPDATE billing_center_operations SET state=$4,version=version+1,updated_at=NOW()
  WHERE producer_client_id=$1 AND origin_app_id=$2 AND operation_id=$3`, event.ProducerClientID, event.OriginAppID, event.OperationID, next)
 	return err == nil, err
+}
+
+func isMeasuredGatewayCreditOperation(o bc.Operation) bool {
+	if len(o.GatewayPricingSnapshot) == 0 {
+		return false
+	}
+	var request bc.ReserveRequest
+	if json.Unmarshal(o.RequestPayload, &request) != nil || len(request.MaximumUsage) != 1 {
+		return false
+	}
+	_, ok := request.MaximumUsage["credit_amount"]
+	return ok
 }
 
 // Claim uses database time, SKIP LOCKED and a fresh token per lease. An expired
