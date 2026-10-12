@@ -74,6 +74,27 @@ func TestOIDCBillingSettingDefaultsAndRoundTrip(t *testing.T) {
 	require.Contains(t, string(encoded), `"oidc_billing_enabled":true`)
 }
 
+func TestResourceServerKeepsAuthKeyManagementWhenBillingFlagIsOff(t *testing.T) {
+	ctx := context.Background()
+	repo := &oidcOnlySettingRepo{values: map[string]string{SettingKeyOIDCBillingEnabled: "false"}}
+	cfg := oidcBillingTestConfig()
+	svc := NewSettingService(repo, cfg)
+	settings, err := svc.GetPublicSettings(ctx)
+	require.NoError(t, err)
+	require.False(t, settings.OIDCBillingEnabled)
+	require.True(t, settings.AuthAccessKeysRequired)
+	require.Equal(t, cfg.Gateway.ResourceServer.IssuerURL, settings.AccountCenterURL)
+	injected, err := svc.GetPublicSettingsForInjection(ctx)
+	require.NoError(t, err)
+	encoded, err := json.Marshal(injected)
+	require.NoError(t, err)
+	require.Contains(t, string(encoded), `"auth_access_keys_required":true`)
+	cfg.Deployment.AccountCenterURL = "https://accounts.example/auth"
+	settings, err = svc.GetPublicSettings(ctx)
+	require.NoError(t, err)
+	require.Equal(t, cfg.Deployment.AccountCenterURL, settings.AccountCenterURL)
+}
+
 func TestOIDCBillingRejectsInvalidPolicyWithoutWriting(t *testing.T) {
 	tests := []struct {
 		name, code string

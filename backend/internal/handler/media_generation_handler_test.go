@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -69,6 +70,40 @@ func TestMediaGenerationHandler_GetVideoGenerationEnforcesOwnership(t *testing.T
 	h.GetVideoGeneration(c)
 
 	require.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestOIDCMediaHandlerRejectsOtherEnterpriseAndUnattributedLegacyResults(t *testing.T) {
+	for _, kind := range []string{service.MediaJobKindVideoGeneration, service.MediaJobKindAudioSpeech} {
+		for _, test := range []struct {
+			name, tenant string
+			legacy       bool
+			status       int
+		}{
+			{"same enterprise", "team-a", false, http.StatusOK},
+			{"other enterprise", "team-b", false, http.StatusNotFound},
+			{"legacy workspace unknown", "team-a", true, http.StatusNotFound},
+		} {
+			t.Run(kind+test.name, func(t *testing.T) {
+				job := &service.MediaGenerationJob{PublicID: "job-owned", Kind: kind, Status: service.MediaJobStatusSucceeded, UserID: 7, APIKeyID: 8, GroupID: int64PtrForMediaHandlerTest(3)}
+				issuer, subject, tenant := "https://auth.example", "member", "team-a"
+				if !test.legacy {
+					job.BillingSnapshotJSON = (&service.MediaBillingSnapshot{Version: 1, UserID: 7, APIKeyID: 8, OIDCIssuer: &issuer, OIDCSubject: &subject, OIDCTenant: &tenant}).JSON()
+				}
+				h := &MediaGenerationHandler{mediaService: &mediaGenerationServiceStub{job: job}}
+				c, w := newMediaGenerationHandlerTestContext(http.MethodGet, "/v1/media/job-owned", "")
+				c.Params = gin.Params{{Key: "id", Value: job.PublicID}}
+				ctx := context.WithValue(c.Request.Context(), ctxkey.OIDCIssuer, issuer)
+				ctx = context.WithValue(ctx, ctxkey.OIDCSubject, subject)
+				c.Request = c.Request.WithContext(context.WithValue(ctx, ctxkey.OIDCTenant, test.tenant))
+				if kind == service.MediaJobKindVideoGeneration {
+					h.GetVideoGeneration(c)
+				} else {
+					h.GetAudioSpeechJob(c)
+				}
+				require.Equal(t, test.status, w.Code, w.Body.String())
+			})
+		}
+	}
 }
 
 func newMediaGenerationHandlerTestContext(method, path, body string) (*gin.Context, *httptest.ResponseRecorder) {

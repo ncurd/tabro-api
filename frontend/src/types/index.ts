@@ -102,6 +102,7 @@ export interface CustomEndpoint {
 }
 
 export interface PublicSettings {
+	auth_access_keys_required?: boolean
 	internal_only?: boolean
 	account_center_url?: string
   registration_enabled: boolean

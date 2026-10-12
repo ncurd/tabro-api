@@ -137,6 +137,7 @@ type DefaultSubscriptionSetting struct {
 }
 
 type PublicSettings struct {
+	AuthAccessKeysRequired           bool
 	InternalOnly                     bool
 	AccountCenterURL                 string
 	RegistrationEnabled              bool

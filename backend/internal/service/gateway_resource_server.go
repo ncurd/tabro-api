@@ -13,6 +13,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -47,6 +48,11 @@ type GatewayOIDCPrincipal struct {
 	// AuthBilled is set only by resource-server authentication for an
 	// auto-provisioning deployment. It is not read from token claims.
 	AuthBilled bool
+	// SubjectProof is a fresh Auth proof for a centrally validated opaque key.
+	// It remains in request memory and must never be serialized or persisted.
+	SubjectProof     string `json:"-"`
+	AccessKeyID      string
+	AccessKeyVersion int64
 }
 
 type gatewayOIDCDiscovery struct {
@@ -179,10 +185,14 @@ func (s *GatewayResourceServer) Authenticate(ctx context.Context, rawToken strin
 	if err != nil {
 		return nil, nil, err
 	}
+	return s.authenticatePrincipal(ctx, principal, false)
+}
+
+func (s *GatewayResourceServer) authenticatePrincipal(ctx context.Context, principal *GatewayOIDCPrincipal, forceAuth bool) (*APIKey, *GatewayOIDCPrincipal, error) {
 	if s.apiKeyService == nil {
 		return nil, nil, ErrGatewayOIDCUnavailable
 	}
-	autoProvision := s.cfg.AutoProvision
+	autoProvision := s.cfg.AutoProvision || forceAuth
 	if s.settings != nil {
 		policy, policyErr := s.settings.GetOIDCBillingPolicy(ctx)
 		if policyErr != nil {
@@ -225,12 +235,18 @@ func (s *GatewayResourceServer) Authenticate(ctx context.Context, rawToken strin
 
 // Verify performs the complete OAuth Resource Server validation policy.
 func (s *GatewayResourceServer) Verify(ctx context.Context, rawToken string) (*GatewayOIDCPrincipal, error) {
+	return s.verify(ctx, rawToken, "")
+}
+
+// directPermission is set only after an authenticated Auth validation response.
+// Ordinary OAuth never acquires the direct client's exceptional trust policy.
+func (s *GatewayResourceServer) verify(ctx context.Context, rawToken, directPermission string) (*GatewayOIDCPrincipal, error) {
 	if s != nil && s.live {
 		server, err := s.currentResourceServer(ctx)
 		if err != nil {
 			return nil, ErrGatewayOIDCUnavailable
 		}
-		return server.Verify(ctx, rawToken)
+		return server.verify(ctx, rawToken, directPermission)
 	}
 	if s == nil || !s.cfg.Enabled {
 		return nil, ErrGatewayOIDCTokenInvalid
@@ -246,6 +262,7 @@ func (s *GatewayResourceServer) Verify(ctx context.Context, rawToken string) (*G
 	}
 	claims := jwt.MapClaims{}
 	parserOptions := []jwt.ParserOption{
+		jwt.WithJSONNumber(),
 		jwt.WithValidMethods(validMethods),
 		jwt.WithIssuer(strings.TrimSpace(s.cfg.IssuerURL)),
 		jwt.WithAudience(strings.TrimSpace(s.cfg.Audience)),
@@ -294,7 +311,8 @@ func (s *GatewayResourceServer) Verify(ctx context.Context, rawToken string) (*G
 	}
 
 	clientID, err := gatewayOIDCClientID(claims)
-	if err != nil || !gatewayOIDCValueAllowed(clientID, splitGatewayOIDCList(s.cfg.AllowedClientIDs)) {
+	direct := directPermission != ""
+	if err != nil || direct && clientID != "tabro-api" || !direct && (clientID == "tabro-api" || !gatewayOIDCValueAllowed(clientID, splitGatewayOIDCList(s.cfg.AllowedClientIDs))) {
 		return nil, ErrGatewayOIDCTokenInvalid
 	}
 
@@ -303,11 +321,11 @@ func (s *GatewayResourceServer) Verify(ctx context.Context, rawToken string) (*G
 		tenant, _ = gatewayOIDCStringClaim(claims, claimName)
 		tenant = strings.TrimSpace(tenant)
 	}
-	if s.cfg.RequireTenant && tenant == "" {
+	if (s.cfg.RequireTenant || direct) && tenant == "" {
 		return nil, ErrGatewayOIDCTokenInvalid
 	}
 
-	actors, err := s.validateDelegation(claims)
+	actors, err := s.validateDelegation(claims, direct)
 	if err != nil {
 		return nil, err
 	}
@@ -323,20 +341,46 @@ func (s *GatewayResourceServer) Verify(ctx context.Context, rawToken string) (*G
 	// tenant, or delegation chain is an invalid token (401), not a valid token
 	// that merely lacks permission (403).
 	scopes := gatewayOIDCScopes(claims)
-	for _, required := range splitGatewayOIDCList(s.cfg.RequiredScopes) {
+	requiredScopes := splitGatewayOIDCList(s.cfg.RequiredScopes)
+	if direct {
+		switch directPermission {
+		case "api.read":
+			requiredScopes = []string{"models.read"}
+		case "api.invoke":
+			requiredScopes = []string{"llm.invoke"}
+		default:
+			return nil, ErrGatewayOIDCTokenInvalid
+		}
+	}
+	for _, required := range requiredScopes {
 		if _, ok := scopes[required]; !ok {
 			return nil, ErrGatewayOIDCScopeDenied
 		}
 	}
+	accessKeyID, _ := gatewayOIDCStringClaim(claims, "access_key_id")
+	accessKeyVersion := int64(0)
+	if value, ok := claims["access_key_version"]; ok {
+		switch number := value.(type) {
+		case json.Number:
+			accessKeyVersion, _ = number.Int64()
+		case string:
+			accessKeyVersion, _ = strconv.ParseInt(number, 10, 64)
+		}
+	}
+	if direct && (accessKeyID == "" || accessKeyVersion <= 0) {
+		return nil, ErrGatewayOIDCTokenInvalid
+	}
 
 	return &GatewayOIDCPrincipal{
-		Issuer:     issuer,
-		Subject:    subject,
-		Tenant:     tenant,
-		ClientID:   clientID,
-		ExpiresAt:  expiresAt.Time,
-		Scopes:     gatewayOIDCScopeSlice(scopes),
-		ActorChain: actors,
+		Issuer:           issuer,
+		Subject:          subject,
+		Tenant:           tenant,
+		ClientID:         clientID,
+		ExpiresAt:        expiresAt.Time,
+		Scopes:           gatewayOIDCScopeSlice(scopes),
+		ActorChain:       actors,
+		AccessKeyID:      accessKeyID,
+		AccessKeyVersion: accessKeyVersion,
 	}, nil
 }
 
@@ -500,23 +544,33 @@ func (s *GatewayResourceServer) fetchJSON(ctx context.Context, endpoint string, 
 	return nil
 }
 
-func (s *GatewayResourceServer) validateDelegation(claims jwt.MapClaims) ([]string, error) {
+func (s *GatewayResourceServer) validateDelegation(claims jwt.MapClaims, directFlags ...bool) ([]string, error) {
+	direct := len(directFlags) > 0 && directFlags[0]
 	actorClaim := strings.TrimSpace(s.cfg.TokenExchange.ActorClaim)
+	if direct {
+		actorClaim = "act"
+	}
 	actorValue, actorPresent := gatewayOIDCLookupClaim(claims, actorClaim)
 	isExchange := gatewayOIDCIsTokenExchange(claims)
-	if (s.cfg.TokenExchange.RequireActor || isExchange) && (!actorPresent || actorValue == nil) {
+	if (s.cfg.TokenExchange.RequireActor || isExchange || direct) && (!actorPresent || actorValue == nil) {
 		return nil, ErrGatewayOIDCTokenInvalid
 	}
 	if !actorPresent || actorValue == nil {
 		return nil, nil
 	}
 	allowedActors := gatewayOIDCSet(splitGatewayOIDCList(s.cfg.TokenExchange.AllowedActorClientIDs))
+	if direct {
+		allowedActors = gatewayOIDCSet([]string{"tabro-api"})
+	}
 	// Delegation is deny-by-default. Merely presenting a well-formed `act`
 	// object does not authorize an arbitrary actor.
 	if len(allowedActors) == 0 {
 		return nil, ErrGatewayOIDCTokenInvalid
 	}
 	maxDepth := s.cfg.TokenExchange.MaxDelegationDepth
+	if direct {
+		maxDepth = 1
+	}
 	if maxDepth <= 0 {
 		maxDepth = 4
 	}

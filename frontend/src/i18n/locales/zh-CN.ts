@@ -543,6 +543,12 @@ export default {
     "subscription": "订阅"
   },
   "keys": {
+    "authKeysTitle": "在 Auth 账户中心管理访问密钥",
+    "authKeysDescription": "请在 Auth 账户中心为当前个人或企业身份创建密钥。OIDC 模式下，原网关本地密钥已禁用。",
+    "authKeysDirectDisabled": "网关直连默认关闭。只有平台管理员开启后才能选择直连用途；通过业务系统使用模型仍沿用正常登录流程。",
+    "authKeysManage": "前往 Auth 管理访问密钥",
+    "authKeysMissingCenter": "尚未配置 Auth 账户中心地址。",
+    "settingsUnavailable": "正在加载密钥管理设置。如长时间未显示，请刷新页面。",
     'scopeLabel': '模型访问范围',
     'scopePublic': '默认公共模型',
     'scopeSingle': '单个分组',

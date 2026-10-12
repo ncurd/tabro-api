@@ -194,7 +194,7 @@ func (s *MediaGenerationService) ListClonedVoices(ctx context.Context, meta Medi
 			}
 			resourceMeta.GroupID = job.GroupID
 		}
-		if ownsClonedVoice(resourceMeta, job) && job.Status == MediaJobStatusSucceeded {
+		if ownsClonedVoice(resourceMeta, job) && MediaResourceMatchesWorkspace(ctx, resourceMeta.APIKey, job) && job.Status == MediaJobStatusSucceeded {
 			voices = append(voices, clonedVoiceResource(job))
 		}
 	}
@@ -305,7 +305,7 @@ func (s *MediaGenerationService) getOwnedClonedVoice(ctx context.Context, meta M
 	if err != nil {
 		return nil, err
 	}
-	if !ownsClonedVoice(meta, job) {
+	if !ownsClonedVoice(meta, job) || !MediaResourceMatchesWorkspace(ctx, meta.APIKey, job) {
 		return nil, ErrClonedVoiceNotFound
 	}
 	return job, nil

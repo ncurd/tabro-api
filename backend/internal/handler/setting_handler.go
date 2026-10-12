@@ -60,6 +60,7 @@ func (h *SettingHandler) GetPublicSettings(c *gin.Context) {
 		LinuxDoOAuthEnabled:              settings.LinuxDoOAuthEnabled,
 		OIDCOnlyEnabled:                  settings.OIDCOnlyEnabled,
 		OIDCBillingEnabled:               settings.OIDCBillingEnabled,
+		AuthAccessKeysRequired:           settings.AuthAccessKeysRequired,
 		OIDCBillingSupported:             settings.OIDCBillingSupported,
 		OIDCBillingRateMultiplier:        settings.OIDCBillingRateMultiplier,
 		OIDCBillingSettlementTime:        settings.OIDCBillingSettlementTime,

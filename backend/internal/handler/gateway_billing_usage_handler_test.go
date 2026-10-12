@@ -30,6 +30,32 @@ type billingUsageReaderStub struct {
 	calls int
 }
 
+type centralKeyUsageVerifierStub struct{ billingUsageVerifierStub }
+
+func (s *centralKeyUsageVerifierStub) VerifyAccessKey(_ context.Context, _ string, permission string) (*service.GatewayOIDCPrincipal, error) {
+	if permission != "api.read" {
+		return nil, service.ErrGatewayOIDCScopeDenied
+	}
+	s.calls++
+	return s.principal, s.err
+}
+
+func TestGatewayBillingUsageRevalidatesReadOnlyCentralKeyOnEveryRead(t *testing.T) {
+	h, repo, _ := billingUsageTestHandler()
+	verifier := &centralKeyUsageVerifierStub{billingUsageVerifierStub{principal: &service.GatewayOIDCPrincipal{Issuer: "https://auth.example", Subject: "member", Tenant: "team-a", ClientID: "tabro-api", Scopes: []string{"models.read"}, AccessKeyID: "central-key"}}}
+	h.verifier = verifier
+	for range 2 {
+		w := billingUsageRequest(h, "", "Bearer tbrk_central-key")
+		require.Equal(t, http.StatusOK, w.Code)
+	}
+	verifier.err = service.ErrGatewayOIDCScopeDenied
+	w := billingUsageRequest(h, "", "Bearer tbrk_central-key")
+	require.Equal(t, http.StatusForbidden, w.Code)
+	require.Equal(t, 3, verifier.calls)
+	require.Equal(t, 2, repo.calls)
+	require.Equal(t, "team-a", repo.query.Identity.Tenant)
+}
+
 func (s *billingUsageReaderStub) ListGatewayBillingUsage(_ context.Context, q service.GatewayBillingUsageQuery) (*service.GatewayBillingUsagePage, error) {
 	s.calls++
 	s.query = q

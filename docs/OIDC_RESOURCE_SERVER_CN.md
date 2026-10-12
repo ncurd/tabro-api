@@ -375,6 +375,20 @@ OpenAI、Anthropic 等供应商的 API Key 或上游 OAuth 凭证应配置在网
 
 缺少 Scope 是授权失败，因此返回 `403`；Token 无效或发给了错误资源是认证失败，因此返回 `401`。不要为了减少 `401` 而放宽 audience、issuer 或签名校验。
 
+Tabro Agent 报 `category=model_token_broker_error; status=403` 时，拒绝来自 Agent ControlPlane 的模型 Token Broker，模型请求尚未发送到本网关。这与本表中的网关 `403` 属于不同阶段，不能通过让新用户先登录 API 网页或创建本地 Key 处理。当前自动接入模式不要求网页登录。应查看 ControlPlane 对应 Run 的固定拒绝码：运行模型授权、issuer、登录/交换客户端不匹配，或自定义模型提供方的有效 Agent 套餐权限不足。平台调用不要求 Agent 套餐；Agent 按受保护安装配置识别内置提供方，以及连接目标完全相同且没有额外凭据覆盖的旧平台别名，其他自定义提供方仍检查套餐。Agent 的原因码说明见 `tabro-agent-framework/docs/model-provider-oauth.md`；旧版仅有通用状态时，需要升级 Agent 的 ControlPlane 和 Runtime Worker 才能显示具体原因码。
+
+普通团队成员可以使用团队共享积分或本人已分配的额度，无需购买 Agent 套餐。计费租户来自已验证 Token；调用时应使用对应团队工作区，不能因为用户属于某个有余额的团队，就改扣与当前 Token 租户不同的账户。成员暂停、未获分配额度或资金不足时，Auth 仍拒绝扣费。
+
+## Auth 集中长效访问密钥
+
+启用资源服务器或 OIDC 计费后，网关不再接受、创建或修改普通本地 API Key；关闭单独的计费开关不会恢复旧 Key。非 OIDC 安装保留原有本地 Key 流程。网关密钥页面统一进入 Auth 的 `/Identity/Account/Manage/AccessKeys`，不再提供本地创建、自定义密钥或配置导出表单。
+
+Auth 签发的集中密钥以 `tbrk_` 开头，绑定签发时的用户、个人或企业工作区及用途。直接调用网关必须使用 `direct_api`、目标应用 `tabro-api` 的密钥。Auth 的平台直连开关默认关闭；管理员未开启时，用户无法选择直连用途，验证接口也会拒绝已有直连密钥。业务系统继续使用原有短期 OAuth 模型 Token，不受该直连开关影响，任何请求头都不能自称来自业务系统绕过验证。
+
+每个长效 Key 请求均由网关使用计费 producer 的 `billing.read` Bearer Token 调用 Auth 的 `/internal/access-keys/v1/validate`，不缓存成功授权，也不保存用户明文 Key。普通读取要求 `api.read`，调用、删除、Token 计数和 WebSocket 要求 `api.invoke`。Auth 返回短期签名 subject proof；网关核验 issuer、audience、用户、工作区、应用、单层 actor 和 Key ID/version 后，复用内部 managed 路由记录。计费继续使用该短期 proof，由 Auth 再次检查密钥和成员当前状态。
+
+媒体资源读取、列表和删除还必须匹配创建时账务快照中的 issuer、用户和工作区。同一用户切换到另一企业不能读取原企业的媒体；缺少可验证工作区归属的历史资源在 OIDC 请求中拒绝访问，不根据当前默认工作区补猜。
+
 ## 数据库迁移与上线顺序
 
 升级版本在服务启动时自动执行相关数据库迁移：

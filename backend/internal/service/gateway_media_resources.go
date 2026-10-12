@@ -2,13 +2,39 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 
+	bc "github.com/Wei-Shaw/sub2api/internal/billingcenter"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/tidwall/gjson"
 )
 
 var ErrGatewayMediaResourceNotFound = infraerrors.NotFound("MEDIA_RESOURCE_NOT_FOUND", "Media resource not found")
+
+// MediaResourceMatchesWorkspace fences media to its original Auth workspace.
+// A managed key is shared across a user's enterprises. Missing historical
+// workspace evidence must never be inferred from the current default tenant.
+func MediaResourceMatchesWorkspace(ctx context.Context, key *APIKey, job *MediaGenerationJob) bool {
+	issuer, issuerPresent := ctx.Value(ctxkey.OIDCIssuer).(string)
+	subject, subjectPresent := ctx.Value(ctxkey.OIDCSubject).(string)
+	tenant, tenantPresent := ctx.Value(ctxkey.OIDCTenant).(string)
+	if !issuerPresent && !subjectPresent && !tenantPresent && !bc.IsCentral(ctx) && (key == nil || !key.OIDCManaged && !key.AuthBillingOnly) {
+		return true
+	}
+	if issuer == "" || subject == "" || tenant == "" || job == nil {
+		return false
+	}
+	var frozen MediaBillingSnapshot
+	if json.Unmarshal(job.BillingSnapshotJSON, &frozen) != nil || frozen.Version != 1 ||
+		frozen.UserID != job.UserID || frozen.APIKeyID != job.APIKeyID ||
+		frozen.OIDCIssuer == nil || *frozen.OIDCIssuer != issuer ||
+		frozen.OIDCSubject == nil || *frozen.OIDCSubject != subject ||
+		frozen.OIDCTenant == nil || *frozen.OIDCTenant != tenant {
+		return false
+	}
+	return true
+}
 
 // UsesDynamicGatewayGroups distinguishes scopes that resolve a pool per request
 // from historical credentials that retain their one-group ownership behavior.
@@ -103,7 +129,7 @@ func (s *APIKeyService) ResolveGatewayMediaResource(ctx context.Context, key *AP
 	if err != nil {
 		return nil, nil, ErrGatewayRouteUnavailable
 	}
-	if key == nil || job == nil || job.Kind != kind || job.UserID != key.UserID || job.APIKeyID != key.ID || job.GroupID == nil {
+	if key == nil || job == nil || job.Kind != kind || job.UserID != key.UserID || job.APIKeyID != key.ID || job.GroupID == nil || !MediaResourceMatchesWorkspace(ctx, key, job) {
 		return nil, nil, ErrGatewayMediaResourceNotFound
 	}
 	candidates, err := s.gatewayMediaAllowedCandidates(ctx, key)

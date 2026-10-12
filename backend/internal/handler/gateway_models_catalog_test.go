@@ -31,34 +31,38 @@ func (s *gatewayModelsCatalogRepoStub) ListSchedulableByGroupID(context.Context,
 	return s.accounts, nil
 }
 
-func gatewayModelsCatalogRouter(repo *gatewayModelsCatalogRepoStub, platform string) *gin.Engine {
+func gatewayModelsCatalogRouter(repo *gatewayModelsCatalogRepoStub, platform string, pricing ...*service.PricingService) *gin.Engine {
+	var billing *service.BillingService
+	if len(pricing) > 0 {
+		billing = service.NewBillingService(nil, pricing[0])
+	}
 	gw := service.NewGatewayService(
-		repo, // accountRepo
-		nil,  // groupRepo
-		nil,  // usageLogRepo
-		nil,  // usageBillingRepo
-		nil,  // userRepo
-		nil,  // userSubRepo
-		nil,  // userGroupRateRepo
-		nil,  // cache
-		nil,  // cfg
-		nil,  // schedulerSnapshot
-		nil,  // concurrencyService
-		nil,  // billingService
-		nil,  // rateLimitService
-		nil,  // billingCacheService
-		nil,  // identityService
-		nil,  // httpUpstream
-		nil,  // deferredService
-		nil,  // claudeTokenProvider
-		nil,  // sessionLimitCache
-		nil,  // rpmCache
-		nil,  // digestStore
-		nil,  // settingService
-		nil,  // tlsFPProfileService
-		nil,  // channelService
-		nil,  // resolver
-		nil,  // balanceNotifyService
+		repo,    // accountRepo
+		nil,     // groupRepo
+		nil,     // usageLogRepo
+		nil,     // usageBillingRepo
+		nil,     // userRepo
+		nil,     // userSubRepo
+		nil,     // userGroupRateRepo
+		nil,     // cache
+		nil,     // cfg
+		nil,     // schedulerSnapshot
+		nil,     // concurrencyService
+		billing, // billingService
+		nil,     // rateLimitService
+		nil,     // billingCacheService
+		nil,     // identityService
+		nil,     // httpUpstream
+		nil,     // deferredService
+		nil,     // claudeTokenProvider
+		nil,     // sessionLimitCache
+		nil,     // rpmCache
+		nil,     // digestStore
+		nil,     // settingService
+		nil,     // tlsFPProfileService
+		nil,     // channelService
+		nil,     // resolver
+		nil,     // balanceNotifyService
 	)
 	h := &GatewayHandler{gatewayService: gw}
 	router := gin.New()

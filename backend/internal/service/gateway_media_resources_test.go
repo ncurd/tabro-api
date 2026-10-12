@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/stretchr/testify/require"
 )
 
@@ -16,6 +17,61 @@ func mediaScopeFixture(t *testing.T) (*APIKeyService, *APIKey, *gatewayRoutingGr
 	job := &MediaGenerationJob{PublicID: "voice_owned", Kind: MediaJobKindVoiceClone, Provider: MediaProviderDashScope, Platform: PlatformDashScope, UserID: 20, APIKeyID: 10, GroupID: &id, AccountID: 41, Status: MediaJobStatusSucceeded}
 	require.NoError(t, jobs.Create(context.Background(), job))
 	return &APIKeyService{groupRepo: groups, GatewayMediaResources: jobs}, routingTestKey(), groups, jobs, job
+}
+
+func mediaWorkspaceContext(issuer, subject, tenant string) context.Context {
+	ctx := context.WithValue(context.Background(), ctxkey.OIDCIssuer, issuer)
+	ctx = context.WithValue(ctx, ctxkey.OIDCSubject, subject)
+	return context.WithValue(ctx, ctxkey.OIDCTenant, tenant)
+}
+
+func freezeMediaWorkspace(job *MediaGenerationJob, issuer, subject, tenant string) {
+	job.BillingSnapshotJSON = (&MediaBillingSnapshot{Version: 1, UserID: job.UserID, APIKeyID: job.APIKeyID, OIDCIssuer: &issuer, OIDCSubject: &subject, OIDCTenant: &tenant}).JSON()
+}
+
+func TestOIDCMediaResourceCannotCrossEnterpriseOrRecoverMissingHistoricalWorkspace(t *testing.T) {
+	for _, test := range []struct {
+		name, issuer, tenant string
+		historical           bool
+		allowed              bool
+	}{
+		{"same enterprise", "https://auth.example", "team-a", false, true},
+		{"different enterprise", "https://auth.example", "team-b", false, false},
+		{"different issuer", "https://other-auth.example", "team-a", false, false},
+		{"unknown historical workspace", "https://auth.example", "team-a", true, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			s, key, _, jobs, job := mediaScopeFixture(t)
+			key.OIDCManaged = true
+			if !test.historical {
+				freezeMediaWorkspace(job, "https://auth.example", "member", "team-a")
+			}
+			jobs.jobs[job.PublicID] = job
+			_, _, err := s.ResolveGatewayMediaResource(mediaWorkspaceContext(test.issuer, "member", test.tenant), key, job.PublicID, job.Kind, "")
+			if test.allowed {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, ErrGatewayMediaResourceNotFound)
+			}
+		})
+	}
+}
+
+func TestOIDCVoiceListOnlyReturnsCurrentEnterpriseResources(t *testing.T) {
+	s, key, _, _, current := mediaScopeFixture(t)
+	key.OIDCManaged = true
+	freezeMediaWorkspace(current, "https://auth.example", "member", "team-a")
+	foreign := *current
+	foreign.PublicID = "voice_other-enterprise"
+	freezeMediaWorkspace(&foreign, "https://auth.example", "member", "team-b")
+	legacy := *current
+	legacy.PublicID, legacy.BillingSnapshotJSON = "voice_unknown-workspace", nil
+	list := &mediaScopedListStub{jobs: []*MediaGenerationJob{current, &foreign, &legacy}}
+	media := &MediaGenerationService{jobRepo: list, gatewayKeys: s}
+	voices, err := media.ListClonedVoices(mediaWorkspaceContext("https://auth.example", "member", "team-a"), MediaRequestMeta{UserID: key.UserID, APIKeyID: key.ID, APIKey: key}, 20, 0)
+	require.NoError(t, err)
+	require.Len(t, voices, 1)
+	require.Equal(t, current.PublicID, voices[0].ID)
 }
 
 func TestGatewayMediaResourceChecksOwnerKeyAndRecordedScope(t *testing.T) {

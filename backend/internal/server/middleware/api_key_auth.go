@@ -62,7 +62,7 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 
 		// ── 2. 验证 Key 存在 ─────────────────────────────────────────
 
-		apiKey, oidcPrincipal, err := resolveGatewayCredential(c.Request.Context(), apiKeyString, credential.fromAuthorization, apiKeyService, resourceServer)
+		apiKey, oidcPrincipal, err := resolveGatewayCredential(c.Request.Context(), apiKeyString, credential.fromAuthorization, apiKeyService, resourceServer, gatewayAccessPermission(c.Request))
 		if err != nil {
 			if errors.Is(err, service.ErrGatewayOIDCScopeDenied) {
 				requiredScopes := gatewayResourceScopeChallenge(c.Request.Context(), resourceServer, cfg)

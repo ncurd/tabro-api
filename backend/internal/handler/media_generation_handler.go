@@ -144,7 +144,7 @@ func (h *MediaGenerationHandler) getMediaJob(c *gin.Context, kind string) {
 		h.writeMediaServiceError(c, err)
 		return
 	}
-	if job == nil || job.Kind != kind || (job.APIKeyID != apiKey.ID || job.UserID != subject.UserID || !sameMediaGroup(job.GroupID, apiKey.GroupID)) {
+	if job == nil || job.Kind != kind || (job.APIKeyID != apiKey.ID || job.UserID != subject.UserID || !sameMediaGroup(job.GroupID, apiKey.GroupID)) || !service.MediaResourceMatchesWorkspace(c.Request.Context(), apiKey, job) {
 		mediaError(c, http.StatusNotFound, "not_found_error", "Media generation job not found")
 		return
 	}

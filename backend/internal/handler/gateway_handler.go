@@ -885,7 +885,7 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 				}
 				models = append(models, model)
 			}
-			c.JSON(http.StatusOK, gin.H{"object": "list", "data": models})
+			c.JSON(http.StatusOK, gin.H{"object": "list", "data": h.openAIModelCatalog(models)})
 			return
 		}
 		// Build model list from whitelist
@@ -908,13 +908,13 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		}
 		c.JSON(http.StatusOK, gin.H{
 			"object": "list",
-			"data":   models,
+			"data":   h.claudeModelCatalog(models),
 		})
 		return
 	}
 
 	if service.DefaultMediaModels(platform) != nil {
-		c.JSON(http.StatusOK, gin.H{"object": "list", "data": (&service.Account{Platform: platform}).AvailableMediaModels()})
+		c.JSON(http.StatusOK, gin.H{"object": "list", "data": h.openAIModelCatalog((&service.Account{Platform: platform}).AvailableMediaModels())})
 		return
 	}
 
@@ -922,14 +922,14 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 	if platform == "openai" {
 		c.JSON(http.StatusOK, gin.H{
 			"object": "list",
-			"data":   openai.DefaultModels,
+			"data":   h.openAIModelCatalog(openai.DefaultModels),
 		})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"object": "list",
-		"data":   claude.DefaultModels,
+		"data":   h.claudeModelCatalog(claude.DefaultModels),
 	})
 }
 

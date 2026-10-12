@@ -1,5 +1,10 @@
 <template>
   <AppLayout>
+    <AuthAccessKeysPanel
+      v-if="authKeysRequired"
+      :account-center-url="publicSettings?.account_center_url || appStore.cachedPublicSettings?.account_center_url"
+    />
+    <template v-else-if="publicSettings">
     <TablePageLayout>
       <template #filters>
         <div class="flex flex-col gap-3">
@@ -1065,6 +1070,8 @@
         </div>
       </div>
     </Teleport>
+    </template>
+    <p v-else class="p-6 text-sm text-gray-500">{{ t('keys.settingsUnavailable') }}</p>
   </AppLayout>
 </template>
 
@@ -1080,6 +1087,7 @@ import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 const { t } = useI18n()
 import { keysAPI, authAPI, usageAPI, userGroupsAPI } from '@/api'
 import AppLayout from '@/components/layout/AppLayout.vue'
+import AuthAccessKeysPanel from '@/components/keys/AuthAccessKeysPanel.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 	import DataTable from '@/components/common/DataTable.vue'
 	import Pagination from '@/components/common/Pagination.vue'
@@ -1171,6 +1179,10 @@ const selectedKey = ref<ApiKey | null>(null)
 const copiedKeyId = ref<number | null>(null)
 const groupSelectorKeyId = ref<number | null>(null)
 const publicSettings = ref<PublicSettings | null>(null)
+const authKeysRequired = computed(() => {
+  const settings = publicSettings.value || appStore.cachedPublicSettings
+  return settings?.auth_access_keys_required === true || settings?.oidc_billing_enabled === true
+})
 const dropdownRef = ref<HTMLElement | null>(null)
 const dropdownPosition = ref<{ top?: number; bottom?: number; left: number } | null>(null)
 const groupButtonRefs = ref<Map<number, HTMLElement>>(new Map())
@@ -1880,11 +1892,13 @@ function formatResetTime(resetAt: string | null): string {
   return `${mins}m`
 }
 
-onMounted(() => {
-  loadApiKeys()
-  loadGroups()
-  loadUserGroupRates()
-  loadPublicSettings()
+onMounted(async () => {
+  await loadPublicSettings()
+  if (publicSettings.value && !authKeysRequired.value) {
+    loadApiKeys()
+    loadGroups()
+    loadUserGroupRates()
+  }
   document.addEventListener('click', closeGroupSelector)
   resetTimer = setInterval(() => { now.value = new Date() }, 60000)
 })

@@ -232,6 +232,9 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 	oidcOnlyEnabled := settings[SettingKeyOIDCOnlyEnabled] == "true"
 	oidcBilling, _ := oidcBillingPolicyFromSettings(settings)
 	connection, _, connectionErr := s.oidcBillingConnectionFromValues(settings)
+	if strings.TrimSpace(accountCenterURL) == "" && connectionErr == nil && connection.ResourceServer.Enabled {
+		accountCenterURL = connection.ResourceServer.IssuerURL
+	}
 
 	// Password reset requires email verification to be enabled
 	emailVerifyEnabled := settings[SettingKeyEmailVerifyEnabled] == "true"
@@ -250,6 +253,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 	}
 
 	return &PublicSettings{
+		AuthAccessKeysRequired:           oidcBilling.Enabled || connectionErr != nil || connection.ResourceServer.Enabled || connection.ResourceServer.AutoProvision,
 		InternalOnly:                     internalOnly,
 		AccountCenterURL:                 accountCenterURL,
 		RegistrationEnabled:              !internalOnly && settings[SettingKeyRegistrationEnabled] == "true",
@@ -314,6 +318,7 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 
 	// Return a struct that matches the frontend's expected format
 	return &struct {
+		AuthAccessKeysRequired           bool            `json:"auth_access_keys_required"`
 		InternalOnly                     bool            `json:"internal_only"`
 		AccountCenterURL                 string          `json:"account_center_url,omitempty"`
 		RegistrationEnabled              bool            `json:"registration_enabled"`
@@ -358,6 +363,7 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 	}{
 		InternalOnly:                     settings.InternalOnly,
 		AccountCenterURL:                 settings.AccountCenterURL,
+		AuthAccessKeysRequired:           settings.AuthAccessKeysRequired,
 		RegistrationEnabled:              settings.RegistrationEnabled,
 		EmailVerifyEnabled:               settings.EmailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist: settings.RegistrationEmailSuffixWhitelist,

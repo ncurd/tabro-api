@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -10,6 +11,16 @@ import (
 )
 
 var errInvalidGatewayCredential = errors.New("invalid gateway credential")
+
+func gatewayAccessPermission(request *http.Request) string {
+	if request.Method == http.MethodGet && strings.EqualFold(request.Header.Get("Upgrade"), "websocket") {
+		return "api.invoke"
+	}
+	if request.Method == http.MethodGet || request.Method == http.MethodHead || request.Method == http.MethodOptions {
+		return "api.read"
+	}
+	return "api.invoke"
+}
 
 // resolveGatewayCredential keeps API keys as the canonical routing/billing
 // principal while accepting a verified external OAuth token only when it came
@@ -21,10 +32,21 @@ func resolveGatewayCredential(
 	fromAuthorization bool,
 	apiKeyService *service.APIKeyService,
 	resourceServer *service.GatewayResourceServer,
+	permissions ...string,
 ) (*service.APIKey, *service.GatewayOIDCPrincipal, error) {
 	credential = strings.TrimSpace(credential)
 	if credential == "" || apiKeyService == nil {
 		return nil, nil, errInvalidGatewayCredential
+	}
+	if strings.HasPrefix(credential, "tbrk_") {
+		if resourceServer == nil {
+			return nil, nil, errInvalidGatewayCredential
+		}
+		permission := "api.invoke"
+		if len(permissions) > 0 {
+			permission = permissions[0]
+		}
+		return resourceServer.AuthenticateAccessKey(ctx, credential, permission)
 	}
 
 	if looksLikeGatewayJWT(credential) {
@@ -40,6 +62,13 @@ func resolveGatewayCredential(
 			return nil, nil, err
 		}
 		return apiKey, principal, nil
+	}
+	authOnly, err := apiKeyService.RequiresAuthCredentials(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	if authOnly {
+		return nil, nil, errInvalidGatewayCredential
 	}
 
 	apiKey, err := apiKeyService.GetByKey(ctx, credential)

@@ -174,6 +174,7 @@ type DefaultSubscriptionSetting struct {
 }
 
 type PublicSettings struct {
+	AuthAccessKeysRequired           bool             `json:"auth_access_keys_required"`
 	InternalOnly                     bool             `json:"internal_only"`
 	AccountCenterURL                 string           `json:"account_center_url,omitempty"`
 	RegistrationEnabled              bool             `json:"registration_enabled"`

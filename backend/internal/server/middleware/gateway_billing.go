@@ -53,6 +53,9 @@ func gatewayBillingError(err error) (int, string, string) {
 
 func prepareGatewayBilling(c *gin.Context, keys *service.APIKeyService, key *service.APIKey, principal *service.GatewayOIDCPrincipal, credential string) (func(), error) {
 	noop := func() {}
+	if principal != nil && principal.SubjectProof != "" {
+		credential = principal.SubjectProof
+	}
 	if keys.GatewayBilling == nil {
 		if principal != nil && principal.AuthBilled {
 			return noop, bc.ErrState

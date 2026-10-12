@@ -222,6 +222,32 @@ func TestClonedVoiceDeletionSurvivesModelWhitelistChange(t *testing.T) {
 	require.Equal(t, "provider-voice", gjson.GetBytes(upstream.lastBody, "input.voice").String())
 }
 
+func TestOIDCVoiceReadAndDeleteStayInFrozenEnterprise(t *testing.T) {
+	svc, upstream, repo, account, meta := newAudioTestService(`{"request_id":"clone","output":{"voice":"provider-voice","target_model":"qwen3-tts-vc-2026-01-22"}}`)
+	voice, err := svc.CreateClonedVoice(context.Background(), meta, account, VoiceCloneRequest{Model: QwenVoiceCloneModel, Name: "voice", AudioURL: "https://example.com/test.wav"})
+	require.NoError(t, err)
+	stored, err := repo.GetByPublicID(context.Background(), voice.ID)
+	require.NoError(t, err)
+	freezeMediaWorkspace(stored, "https://auth.example", "member", "team-a")
+	repo.jobs[stored.PublicID] = stored
+	meta.APIKey = &APIKey{ID: meta.APIKeyID, UserID: meta.UserID, OIDCManaged: true}
+	ctxA := mediaWorkspaceContext("https://auth.example", "member", "team-a")
+	ctxB := mediaWorkspaceContext("https://auth.example", "member", "team-b")
+	_, err = svc.GetClonedVoice(ctxA, meta, voice.ID)
+	require.NoError(t, err)
+	_, err = svc.GetClonedVoice(ctxB, meta, voice.ID)
+	require.ErrorIs(t, err, ErrClonedVoiceNotFound)
+	upstream.lastReq = nil
+	_, err = svc.DeleteClonedVoice(ctxB, meta, account, voice.ID)
+	require.ErrorIs(t, err, ErrClonedVoiceNotFound)
+	require.Nil(t, upstream.lastReq, "cross-enterprise delete must not reach the supplier")
+	upstream.respBody = nil
+	upstream.resp = jsonResponse(http.StatusOK, `{"request_id":"delete","output":{}}`)
+	deleted, err := svc.DeleteClonedVoice(ctxA, meta, account, voice.ID)
+	require.NoError(t, err)
+	require.Equal(t, "deleted", deleted.Status)
+}
+
 func TestQwenAudioReturnsDurableSuccessWhileBillingRetries(t *testing.T) {
 	billing, pricing, ledger, _, meta, account := mediaBillingFixture()
 	pricing.price.BillingMode = BillingModePerRequest

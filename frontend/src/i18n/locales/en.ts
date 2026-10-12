@@ -577,6 +577,12 @@ export default {
 
   // API Keys
   keys: {
+    authKeysTitle: 'Access keys are managed in Auth',
+    authKeysDescription: 'Create a key for your current personal or enterprise identity in the Auth account center. Legacy gateway keys are disabled in OIDC mode.',
+    authKeysDirectDisabled: 'Direct gateway access is disabled by default. It is only selectable after a platform administrator enables it; business applications continue to use their normal sign-in.',
+    authKeysManage: 'Manage access keys in Auth',
+    authKeysMissingCenter: 'The Auth account center address has not been configured.',
+    settingsUnavailable: 'Loading key management settings. If this message persists, refresh the page.',
     'scopeLabel': 'Model access',
     'scopePublic': 'Default public models',
     'scopeSingle': 'Single group',

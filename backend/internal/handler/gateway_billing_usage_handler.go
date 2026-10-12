@@ -45,7 +45,20 @@ func (h *GatewayBillingUsageHandler) List(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_token"})
 		return
 	}
-	principal, err := h.verifier.Verify(c.Request.Context(), parts[1])
+	var principal *service.GatewayOIDCPrincipal
+	var err error
+	if strings.HasPrefix(parts[1], "tbrk_") {
+		validator, ok := h.verifier.(interface {
+			VerifyAccessKey(context.Context, string, string) (*service.GatewayOIDCPrincipal, error)
+		})
+		if !ok {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "billing_usage_unavailable"})
+			return
+		}
+		principal, err = validator.VerifyAccessKey(c.Request.Context(), parts[1], "api.read")
+	} else {
+		principal, err = h.verifier.Verify(c.Request.Context(), parts[1])
+	}
 	if err != nil {
 		status := http.StatusUnauthorized
 		if errors.Is(err, service.ErrGatewayOIDCScopeDenied) {
@@ -63,7 +76,7 @@ func (h *GatewayBillingUsageHandler) List(c *gin.Context) {
 	}
 	hasInvokeScope := false
 	for _, scope := range principal.Scopes {
-		if scope == "llm.invoke" {
+		if scope == "llm.invoke" || principal.AccessKeyID != "" && scope == "models.read" {
 			hasInvokeScope = true
 			break
 		}
