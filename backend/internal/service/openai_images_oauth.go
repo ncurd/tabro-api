@@ -175,12 +175,29 @@ func (s *OpenAIGatewayService) forwardImagesOAuth(ctx context.Context, c *gin.Co
 				total.Duration = time.Since(startTime)
 				// A previous request has already generated images. Retrying the entire
 				// operation on another account would duplicate successful work.
+				var publicErr *OpenAIImageUpstreamError
+				if errors.As(err, &publicErr) {
+					copy := *publicErr
+					publicErr = &copy
+				} else {
+					var failoverErr *UpstreamFailoverError
+					if errors.As(err, &failoverErr) {
+						publicErr = extractOpenAIImageUpstreamError(failoverErr.ResponseBody)
+					}
+				}
 				if stream && result == nil && c != nil {
-					payload, _ := json.Marshal(map[string]any{"type": "error", "error": map[string]any{"type": "upstream_error", "message": "Image request failed before all requested images were generated"}})
+					var errorFields any = map[string]any{"type": "upstream_error", "message": "Image request failed before all requested images were generated"}
+					if publicErr != nil {
+						errorFields = publicErr
+					}
+					payload, _ := json.Marshal(map[string]any{"type": "error", "error": errorFields})
 					_, _ = fmt.Fprintf(c.Writer, "data: %s\n\n", payload)
 					if flusher, ok := c.Writer.(http.Flusher); ok {
 						flusher.Flush()
 					}
+				}
+				if publicErr != nil {
+					return nil, total, fmt.Errorf("image request failed after %d completed images: %w", total.ImageCount, publicErr)
 				}
 				return nil, total, fmt.Errorf("image request failed after %d completed images: %v", total.ImageCount, err)
 			}
@@ -280,12 +297,10 @@ func (s *OpenAIGatewayService) forwardSingleImageOAuth(ctx context.Context, c *g
 		return nil, nil, err
 	}
 
-	upstreamReq, err := s.buildUpstreamRequest(ctx, c, account, responsesBody, token, true, openAIImagesOAuthSessionSeed(body), false)
+	upstreamReq, err := s.buildUpstreamImagesOAuthRequest(ctx, c, account, responsesBody, token, openAIImagesOAuthSessionSeed(body))
 	if err != nil {
 		return nil, nil, err
 	}
-	upstreamReq.Header.Set("Content-Type", "application/json")
-	upstreamReq.Header.Set("Accept", "text/event-stream")
 
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
@@ -316,6 +331,11 @@ func (s *OpenAIGatewayService) forwardSingleImageOAuth(ctx context.Context, c *g
 		return nil, nil, readErr
 	}
 	if resp.StatusCode >= 400 {
+		var upstreamErr error = fmt.Errorf("openai images oauth upstream returned status %d", resp.StatusCode)
+		if parsed := extractOpenAIImageUpstreamError(respBody); parsed != nil {
+			upstreamErr = parsed
+		}
+		recordOpenAIImageUpstreamError(c, resp.StatusCode, upstreamErr)
 		if s.shouldFailoverUpstreamError(resp.StatusCode) {
 			return respBody, nil, &UpstreamFailoverError{StatusCode: resp.StatusCode, ResponseBody: respBody, ResponseHeaders: resp.Header}
 		}
@@ -327,11 +347,12 @@ func (s *OpenAIGatewayService) forwardSingleImageOAuth(ctx context.Context, c *g
 			responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 			c.Data(resp.StatusCode, contentType, respBody)
 		}
-		return respBody, nil, fmt.Errorf("openai images oauth upstream returned status %d", resp.StatusCode)
+		return respBody, nil, upstreamErr
 	}
 
 	imagesBody, usage, imageCount, usageState, err := buildOpenAIImagesOAuthClientResponseWithUsage(respBody, body)
 	if err != nil {
+		recordOpenAIImageUpstreamError(c, resp.StatusCode, err)
 		return respBody, nil, err
 	}
 	if imageCount > maxImages {
@@ -467,15 +488,26 @@ func (s *OpenAIGatewayService) handleImagesOAuthStream(resp *http.Response, c *g
 		flusher.Flush()
 		return nil
 	}
-	emitFailure := func(message string) {
+	emitError := func(err error) {
 		if streamErr != nil {
 			return
 		}
-		message = sanitizeUpstreamErrorMessage(message)
-		streamErr = errors.New(message)
-		_ = emitPayload(map[string]any{"type": "error", "error": map[string]any{
-			"type": "upstream_error", "message": message,
-		}})
+		streamErr = err
+		recordOpenAIImageUpstreamError(c, resp.StatusCode, err)
+		var upstreamErr *OpenAIImageUpstreamError
+		if errors.As(err, &upstreamErr) {
+			_ = emitPayload(map[string]any{"type": "error", "error": upstreamErr})
+			return
+		}
+		_ = emitPayload(map[string]any{"type": "error", "error": map[string]any{"type": "upstream_error", "message": sanitizeUpstreamErrorMessage(err.Error())}})
+	}
+	emitFailure := func(message string) { emitError(errors.New(sanitizeUpstreamErrorMessage(message))) }
+	emitUpstreamFailure := func(payload gjson.Result, fallback string) {
+		if upstreamErr := parseOpenAIImageUpstreamError(payload); upstreamErr != nil {
+			emitError(upstreamErr)
+			return
+		}
+		emitFailure(fallback)
 	}
 	appendFinalImage := func(image openAIImageOAuthResult) {
 		if image.Result == "" && image.URL == "" {
@@ -494,7 +526,7 @@ func (s *OpenAIGatewayService) handleImagesOAuthStream(resp *http.Response, c *g
 			return
 		}
 		if openAIImagesOAuthResponseFailed(item) {
-			emitFailure("openai images oauth image generation did not complete")
+			emitUpstreamFailure(item, "openai images oauth image generation did not complete")
 			return
 		}
 		appendFinalImage(openAIImageOAuthResult{
@@ -634,7 +666,7 @@ func (s *OpenAIGatewayService) handleImagesOAuthStream(resp *http.Response, c *g
 			if response.Exists() {
 				usageState.consumeResponse(response)
 				if openAIImagesOAuthResponseFailed(response) {
-					emitFailure(firstNonEmpty(response.Get("error.message").String(), "openai images oauth response did not complete"))
+					emitUpstreamFailure(response, "openai images oauth response did not complete")
 					continue
 				}
 				if v := response.Get("created_at").Int(); v > 0 {
@@ -661,7 +693,7 @@ func (s *OpenAIGatewayService) handleImagesOAuthStream(resp *http.Response, c *g
 			if parsedUsage, ok := extractOpenAIUsageFromJSONBytes([]byte(gjson.Get(data, "response").Raw)); ok {
 				usage = parsedUsage
 			}
-			emitFailure(firstNonEmpty(gjson.Get(data, "response.error.message").String(), gjson.Get(data, "error.message").String(), gjson.Get(data, "message").String(), "openai images oauth stream ended with "+eventType))
+			emitUpstreamFailure(gjson.Parse(data), "openai images oauth stream ended with "+eventType)
 		}
 	}
 	if err := scanner.Err(); err != nil && !sawTerminal {
@@ -710,6 +742,9 @@ func buildOpenAIImagesOAuthClientResponse(responsesBody, requestBody []byte) ([]
 func buildOpenAIImagesOAuthClientResponseWithUsage(responsesBody, requestBody []byte) ([]byte, OpenAIUsage, int, openAIImagesOAuthUsageState, error) {
 	images, createdAt, usage, usageState, ok := collectOpenAIImagesOAuthResults(responsesBody)
 	if !ok || len(images) == 0 {
+		if upstreamErr := extractOpenAIImageUpstreamError(responsesBody); upstreamErr != nil {
+			return nil, usage, 0, usageState, upstreamErr
+		}
 		return nil, usage, 0, usageState, errors.New("openai images oauth response did not contain image results")
 	}
 	if createdAt <= 0 {

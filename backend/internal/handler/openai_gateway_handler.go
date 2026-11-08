@@ -643,7 +643,7 @@ func (h *OpenAIGatewayHandler) forwardOpenAIImagesGenerationBody(
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, false, nil)
 			reqLog.Warn("openai.images_forward_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 			if !c.Writer.Written() {
-				h.handleStreamingAwareError(c, http.StatusBadGateway, "upstream_error", "Image request failed", streamStarted)
+				h.handleImagesForwardError(c, err, streamStarted)
 			}
 			if result == nil || result.ImageCount == 0 {
 				return
