@@ -246,6 +246,12 @@ func (s *MediaGenerationService) CreateVideoJob(ctx context.Context, meta MediaR
 	if mappingErr != nil {
 		return nil, mappingErr
 	}
+	if !bc.IsCentral(ctx) && req.Resolution == "" && account.Platform == PlatformDashScope &&
+		(meta.upstreamModel == "wan3.0-video" || meta.upstreamModel == "wan3.0-video-prime") {
+		// Freeze the same tier Wan 3.0 would choose when resolution is omitted.
+		// Central billing already sets its reserved 720P tier above.
+		req.Resolution = "1080P"
+	}
 	if bc.IsCentral(ctx) && req.Duration == -1 && !strings.HasPrefix(meta.upstreamModel, "doubao-seedance-2-0") {
 		return nil, &InvalidMediaRequestError{Message: "mapped video model has no verified automatic duration bound"}
 	}

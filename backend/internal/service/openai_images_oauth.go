@@ -418,6 +418,12 @@ func buildOpenAIImagesOAuthResponsesRequest(imagesBody []byte, imageModel string
 			tool, _ = sjson.SetBytes(tool, key, value)
 		}
 	}
+	if imageModel == "gpt-image-2" || strings.HasPrefix(imageModel, "gpt-image-2-") {
+		// Omitted tool complexity can inherit the orchestration model's medium
+		// reasoning effort, which Codex rejects for GPT Image 2. Keep rendering
+		// quality independent and explicitly avoid that inherited value.
+		tool, _ = sjson.SetBytes(tool, "complexity", "high")
+	}
 	for _, key := range []string{"output_compression", "frame_count", "frame_duration_ms", "svg"} {
 		if value := gjson.GetBytes(imagesBody, key); value.Exists() && value.Type != gjson.Null {
 			tool, _ = sjson.SetRawBytes(tool, key, []byte(value.Raw))

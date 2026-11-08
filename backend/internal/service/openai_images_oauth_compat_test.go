@@ -27,7 +27,7 @@ func TestImagesOAuthRequestUsesResponsesToolSchema(t *testing.T) {
 	}
 	require.Equal(t, "gpt-image-2", gjson.GetBytes(request, "tools.0.model").String())
 	require.Equal(t, "hashed-user", gjson.GetBytes(request, "safety_identifier").String())
-	require.Equal(t, "low", gjson.GetBytes(request, "tools.0.complexity").String())
+	require.Equal(t, "high", gjson.GetBytes(request, "tools.0.complexity").String(), "GPT Image 2 must avoid unsupported complexity inherited from its orchestration model")
 	require.EqualValues(t, 4, gjson.GetBytes(request, "tools.0.frame_count").Int())
 	require.EqualValues(t, 100, gjson.GetBytes(request, "tools.0.frame_duration_ms").Int())
 	require.Equal(t, "author", gjson.GetBytes(request, "tools.0.svg.model").String())

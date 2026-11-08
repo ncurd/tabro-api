@@ -3,7 +3,7 @@ title: 对外接口文档
 description: 面向 API 调用方的 Tabro 网关、媒体生成、用户、支付和管理接口概览。
 category: API Reference
 order: 1
-updatedAt: 2026-09-20
+updatedAt: 2026-11-08
 ---
 
 # 对外接口文档
@@ -104,6 +104,8 @@ curl https://<host>/v1/responses \
 GPT Image 2.5 提供两个模型：`gpt-image-2.5-sunburst` 侧重精确编辑，`gpt-image-2.5-flare` 侧重快速日常生成。请使用完整模型 ID。
 
 GPT Image 2.6 同样支持生成和编辑：`gpt-image-2.6-sunburst` 用于细节较多的视觉任务，`gpt-image-2.6-flare` 用于快速迭代。请使用这两个完整模型 ID，实际访问权限取决于上游账号。账号配置了模型白名单时，需要加入所用的 2.6 模型。
+
+`quality` 与 `complexity` 相互独立。上述 Images 接口经 Codex OAuth 转接 `gpt-image-2`（含日期快照）时，图片工具的 `complexity` 显式固定为 `high`，避免继承文本编排的推理强度；请求中的 `quality: "low"` 仍保留。GPT Image 2.6 的 `complexity` 按请求传递，可使用 `low`、`medium` 或 `high`。
 
 GPT Image 2.6 优先使用平台配置的每张图片单价和尺寸、质量档位；未配置按张价格时，按上游报告的文本输入、图片输入、缓存输入和图片输出 token 分别计费。缓存折扣只使用上游明确提供的明细，缺少缓存图片明细时不推测优惠。当前分组的单价可在模型价格页查看。
 
@@ -286,9 +288,29 @@ curl https://<host>/v1/audio/speech/jobs/audjob_xxx \
 
 若启用了 `security.url_allowlist.enabled`，还需把实际视频上游域名加入 `security.url_allowlist.upstream_hosts`，例如业务空间的 `*.maas.aliyuncs.com` 域名或 `ark.cn-beijing.volces.com`。媒体请求遵循项目已有的 HTTPS 和主机白名单配置。
 
-### Wan 3.0 示例
+### Wan 3.0 接入与支持范围
 
-Wan 3.0 的账号 `base_url` 必须配置为实际业务空间和地域的地址，例如 `https://<WorkspaceId>.cn-beijing.maas.aliyuncs.com`，API Key 必须属于同一地域。不要使用 HappyHorse 的默认 DashScope 地址调用 Wan 3.0。依据：[阿里云 Wan 3.0 API](https://help.aliyun.com/zh/model-studio/wan3-video-generation-api-reference)。
+当前已接通 `wan3.0-video`、`wan3.0-video-prime` 的创建、单任务查询、后台轮询和结算。标准版与高速版使用相同的请求结构。以下是 Tabro 统一协议的支持范围，并非阿里云原生 API 的完整透传。
+
+| 能力 | Tabro 当前支持情况 |
+| --- | --- |
+| 文生视频、首帧／首尾帧生视频 | 支持，通过同一个创建接口调用 |
+| 图片、视频、音频参考，文件／网页生视频 | 支持，使用 `media` 数组 |
+| 视频编辑、延长 | 支持，传 `reference_video`，在 `prompt` 中说明编辑或延长意图 |
+| 单任务状态、结果、失败原因 | 支持，查询本地 `vidjob_*` |
+| 智能时长 `duration=-1` | 非中心计费支持；中心计费暂不支持 Wan 智能时长 |
+| OSS 临时素材、素材上传 | 未接入；使用公网 HTTP(S)，图片也可用 data URL |
+| 列举／批量查询任务、取消任务 | 暂无对外接口；`canceled` 仅表示可识别上游已取消状态 |
+| EventBridge 完成通知、网关回调 | 未接入；通过 GET 轮询结果，Wan 不使用 `callback_url` |
+| SSE、同步返回视频文件、多视频 `n` | 不支持；每个任务生成一个视频 |
+
+接入前由管理员配置 `dashscope` 平台分组、API Key 账号、所用型号的白名单及视频价格。Wan 3.0 的账号 `base_url` 必须是实际业务空间和地域的根地址，例如 `https://<WorkspaceId>.cn-beijing.maas.aliyuncs.com` 或 `https://<WorkspaceId>.ap-southeast-1.maas.aliyuncs.com`；不要附加 `/api/v1` 或完整接口路径。模型、业务空间 Endpoint 和供应商 API Key 须属于同一地域。网关会添加供应商鉴权与异步请求头，调用方只发送自己的 Tabro 网关 Key。
+
+网关在上述根地址后拼接创建路径 `/api/v1/services/aigc/video-generation/video-synthesis` 和查询路径 `/api/v1/tasks/{task_id}`。账号未配置 `base_url` 时会回退旧 DashScope 域名，该默认地址不适用于本节的 Wan 3.0 接入。地域及上游规格参见[阿里云 Wan 3.0 API](https://help.aliyun.com/zh/model-studio/wan3-video-generation-api-reference)。
+
+#### 创建视频任务
+
+使用 `POST /v1/videos/generations`，请求体是顶层 JSON 字段，不是供应商的 `input`、`parameters` 嵌套结构。
 
 ```bash
 curl https://<host>/v1/videos/generations \
@@ -306,7 +328,63 @@ curl https://<host>/v1/videos/generations \
   }'
 ```
 
-统一请求中的 `generate_audio` 在 Wan 上转换为 `parameters.audio`，`media` 保留顺序并传入 `input.media`。支持 `first_frame`、`last_frame`、`reference_image`、`reference_video`、`reference_audio`、`file`、`link`；素材组合限制由上游校验。`duration=-1` 表示由模型决定时长，`prompt` 与 `media` 至少提供一项。
+| 字段 | 类型 | 必填、默认与 Wan 3.0 约束 |
+| --- | --- | --- |
+| `model` | string | 必填：`wan3.0-video`、`wan3.0-video-prime` 或管理员配置的别名 |
+| `prompt` | string | 与 `media` 至少提供一项；上游最多处理 20,000 个字符，支持中文和英文 |
+| `media` | array | 与 `prompt` 至少提供一项；每项为 `{ "type": "...", "url": "..." }`，见下表 |
+| `duration` | integer | 省略或 `0` 时使用默认 5 秒；无视频输入时为 2–30 秒整数；有参考视频时输入和输出总时长须不超过 30 秒。`-1` 为智能时长，仅非中心计费可用 |
+| `resolution` | string | `480P`、`720P`、`1080P`，小写会转大写。非中心计费缺省 `1080P`；中心计费缺省 `720P`。建议显式填写，便于匹配价格档 |
+| `ratio` | string | `adaptive`、`21:9`、`16:9`、`4:3`、`1:1`、`3:4`、`9:16`；上游默认 `adaptive` |
+| `generate_audio` | boolean | 上游默认 `true`；转换为 `parameters.audio`，显式 `false` 会保留 |
+| `prompt_extend` | boolean | 上游默认 `true`；使用 `file`／`link` 时必须为 `true` |
+| `watermark` | boolean | 上游默认 `false`；显式 `false` 会保留 |
+| `seed` | integer | `-1` 或 0–2147483647；省略或 `-1` 表示随机，显式 `0` 会保留；不保证同种子结果完全一致 |
+
+`generate_audio` 控制音轨，开关声音不改变阿里云供方单价。上述默认值中未由网关设置的字段由上游决定。不要将 `audio`、`negative_prompt`、`callback_url`、`output_format` 或其他供应商字段当作 Wan 的额外透传参数；未列出的字段可能被忽略，HTTP 200 不代表这些选项已执行。
+
+#### 素材类型、顺序和组合
+
+| `media[].type` | 用途与上游限制 |
+| --- | --- |
+| `first_frame` | 首帧，最多 1 张；可单独使用或搭配 `last_frame` |
+| `last_frame` | 尾帧，最多 1 张；应搭配首帧使用 |
+| `reference_image` | 参考图，最多 10 张；JPEG/JPG、PNG、BMP、WebP，不支持透明 PNG；单边 240–8000 像素，长宽比不超过 8:1，单文件不超过 20 MB |
+| `reference_video` | 参考视频，最多 5 段，合计不超过 15 秒；单段 1–15 秒，MP4/MOV，至少 16 fps，单边 240–4096 像素，长宽比不超过 8:1，单文件不超过 100 MB |
+| `reference_audio` | 参考音频，最多 5 段，合计不超过 15 秒；单段 1–15 秒，WAV/MP3，单文件不超过 15 MB |
+| `file` | 最多 1 个，与 `link` 互斥；支持上游列出的 Office、PDF、TXT、MD 等格式，单文件不超过 100 MB；受校验的文档格式不超过 50 页 |
+| `link` | 最多 1 个，与 `file` 互斥；必须是无需登录即可访问的公开网页 |
+
+首尾帧也须满足上述图片格式和尺寸限制。总素材不超过 20 项；首尾帧模式不能与任何参考图、视频、音频、文件或网页混用。三类 `reference_*` 可混用，`file` 或 `link` 可与参考素材组合。网关保留数组顺序，提示词中的“图1”“视频1”“音频1”分别按各自素材类型计数。素材数量、组合、像素、远程文件大小和时长等限制由上游校验，网关不会下载素材预检。
+
+常见请求组合如下；将相应字段放入同一个顶层创建请求即可：
+
+| 用法 | 请求方式 |
+| --- | --- |
+| 文生视频 | 只传 `prompt`，省略 `media` |
+| 首帧生视频 | `media` 只含 `first_frame`，可附 `prompt` |
+| 首尾帧生视频 | `media` 含 `first_frame` 和 `last_frame` |
+| 图片加声音参考 | 组合 `reference_image` 与 `reference_audio`；不能改用首尾帧模式携带音频 |
+| 视频编辑 | 传 `reference_video`，在 `prompt` 写清修改内容 |
+| 视频延长 | 传 `reference_video`，`prompt` 写明延长意图，推荐 `ratio: "adaptive"` |
+| 文档／网页生视频 | 传 `file` 或 `link`，保留 `prompt_extend: true` |
+
+例如，文档生视频的请求体：
+
+```json
+{
+  "model": "wan3.0-video-prime",
+  "prompt": "根据文档中的产品特点，制作一段产品介绍视频",
+  "media": [{ "type": "file", "url": "https://example.com/product.pdf" }],
+  "duration": 10,
+  "resolution": "720P",
+  "ratio": "16:9",
+  "prompt_extend": true,
+  "generate_audio": true
+}
+```
+
+图像支持公网 URL 或 `data:image/...;base64,...`。Wan 的视频、音频、文件和网页只接受公网 HTTP(S) URL；当前网关不接受 `oss://`、`asset://`、本地路径或裸 Base64，也不代为上传素材。完整上游限制参见[素材与参数参考](https://help.aliyun.com/zh/model-studio/wan3-video-generation-api-reference)和[组合指南](https://help.aliyun.com/zh/model-studio/wan3-video-generation-guide)。
 
 ### DashScope HappyHorse 示例
 
@@ -380,14 +458,107 @@ Seedance 账号凭证：
 | `api_key` | 是 | Volcengine Ark API Key |
 | `base_url` | 否 | 默认 `https://ark.cn-beijing.volces.com/api/v3` |
 
-查询视频任务：
+### 查询视频任务、状态与结果
+
+创建成功通常返回 HTTP `200` 和以下任务对象，而不是视频二进制：
+
+```json
+{
+  "id": "vidjob_0123456789abcdef",
+  "object": "video.generation.job",
+  "status": "queued",
+  "provider": "dashscope",
+  "model": "wan3.0-video",
+  "created_at": 1700000000,
+  "upstream_task_id": "provider-task-id",
+  "billing_status": "not_due",
+  "duration": 5,
+  "resolution": "720P",
+  "ratio": "16:9"
+}
+```
+
+上面的任务 ID 和时间戳仅为示例。保存本地 `id`，使用创建任务时的**同一 Tabro API Key、用户、分组及工作区**查询；不要把 `upstream_task_id` 放入查询路径。更换 Key、将 Key 移到其他分组、工作区不匹配或无权读取时均可能返回 `404`。
 
 ```bash
 curl https://<host>/v1/videos/generations/vidjob_xxx \
   -H "Authorization: Bearer sk-your-api-key"
 ```
 
-成功后响应中的 `url` 为上游返回的视频地址。部分上游临时地址有效期较短，应尽快下载或转存。查询沿用创建任务时的账号，无需客户端保存上游密钥。
+查询也返回 HTTP `200` 的任务对象。建议约每 15 秒查询一次，直到任务成功、失败或取消；创建成功后应轮询，不能通过重复 POST 来查询进度。网关后台也会轮询和结算已持久化的任务。
+
+| `status` | 含义与处理 |
+| --- | --- |
+| `queued` | 上游 `PENDING`，等待调度 |
+| `running` | 上游 `RUNNING`，继续轮询 |
+| `succeeded` | 上游成功；读取 `url`，并查看 `billing_status` |
+| `failed` | 上游失败；读取 `error.code`、`error.message`，停止正常轮询 |
+| `canceled` | 上游已取消；停止正常轮询，不代表网关提供取消接口 |
+| `unknown` | 上游不存在、过期或状态无法识别；不等同于成功，也不等同于可安全重新创建。停止高频轮询并核实任务 |
+
+成功示例：
+
+```json
+{
+  "id": "vidjob_0123456789abcdef",
+  "object": "video.generation.job",
+  "status": "succeeded",
+  "provider": "dashscope",
+  "model": "wan3.0-video",
+  "created_at": 1700000000,
+  "upstream_task_id": "provider-task-id",
+  "billing_status": "settled",
+  "url": "https://example.com/result.mp4",
+  "duration": 5.5,
+  "resolution": "720P",
+  "ratio": "16:9"
+}
+```
+
+| 响应字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | string | 本地任务 ID，供网关查询使用 |
+| `object` | string | 固定为 `video.generation.job` |
+| `status` | string | 见上表；不能只根据 HTTP 状态码判断生成成功 |
+| `provider` | string | Wan 为 `dashscope` |
+| `model` | string | 客户端请求的模型名／别名，不一定是映射后的供应商型号 |
+| `created_at` | integer | 本地任务创建时间，Unix 秒 |
+| `upstream_task_id` | string | 供应商任务 ID，供排障使用 |
+| `billing_status` | string | `not_due`、`pending`、`settled` 或 `unpriced`，见计费章节 |
+| `url` | string，可选 | 结果视频地址，成功且已获取结果时出现 |
+| `duration` | number，可选 | 可为小数秒；未完成或上游缺少实际用量时可能只是请求时长，不能直接用于计算账单 |
+| `resolution`、`ratio` | string，可选 | 任务或结果的分辨率和比例；成功后使用上游提供的数据 |
+| `error` | object，可选 | 任务失败信息，形如 `{ "code": "InvalidParameter", "message": "..." }` |
+| `expires_at` | integer，可选 | 上游有提供时的 Unix 到期时间；Wan 当前不填充该字段，不应依赖它判断链接有效期 |
+
+`succeeded` 且 `billing_status: "pending"` 表示已有生成结果、用量或结算仍待处理，视频 URL 可以使用；无需因此重新创建任务。Wan 结果为 MP4，官方说明供应商任务查询及结果链接的有效期均为 24 小时，应尽快下载到自己的存储。网关保存任务记录不会延长供应商链接有效期，也不提供视频文件代理下载。依据：[Wan 任务查询说明](https://help.aliyun.com/zh/model-studio/wan3-video-generation-api-reference)。
+
+### 视频错误与创建去重
+
+HTTP 层失败通常返回：
+
+```json
+{
+  "error": {
+    "type": "invalid_request_error",
+    "message": "prompt or media is required"
+  }
+}
+```
+
+| HTTP 状态 | 常见情况 |
+| --- | --- |
+| `400` | `invalid_request_error` 参数错误，或 `pricing_not_configured` 缺少模型／分辨率价格 |
+| `401` / `403` | 网关 Key、权限、工作区或可用分组校验失败 |
+| `404` | 本地任务不存在、任务类型不符或不属于当前 Key／用户／分组／工作区 |
+| `409` | 创建请求的幂等键冲突或重复调用；不是新的任务结果 |
+| `429` | 用户／账号并发限制，或上游限流 |
+| `503` | 无可用账号、媒体路由或计费服务暂不可用 |
+| 其他 `4xx` / `5xx` | 供应商错误或服务端错误；上游 HTTP 错误会包装为 `upstream_error`，其 `message` 可能包含供应商 JSON 文本 |
+
+Wan 中心计费请求使用 `duration=-1` 会在创建前被拒绝，具体错误状态取决于命中的计费校验路径。任务已创建后发生的生成失败，查询仍可返回 HTTP `200`，此时检查 `status: "failed"` 及任务内的 `error.code/message`，而不是只检查 HTTP 层 `error.type`。
+
+非中心计费创建请求可使用 `Idempotency-Key` 去重。在幂等记录有效期内，相同键重复完成请求当前返回 `409`，不会重放第一次的任务响应；记录过期后同键可能被视为新请求。调用方必须保存首次成功返回的 `vidjob_*`。查询接口可以反复调用，不会因此重复扣款。创建超时且未拿到 ID 时，应保留幂等键和请求日志核实是否已接单，避免用新键盲目重发付费任务。
 
 ### 素材 URL 与 base64
 
@@ -403,11 +574,20 @@ curl https://<host>/v1/videos/generations/vidjob_xxx \
 
 ### 视频与 Qwen 音频计费
 
-在后台“渠道”中关联媒体分组，添加模型定价，将视频的计费模式选为“视频（按秒）”，填写每生成秒单价。可以设置默认单价，或分别添加 `480P`、`720P`、`1080P` 分辨率单价。填写 `0` 表示明确免费，留空表示没有配置；无匹配价格时会在调用上游前拒绝请求。
+在后台“渠道”中关联媒体分组，添加模型定价，将视频的计费模式选为“视频（按秒）”，填写每生成秒单价。可以设置默认单价，或分别添加 `480P`、`720P`、`1080P` 分辨率单价；也可配置“按次”定价，每个成功任务收取一次报价。填写 `0` 表示明确免费，留空表示没有配置；正常计费模式下，无匹配价格时会在调用上游前拒绝请求。`wan3.0-video` 和 `wan3.0-video-prime` 应分别配置价格，平台不自动套用阿里云官方费率。
 
-视频余额费用 = 上游实际生成秒数 × 对应分辨率每秒单价 × 有效分组倍率（用户专属倍率优先）。订阅额度沿用现有账本规则，消耗未乘用户倍率的基础费用。支持小数秒，不使用客户端请求的 `duration` 估算费用。任务创建时保存定价和倍率，后续修改价格不会影响已创建任务。任务失败或取消不扣费；成功且用量完整时通过统一账本结算余额/订阅额度、API Key 配额及账号额度。重复查询和后台重试不会重复扣款。
+按秒定价时，视频余额费用 = 实际计量秒数 × 对应分辨率每秒单价 × 有效分组倍率（用户专属倍率优先）；按次定价时，余额费用 = 每任务单价 × 有效分组倍率。订阅额度沿用现有账本规则，消耗未乘用户倍率的基础费用。支持小数秒，不使用客户端请求的 `duration` 估算费用。任务创建时保存定价和倍率，后续修改价格不会影响已创建任务。任务失败或取消不扣费；成功且满足所用计费模式的结算条件时，通过统一账本结算余额/订阅额度、API Key 配额及账号额度。重复查询和后台重试不会重复扣款。
 
-部署时需包含数据库迁移 `117_media_generation_billing.sql`，新增持久化账单快照和后台重试字段。后台会自动轮询并结算已保存上游任务 ID 的任务，客户端不查询也会处理。若上游已接单但本地持续无法保存任务 ID，服务只重试数据库写入，不重复提交付费请求；管理员可依据日志中的本地任务 ID 与上游任务 ID 恢复。上游缺少实际时长或结算暂时失败时保留待结算状态并重试，不静默按零元处理。结果中的 `billing_status` 区分 `pending`、`settled`、`not_due`、`unpriced`；旧任务及简易模式没有价格快照时使用 `unpriced`。
+**Wan 的平台计量与供方计费须分开理解：**Tabro 优先读取上游 `usage.output_video_duration` 作为输出秒数；该字段缺失时回退 `usage.duration`。Wan 3.0 原生响应的 `usage.duration` 是输入参考视频与输出视频秒数之和，因此缺少输出用量字段的非标准上游响应可能改变这一回退口径。阿里云供方账单本身按输入视频与输出视频的合计秒数计费，并受型号、地域、币种及活动价格影响；它与 Tabro 管理员设置的客户价格不是同一份账单。参见[Wan 原生用量字段](https://help.aliyun.com/zh/model-studio/wan3-video-generation-api-reference)和[阿里云供方计费规则](https://help.aliyun.com/zh/model-studio/model-pricing)。
+
+部署时需包含数据库迁移 `117_media_generation_billing.sql`，新增持久化账单快照和后台重试字段。后台会自动轮询并结算已保存上游任务 ID 的任务，客户端不查询也会处理。若上游已接单但本地持续无法保存任务 ID，服务只重试数据库写入，不重复提交付费请求；管理员可依据日志中的本地任务 ID 与上游任务 ID 恢复。按秒模式缺少实际时长或结算暂时失败时保留待结算状态并重试，不静默按零元处理。结果中的 `billing_status` 区分 `pending`、`settled`、`not_due`、`unpriced`；旧任务及简易模式没有价格快照时使用 `unpriced`。
+
+| `billing_status` | 含义 |
+| --- | --- |
+| `not_due` | 已有定价快照，但任务尚未成功或已失败／取消，当前不结算；排队任务之后成功仍会计费 |
+| `pending` | 已成功生成，实际用量或结算尚待处理；可使用已返回的结果 URL |
+| `settled` | 已完成用量记录与结算 |
+| `unpriced` | 未持有价格快照的旧任务或简易模式任务；不表示正常模式允许绕过价格检查 |
 
 Qwen 音频需要配置相应模型价格：
 
@@ -428,6 +608,8 @@ Qwen 音频需要配置相应模型价格：
 | `/v1/images/variations` | 未实现；参考图生成使用 `/v1/images/edits` |
 | OpenAI 原生视频协议 | 不接入；Wan / Seedance 使用上文统一视频任务接口 |
 | 视频任务列表、取消、删除、网关代理下载 | 未实现；当前支持创建、查询和返回上游结果 URL |
+| Wan OSS 临时素材、EventBridge／网关完成回调 | 未接入；使用公网素材并轮询本地任务 ID |
+| Wan 智能时长、过期任务处理 | `duration=-1` 仅非中心计费可用；`unknown` 暂未自动转为后台轮询终态 |
 | `/v1/files` | 不提供上传服务；由调用方准备 URL/base64 |
 | `/v1/audio/translations`、实时语音/流式 ASR | 未实现；已接入 JSON 转写、克隆及克隆语音合成 |
 | `/v1/embeddings`、`/v1/moderations` | 未实现；旧文档中的 Embeddings 可用声明已移除 |
