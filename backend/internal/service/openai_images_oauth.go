@@ -397,7 +397,10 @@ func buildOpenAIImagesOAuthResponsesRequest(imagesBody []byte, imageModel string
 		imageModel = "gpt-image-2"
 	}
 
-	req := []byte(`{"instructions":"","stream":true,"reasoning":{"effort":"medium","summary":"auto"},"parallel_tool_calls":false,"include":["reasoning.encrypted_content"],"model":"","store":false,"tool_choice":{"type":"image_generation"}}`)
+	// The Images request does not choose an orchestration reasoning effort.
+	// Adding one here can be inherited as image complexity by Codex, including
+	// for legacy image models that reject the resulting value.
+	req := []byte(`{"instructions":"","stream":true,"parallel_tool_calls":false,"model":"","store":false,"tool_choice":{"type":"image_generation"}}`)
 	req, _ = sjson.SetBytes(req, "model", openAIImagesResponsesMainModel)
 	input := []byte(`[{"type":"message","role":"user","content":[{"type":"input_text","text":""}]}]`)
 	input, _ = sjson.SetBytes(input, "0.content.0.text", prompt)
@@ -411,18 +414,12 @@ func buildOpenAIImagesOAuthResponsesRequest(imagesBody []byte, imageModel string
 		}
 	}
 	for _, key := range []string{"size", "quality", "background", "output_format", "moderation", "complexity", "input_fidelity"} {
-		if key == "input_fidelity" && (imageModel == "gpt-image-2" || strings.HasPrefix(imageModel, "gpt-image-2-")) {
+		if (key == "complexity" || key == "input_fidelity") && (imageModel == "gpt-image-2" || strings.HasPrefix(imageModel, "gpt-image-2-")) {
 			continue
 		}
 		if value := strings.TrimSpace(gjson.GetBytes(imagesBody, key).String()); value != "" {
 			tool, _ = sjson.SetBytes(tool, key, value)
 		}
-	}
-	if imageModel == "gpt-image-2" || strings.HasPrefix(imageModel, "gpt-image-2-") {
-		// Omitted tool complexity can inherit the orchestration model's medium
-		// reasoning effort, which Codex rejects for GPT Image 2. Keep rendering
-		// quality independent and explicitly avoid that inherited value.
-		tool, _ = sjson.SetBytes(tool, "complexity", "high")
 	}
 	for _, key := range []string{"output_compression", "frame_count", "frame_duration_ms", "svg"} {
 		if value := gjson.GetBytes(imagesBody, key); value.Exists() && value.Type != gjson.Null {

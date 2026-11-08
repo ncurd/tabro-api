@@ -105,7 +105,7 @@ GPT Image 2.5 提供两个模型：`gpt-image-2.5-sunburst` 侧重精确编辑�
 
 GPT Image 2.6 同样支持生成和编辑：`gpt-image-2.6-sunburst` 用于细节较多的视觉任务，`gpt-image-2.6-flare` 用于快速迭代。请使用这两个完整模型 ID，实际访问权限取决于上游账号。账号配置了模型白名单时，需要加入所用的 2.6 模型。
 
-`quality` 与 `complexity` 相互独立。上述 Images 接口经 Codex OAuth 转接 `gpt-image-2`（含日期快照）时，图片工具的 `complexity` 显式固定为 `high`，避免继承文本编排的推理强度；请求中的 `quality: "low"` 仍保留。GPT Image 2.6 的 `complexity` 按请求传递，可使用 `low`、`medium` 或 `high`。
+`quality` 与 `complexity` 相互独立。上述 Images 接口经 Codex OAuth 转接 `gpt-image-2`（含日期快照）时，网关不发送图片工具的 `complexity`，也不向编排模型注入 `reasoning` 或推理强度默认值；请求中的 `quality: "low"` 仍保留。GPT Image 2.6 仅在请求显式提供时传递 `complexity`，可使用 `low`、`medium` 或 `high`。这保证网关不自行指定该参数，上游自身的缺省行为仍取决于所用服务。
 
 GPT Image 2.6 优先使用平台配置的每张图片单价和尺寸、质量档位；未配置按张价格时，按上游报告的文本输入、图片输入、缓存输入和图片输出 token 分别计费。缓存折扣只使用上游明确提供的明细，缺少缓存图片明细时不推测优惠。当前分组的单价可在模型价格页查看。
 

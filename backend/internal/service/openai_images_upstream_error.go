@@ -104,11 +104,23 @@ func extractOpenAIImageUpstreamError(body []byte) *OpenAIImageUpstreamError {
 }
 
 func recordOpenAIImageUpstreamError(c *gin.Context, status int, err error) {
+	detailFields := map[string]any{}
+	if c != nil {
+		if value, ok := c.Get(OpsOpenAIImagesRequestSummaryKey); ok {
+			if summary, ok := value.(openAIImagesOAuthRequestSummary); ok {
+				detailFields["request_summary"] = summary
+			}
+		}
+	}
+	message := sanitizeUpstreamErrorMessage(err.Error())
 	var upstreamErr *OpenAIImageUpstreamError
 	if errors.As(err, &upstreamErr) {
-		detail, _ := json.Marshal(map[string]any{"error": upstreamErr})
-		setOpsUpstreamError(c, status, upstreamErr.Message, string(detail))
-		return
+		detailFields["error"] = upstreamErr
+		message = upstreamErr.Message
 	}
-	setOpsUpstreamError(c, status, sanitizeUpstreamErrorMessage(err.Error()), "")
+	var detail []byte
+	if len(detailFields) > 0 {
+		detail, _ = json.Marshal(detailFields)
+	}
+	setOpsUpstreamError(c, status, message, string(detail))
 }

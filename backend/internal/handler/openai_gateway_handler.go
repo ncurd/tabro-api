@@ -641,7 +641,11 @@ func (h *OpenAIGatewayHandler) forwardOpenAIImagesGenerationBody(
 				continue
 			}
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, false, nil)
-			reqLog.Warn("openai.images_forward_failed", zap.Int64("account_id", account.ID), zap.Error(err))
+			failureFields := []zap.Field{zap.Int64("account_id", account.ID), zap.Error(err)}
+			if summary, ok := c.Get(service.OpsOpenAIImagesRequestSummaryKey); ok {
+				failureFields = append(failureFields, zap.Any("upstream_request_summary", summary))
+			}
+			reqLog.Warn("openai.images_forward_failed", failureFields...)
 			if !c.Writer.Written() {
 				h.handleImagesForwardError(c, err, streamStarted)
 			}

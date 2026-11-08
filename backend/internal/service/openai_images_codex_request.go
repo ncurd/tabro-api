@@ -21,5 +21,6 @@ func (s *OpenAIGatewayService) buildUpstreamImagesOAuthRequest(ctx context.Conte
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
+	recordOpenAIImagesOAuthRequestSummary(c, req, account)
 	return req, nil
 }
