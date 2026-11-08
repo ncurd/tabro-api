@@ -43,6 +43,9 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	normalizedModel := NormalizeOpenAICompatRequestedModel(originalModel)
 	billingModel := resolveOpenAIForwardModel(account, normalizedModel, defaultMappedModel)
 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
+	if account.Type == AccountTypeOAuth && upstreamModel != normalizeCodexModel(billingModel) {
+		billingModel = upstreamModel
+	}
 	explicitEffort := ""
 	if anthropicReq.OutputConfig != nil {
 		explicitEffort = anthropicReq.OutputConfig.Effort

@@ -566,7 +566,14 @@ func (a *Account) IsModelSupported(requestedModel string) bool {
 		return true
 	}
 	normalized := normalizeRequestedModelForLookup(a.Platform, requestedModel)
-	return normalized != requestedModel && mappingSupportsRequestedModel(mapping, normalized)
+	if normalized != requestedModel && mappingSupportsRequestedModel(mapping, normalized) {
+		return true
+	}
+	if a.IsOpenAIOAuth() && strings.TrimSpace(requestedModel) != "" {
+		migrated := migrateRetiredCodexOAuthModel(strings.TrimSpace(requestedModel))
+		return migrated != requestedModel && mappingSupportsRequestedModel(mapping, migrated)
+	}
+	return false
 }
 
 // GetMappedModel 获取映射后的模型名（支持通配符，最长优先匹配）
@@ -590,6 +597,14 @@ func (a *Account) ResolveMappedModel(requestedModel string) (mappedModel string,
 	if normalized != requestedModel {
 		if mappedModel, matched := resolveRequestedModelInMapping(mapping, normalized); matched {
 			return mappedModel, true
+		}
+	}
+	if a.IsOpenAIOAuth() && strings.TrimSpace(requestedModel) != "" {
+		migrated := migrateRetiredCodexOAuthModel(strings.TrimSpace(requestedModel))
+		if migrated != requestedModel {
+			if mappedModel, matched := resolveRequestedModelInMapping(mapping, migrated); matched {
+				return mappedModel, true
+			}
 		}
 	}
 	return requestedModel, false

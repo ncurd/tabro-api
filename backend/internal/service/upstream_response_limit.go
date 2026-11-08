@@ -13,6 +13,7 @@ import (
 var ErrUpstreamResponseBodyTooLarge = errors.New("upstream response body too large")
 
 const defaultUpstreamResponseReadMaxBytes int64 = 8 * 1024 * 1024
+const defaultImageResponseReadMaxBytes int64 = 128 * 1024 * 1024
 
 func resolveUpstreamResponseReadLimit(cfg *config.Config) int64 {
 	if cfg != nil && cfg.Gateway.UpstreamResponseReadMaxBytes > 0 {
@@ -46,6 +47,20 @@ type TooLargeWriter func(c *gin.Context)
 // 超限时自动记录 ops error 并调用 onTooLarge 向客户端写错误。
 func ReadUpstreamResponseBody(reader io.Reader, cfg *config.Config, c *gin.Context, onTooLarge TooLargeWriter) ([]byte, error) {
 	maxBytes := resolveUpstreamResponseReadLimit(cfg)
+	return readUpstreamResponseBodyWithLimit(reader, maxBytes, c, onTooLarge)
+}
+
+// ReadUpstreamImagesResponseBody allows bounded Base64 image payloads without
+// raising the response limit for text, audio, or other gateway endpoints.
+func ReadUpstreamImagesResponseBody(reader io.Reader, cfg *config.Config, c *gin.Context, onTooLarge TooLargeWriter) ([]byte, error) {
+	maxBytes := defaultImageResponseReadMaxBytes
+	if cfg != nil && cfg.Gateway.ImageResponseReadMaxBytes > 0 {
+		maxBytes = cfg.Gateway.ImageResponseReadMaxBytes
+	}
+	return readUpstreamResponseBodyWithLimit(reader, maxBytes, c, onTooLarge)
+}
+
+func readUpstreamResponseBodyWithLimit(reader io.Reader, maxBytes int64, c *gin.Context, onTooLarge TooLargeWriter) ([]byte, error) {
 	body, err := readUpstreamResponseBodyLimited(reader, maxBytes)
 	if err != nil {
 		if errors.Is(err, ErrUpstreamResponseBodyTooLarge) {

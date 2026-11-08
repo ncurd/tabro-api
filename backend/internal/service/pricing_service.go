@@ -226,6 +226,20 @@ var (
 		Mode:                                "chat",
 		SupportsPromptCaching:               true,
 	}
+	// GPT Image 2.6 has published Standard token rates, with no fixed per-image
+	// or Batch rate. Keep both named variants available if the mirror is stale.
+	openAIImage26FallbackPricing = &LiteLLMModelPricing{
+		InputCostPerToken:            5e-6,
+		InputCostPerImageToken:       8e-6,
+		HasImageInputPricing:         true,
+		CacheReadInputTokenCost:      1.25e-6,
+		CacheReadInputImageTokenCost: 2e-6,
+		HasCacheReadImagePricing:     true,
+		OutputCostPerImageToken:      30e-6,
+		HasImageOutputPricing:        true,
+		LiteLLMProvider:              "openai",
+		Mode:                         "image_generation",
+	}
 )
 
 // LiteLLMModelPricing LiteLLM价格数据结构
@@ -234,6 +248,8 @@ type LiteLLMModelPricing struct {
 	MaxInputTokens                      int     `json:"max_input_tokens"`
 	MaxOutputTokens                     int     `json:"max_output_tokens"`
 	InputCostPerToken                   float64 `json:"input_cost_per_token"`
+	InputCostPerImageToken              float64 `json:"input_cost_per_image_token"`
+	HasImageInputPricing                bool    `json:"-"`
 	InputCostPerTokenPriority           float64 `json:"input_cost_per_token_priority"`
 	OutputCostPerToken                  float64 `json:"output_cost_per_token"`
 	OutputCostPerTokenPriority          float64 `json:"output_cost_per_token_priority"`
@@ -241,6 +257,8 @@ type LiteLLMModelPricing struct {
 	CacheCreationInputTokenCostPriority float64 `json:"cache_creation_input_token_cost_priority"`
 	CacheCreationInputTokenCostAbove1hr float64 `json:"cache_creation_input_token_cost_above_1hr"`
 	CacheReadInputTokenCost             float64 `json:"cache_read_input_token_cost"`
+	CacheReadInputImageTokenCost        float64 `json:"cache_read_input_image_token_cost"`
+	HasCacheReadImagePricing            bool    `json:"-"`
 	CacheReadInputTokenCostPriority     float64 `json:"cache_read_input_token_cost_priority"`
 	LongContextInputTokenThreshold      int     `json:"long_context_input_token_threshold,omitempty"`
 	LongContextInputCostMultiplier      float64 `json:"long_context_input_cost_multiplier,omitempty"`
@@ -251,7 +269,8 @@ type LiteLLMModelPricing struct {
 	SupportsPromptCaching               bool    `json:"supports_prompt_caching"`
 	OutputCostPerImage                  float64 `json:"output_cost_per_image"`       // 图片生成模型每张图片价格
 	OutputCostPerImageToken             float64 `json:"output_cost_per_image_token"` // 图片输出 token 价格
-	OutputCostPerSecond                 float64 `json:"output_cost_per_second"`      // 音频输出每秒价格
+	HasImageOutputPricing               bool    `json:"-"`
+	OutputCostPerSecond                 float64 `json:"output_cost_per_second"` // 音频输出每秒价格
 }
 
 // PricingRemoteClient 远程价格数据获取接口
@@ -265,6 +284,7 @@ type LiteLLMRawEntry struct {
 	MaxInputTokens                      int                         `json:"max_input_tokens"`
 	MaxOutputTokens                     int                         `json:"max_output_tokens"`
 	InputCostPerToken                   *float64                    `json:"input_cost_per_token"`
+	InputCostPerImageToken              *float64                    `json:"input_cost_per_image_token"`
 	InputCostPerTokenPriority           *float64                    `json:"input_cost_per_token_priority"`
 	OutputCostPerToken                  *float64                    `json:"output_cost_per_token"`
 	OutputCostPerTokenPriority          *float64                    `json:"output_cost_per_token_priority"`
@@ -272,6 +292,7 @@ type LiteLLMRawEntry struct {
 	CacheCreationInputTokenCostPriority *float64                    `json:"cache_creation_input_token_cost_priority"`
 	CacheCreationInputTokenCostAbove1hr *float64                    `json:"cache_creation_input_token_cost_above_1hr"`
 	CacheReadInputTokenCost             *float64                    `json:"cache_read_input_token_cost"`
+	CacheReadInputImageTokenCost        *float64                    `json:"cache_read_input_image_token_cost"`
 	CacheReadInputTokenCostPriority     *float64                    `json:"cache_read_input_token_cost_priority"`
 	SupportsServiceTier                 bool                        `json:"supports_service_tier"`
 	LiteLLMProvider                     string                      `json:"litellm_provider"`
@@ -285,6 +306,7 @@ type LiteLLMRawEntry struct {
 
 type LiteLLMTieredPricingEntry struct {
 	InputCostPerToken                   *float64 `json:"input_cost_per_token"`
+	InputCostPerImageToken              *float64 `json:"input_cost_per_image_token"`
 	InputCostPerTokenPriority           *float64 `json:"input_cost_per_token_priority"`
 	OutputCostPerToken                  *float64 `json:"output_cost_per_token"`
 	OutputCostPerTokenPriority          *float64 `json:"output_cost_per_token_priority"`
@@ -292,6 +314,7 @@ type LiteLLMTieredPricingEntry struct {
 	CacheCreationInputTokenCostPriority *float64 `json:"cache_creation_input_token_cost_priority"`
 	CacheCreationInputTokenCostAbove1hr *float64 `json:"cache_creation_input_token_cost_above_1hr"`
 	CacheReadInputTokenCost             *float64 `json:"cache_read_input_token_cost"`
+	CacheReadInputImageTokenCost        *float64 `json:"cache_read_input_image_token_cost"`
 	CacheReadInputTokenCostPriority     *float64 `json:"cache_read_input_token_cost_priority"`
 	OutputCostPerImage                  *float64 `json:"output_cost_per_image"`
 	OutputCostPerImageToken             *float64 `json:"output_cost_per_image_token"`
@@ -606,6 +629,10 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 		if entry.InputCostPerToken != nil {
 			pricing.InputCostPerToken = *entry.InputCostPerToken
 		}
+		if entry.InputCostPerImageToken != nil {
+			pricing.InputCostPerImageToken = *entry.InputCostPerImageToken
+			pricing.HasImageInputPricing = true
+		}
 		if entry.InputCostPerTokenPriority != nil {
 			pricing.InputCostPerTokenPriority = *entry.InputCostPerTokenPriority
 		}
@@ -627,6 +654,10 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 		if entry.CacheReadInputTokenCost != nil {
 			pricing.CacheReadInputTokenCost = *entry.CacheReadInputTokenCost
 		}
+		if entry.CacheReadInputImageTokenCost != nil {
+			pricing.CacheReadInputImageTokenCost = *entry.CacheReadInputImageTokenCost
+			pricing.HasCacheReadImagePricing = true
+		}
 		if entry.CacheReadInputTokenCostPriority != nil {
 			pricing.CacheReadInputTokenCostPriority = *entry.CacheReadInputTokenCostPriority
 		}
@@ -635,6 +666,7 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 		}
 		if entry.OutputCostPerImageToken != nil {
 			pricing.OutputCostPerImageToken = *entry.OutputCostPerImageToken
+			pricing.HasImageOutputPricing = isGPTImage26Model(modelName)
 		}
 		if entry.OutputCostPerSecond != nil {
 			pricing.OutputCostPerSecond = *entry.OutputCostPerSecond
@@ -662,6 +694,9 @@ func (e *LiteLLMRawEntry) applyFirstTierPricing() {
 	if e.InputCostPerToken == nil {
 		e.InputCostPerToken = tier.InputCostPerToken
 	}
+	if e.InputCostPerImageToken == nil {
+		e.InputCostPerImageToken = tier.InputCostPerImageToken
+	}
 	if e.InputCostPerTokenPriority == nil {
 		e.InputCostPerTokenPriority = tier.InputCostPerTokenPriority
 	}
@@ -683,6 +718,9 @@ func (e *LiteLLMRawEntry) applyFirstTierPricing() {
 	if e.CacheReadInputTokenCost == nil {
 		e.CacheReadInputTokenCost = tier.CacheReadInputTokenCost
 	}
+	if e.CacheReadInputImageTokenCost == nil {
+		e.CacheReadInputImageTokenCost = tier.CacheReadInputImageTokenCost
+	}
 	if e.CacheReadInputTokenCostPriority == nil {
 		e.CacheReadInputTokenCostPriority = tier.CacheReadInputTokenCostPriority
 	}
@@ -700,6 +738,7 @@ func (e *LiteLLMRawEntry) applyFirstTierPricing() {
 func (e *LiteLLMRawEntry) hasAnyPrice() bool {
 	return e != nil &&
 		(e.InputCostPerToken != nil ||
+			e.InputCostPerImageToken != nil ||
 			e.OutputCostPerToken != nil ||
 			e.OutputCostPerSecond != nil ||
 			e.OutputCostPerImage != nil ||
@@ -942,6 +981,18 @@ func (s *PricingService) GetModelPricing(modelName string) *LiteLLMModelPricing 
 			if strings.EqualFold(key, candidate) {
 				return pricing
 			}
+		}
+	}
+	// Only published full GPT Image 2.6 IDs receive the official fallback.
+	// Do not infer a bare family alias, a future snapshot, or another variant.
+	for _, candidate := range lookupCandidates {
+		if isGPTImage26Model(candidate) {
+			return openAIImage26FallbackPricing
+		}
+	}
+	for _, candidate := range lookupCandidates {
+		if strings.HasPrefix(candidate, "gpt-image-2.6") {
+			return nil
 		}
 	}
 

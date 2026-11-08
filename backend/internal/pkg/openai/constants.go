@@ -34,6 +34,8 @@ var DefaultModels = []Model{
 	{ID: "gpt-5.2", Object: "model", Created: 1733875200, OwnedBy: "openai", Type: "model", DisplayName: "GPT-5.2"},
 	{ID: "gpt-5.1", Object: "model", Created: 1731456000, OwnedBy: "openai", Type: "model", DisplayName: "GPT-5.1"},
 	{ID: "gpt-5", Object: "model", Created: 1722988800, OwnedBy: "openai", Type: "model", DisplayName: "GPT-5"},
+	{ID: "gpt-image-2.6-sunburst", Object: "model", OwnedBy: "openai", Type: "model", DisplayName: "GPT Image 2.6 Sunburst"},
+	{ID: "gpt-image-2.6-flare", Object: "model", OwnedBy: "openai", Type: "model", DisplayName: "GPT Image 2.6 Flare"},
 	{ID: "gpt-image-2.5-sunburst", Object: "model", Created: 1788825600, OwnedBy: "openai", Type: "model", DisplayName: "GPT Image 2.5 Sunburst"},
 	{ID: "gpt-image-2.5-sunburst-2026-09-08", Object: "model", Created: 1788825600, OwnedBy: "openai", Type: "model", DisplayName: "GPT Image 2.5 Sunburst (2026-09-08)"},
 	{ID: "gpt-image-2.5-flare", Object: "model", Created: 1788825600, OwnedBy: "openai", Type: "model", DisplayName: "GPT Image 2.5 Flare"},
@@ -57,6 +59,10 @@ func DefaultModelIDs() []string {
 	}
 	return ids
 }
+
+// DefaultTextModel is the general text fallback shared by API and Codex
+// transports. GPT-6 Sol supports the legacy none reasoning effort.
+const DefaultTextModel = "gpt-6-sol"
 
 // DefaultTestModel default model for testing OpenAI accounts
 const DefaultTestModel = "gpt-5.6-luna"

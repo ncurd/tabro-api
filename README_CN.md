@@ -57,6 +57,18 @@ underscores_in_headers on;
 
 Nginx 默认会丢弃名称中含下划线的请求头（如 `session_id`），这会导致多账号环境下的粘性会话功能失效。
 
+长对话还需要统一反向代理和应用的请求体上限。在实际处理 API 域名的 HTTPS `server` 块中配置：
+
+```nginx
+client_max_body_size 256m;
+```
+
+检查 `/v1/`、`/responses` 等命中的 `location` 是否设置了更小的同名限制；修改后执行 `sudo nginx -t && sudo nginx -s reload`。宝塔、1Panel 等面板可在对应站点的配置文件中修改并重载。不要新建重复的 `server` 或 `location` 块。
+
+`256m` 与应用默认的 256 MiB（268435456 字节）一致。Nginx 返回 HTML 格式的 `413 Request Entity Too Large` 时，请先检查入口代理；只修改应用的 `gateway.max_body_size` 无法放开这层限制。若有多层代理、CDN 或 WAF，每层都需要允许预期的请求大小。
+
+这是整个 JSON/附件请求的字节限制，与模型的 token 上下文长度独立。完整部署配置与排查步骤见 [部署说明](deploy/README.md#large-requests-and-413-errors)。
+
 ---
 
 ## 部署方式

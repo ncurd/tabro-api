@@ -776,6 +776,9 @@ func buildUpstreamTransport(settings poolSettings, proxyURL *url.URL) (*http.Tra
 		MaxConnsPerHost:       settings.maxConnsPerHost,
 		IdleConnTimeout:       settings.idleConnTimeout,
 		ResponseHeaderTimeout: settings.responseHeaderTimeout,
+		// SOCKS proxies install a custom DialContext, which otherwise disables
+		// Go's automatic HTTP/2 negotiation and stream multiplexing.
+		ForceAttemptHTTP2: true,
 	}
 	if err := proxyutil.ConfigureTransportProxy(transport, proxyURL); err != nil {
 		return nil, err

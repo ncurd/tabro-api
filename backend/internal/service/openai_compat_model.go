@@ -163,6 +163,9 @@ func validateGPT61SolReasoning(requestedModel, targetModel, effort string) error
 	}
 	if isGPT61SolModelFamily(targetModel) {
 		effort = strings.ToLower(strings.TrimSpace(effort))
+		if effort == "" {
+			effort = deriveCodexRequestReasoningEffortFromModel(requestedModel)
+		}
 		if effort == "none" || effort == "minimal" {
 			return fmt.Errorf("%w: reasoning effort %q is not supported by gpt-6.1-sol", ErrUnsupportedGPT61SolReasoning, effort)
 		}

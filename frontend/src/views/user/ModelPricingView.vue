@@ -105,6 +105,10 @@
                 <th class="whitespace-nowrap px-4 py-3 text-right font-medium text-gray-500 dark:text-gray-400">缓存读取</th>
                 <th class="whitespace-nowrap px-4 py-3 text-right font-medium text-gray-500 dark:text-gray-400">优先输入</th>
                 <th class="whitespace-nowrap px-4 py-3 text-right font-medium text-gray-500 dark:text-gray-400">优先输出</th>
+                <template v-if="hasImageInputPrices(group)">
+                <th class="whitespace-nowrap px-4 py-3 text-right font-medium text-gray-500 dark:text-gray-400">图片输入</th>
+                <th class="whitespace-nowrap px-4 py-3 text-right font-medium text-gray-500 dark:text-gray-400">缓存图片输入</th>
+                </template>
                 <th class="whitespace-nowrap px-4 py-3 text-right font-medium text-gray-500 dark:text-gray-400">图片输出</th>
                 </template>
               </tr>
@@ -115,7 +119,7 @@
                   <div class="font-mono text-sm font-medium text-gray-900 dark:text-white">{{ model.id }}</div>
                   <div v-if="model.source" class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{{ model.source }}</div>
                 </td>
-                <td v-if="isUnitBilling(model)" :colspan="hasTokenModels(group) ? 8 : 1" class="px-4 py-3 text-gray-700 dark:text-gray-200">
+                <td v-if="isUnitBilling(model)" :colspan="hasTokenModels(group) ? (hasImageInputPrices(group) ? 10 : 8) : 1" class="px-4 py-3 text-gray-700 dark:text-gray-200">
                   <div class="flex flex-wrap gap-x-5 gap-y-2 tabular-nums">
                     <span v-if="model.unit_price != null">默认：{{ formatUnitPrice(model, model.unit_price) }}</span>
                     <span v-for="(tier, index) in model.tiers ?? []" :key="`${tier.label}-${index}`">
@@ -133,6 +137,10 @@
                 <td class="whitespace-nowrap px-4 py-3 text-right tabular-nums text-gray-700 dark:text-gray-200">{{ formatPrice(model, model.cache_read_price_per_million) }}</td>
                 <td class="whitespace-nowrap px-4 py-3 text-right tabular-nums text-gray-700 dark:text-gray-200">{{ formatPrice(model, model.priority_input_price_per_million) }}</td>
                 <td class="whitespace-nowrap px-4 py-3 text-right tabular-nums text-gray-700 dark:text-gray-200">{{ formatPrice(model, model.priority_output_price_per_million) }}</td>
+                <template v-if="hasImageInputPrices(group)">
+                <td class="whitespace-nowrap px-4 py-3 text-right tabular-nums text-gray-700 dark:text-gray-200">{{ formatPrice(model, model.image_input_price_per_million) }}</td>
+                <td class="whitespace-nowrap px-4 py-3 text-right tabular-nums text-gray-700 dark:text-gray-200">{{ formatPrice(model, model.cached_image_input_price_per_million) }}</td>
+                </template>
                 <td class="whitespace-nowrap px-4 py-3 text-right tabular-nums text-gray-700 dark:text-gray-200">{{ formatPrice(model, model.image_output_price_per_million) }}</td>
                 </template>
               </tr>
@@ -189,6 +197,12 @@ function isUnitBilling(model: AvailableModelPricingModel): boolean {
 
 function hasTokenModels(group: AvailableModelPricingGroup): boolean {
   return group.models.some((model) => !isUnitBilling(model))
+}
+
+function hasImageInputPrices(group: AvailableModelPricingGroup): boolean {
+  return group.models.some((model) => !isUnitBilling(model) && (
+    model.image_input_price_per_million != null || model.cached_image_input_price_per_million != null
+  ))
 }
 
 function unitLabel(model: AvailableModelPricingModel): string {

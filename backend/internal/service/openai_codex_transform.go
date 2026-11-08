@@ -2,7 +2,10 @@ package service
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 )
 
 var codexModelMap = map[string]string{
@@ -148,7 +151,10 @@ func applyCodexOAuthTransform(reqBody map[string]any, isCodexCLI bool, isCompact
 	if v, ok := reqBody["model"].(string); ok {
 		model = v
 	}
-	normalizedModel := strings.TrimSpace(model)
+	normalizedModel := migrateRetiredCodexOAuthModel(strings.TrimSpace(model))
+	if applyCodexReasoningEffortFromModel(reqBody, model) {
+		result.Modified = true
+	}
 	if normalizedModel != "" {
 		if model != normalizedModel {
 			reqBody["model"] = normalizedModel
@@ -383,9 +389,93 @@ func normalizeCodexModel(model string) string {
 	return "gpt-5.1-codex"
 }
 
+// ChatGPT-authenticated Codex has a different lifecycle from API-key sessions.
+// Keep retirement migration out of generic alias parsing and historical pricing.
+// https://learn.chatgpt.com/docs/models#deprecated-codex-models
+var retiredCodexOAuthModelPattern = regexp.MustCompile(`^(gpt-5\.4(?:-mini|-pro|-chat-latest)?|gpt-5\.5(?:-pro)?)(?:-[0-9]{4}-[0-9]{2}-[0-9]{2})?(?:-(?:none|minimal|low|medium|high|xhigh|max))?$`)
+
+func migrateRetiredCodexOAuthModel(model string) string {
+	if model == "" {
+		return openai.DefaultTextModel
+	}
+	id := strings.ToLower(strings.TrimSpace(model))
+	if index := strings.LastIndex(id, "/"); index >= 0 {
+		id = id[index+1:]
+	}
+	id = strings.NewReplacer("_", "-", " ", "-").Replace(id)
+	match := retiredCodexOAuthModelPattern.FindStringSubmatch(id)
+	if len(match) == 0 {
+		return model
+	}
+	switch match[1] {
+	case "gpt-5.4-mini":
+		return "gpt-6-luna"
+	default:
+		if strings.HasPrefix(match[1], "gpt-5.5") {
+			return "gpt-6.1-sol"
+		}
+		return "gpt-6-sol"
+	}
+}
+
+func normalizeCodexOAuthModel(model string) string {
+	model = strings.TrimSpace(model)
+	normalized := normalizeCodexModel(model)
+	if normalized == "gpt-5.1-codex" {
+		modelID := model
+		if index := strings.LastIndex(modelID, "/"); index >= 0 {
+			modelID = modelID[index+1:]
+		}
+		// The generic parser's historical fallback is also used for pricing
+		// and eligibility. Only actual OAuth sends replace an unknown model.
+		if getNormalizedCodexModel(modelID) == "" {
+			return openai.DefaultTextModel
+		}
+	}
+	return migrateRetiredCodexOAuthModel(normalized)
+}
+
+func deriveCodexRequestReasoningEffortFromModel(model string) string {
+	parts := strings.FieldsFunc(strings.ToLower(strings.TrimSpace(model)), func(r rune) bool {
+		return r == '-' || r == '_' || r == ' '
+	})
+	if len(parts) > 0 {
+		switch parts[len(parts)-1] {
+		case "none", "minimal":
+			return "none"
+		}
+	}
+	return deriveOpenAIReasoningEffortFromModel(model)
+}
+
+// Preserve a reasoning suffix before model normalization removes it. Explicit
+// request fields take precedence over a suffix-derived compatibility default.
+func applyCodexReasoningEffortFromModel(reqBody map[string]any, model string) bool {
+	effort := deriveCodexRequestReasoningEffortFromModel(model)
+	if effort == "" {
+		return false
+	}
+	if explicit, ok := reqBody["reasoning_effort"].(string); ok && strings.TrimSpace(explicit) != "" {
+		return false
+	}
+	reasoning, ok := reqBody["reasoning"].(map[string]any)
+	if !ok {
+		if value, exists := reqBody["reasoning"]; exists && value != nil {
+			return false
+		}
+		reasoning = make(map[string]any)
+	}
+	if explicit, ok := reasoning["effort"].(string); ok && strings.TrimSpace(explicit) != "" {
+		return false
+	}
+	reasoning["effort"] = effort
+	reqBody["reasoning"] = reasoning
+	return true
+}
+
 func normalizeOpenAIModelForUpstream(account *Account, model string) string {
 	if account == nil || account.Type == AccountTypeOAuth {
-		return normalizeCodexModel(model)
+		return normalizeCodexOAuthModel(model)
 	}
 	return strings.TrimSpace(model)
 }

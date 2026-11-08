@@ -136,6 +136,10 @@ func (r *ModelPricingResolver) applyTokenOverrides(chPricing *ChannelModelPricin
 	if chPricing.InputPrice != nil {
 		resolved.BasePricing.InputPricePerToken = *chPricing.InputPrice
 		resolved.BasePricing.InputPricePerTokenPriority = *chPricing.InputPrice
+		if resolved.BasePricing.HasImageInputPricing || resolved.BasePricing.ImageInputPricePerToken != 0 {
+			resolved.BasePricing.ImageInputPricePerToken = *chPricing.InputPrice
+			resolved.BasePricing.HasImageInputPricing = true
+		}
 	}
 	if chPricing.OutputPrice != nil {
 		resolved.BasePricing.OutputPricePerToken = *chPricing.OutputPrice
@@ -150,9 +154,14 @@ func (r *ModelPricingResolver) applyTokenOverrides(chPricing *ChannelModelPricin
 	if chPricing.CacheReadPrice != nil {
 		resolved.BasePricing.CacheReadPricePerToken = *chPricing.CacheReadPrice
 		resolved.BasePricing.CacheReadPricePerTokenPriority = *chPricing.CacheReadPrice
+		if resolved.BasePricing.HasCacheReadImagePricing || resolved.BasePricing.CacheReadImagePricePerToken != 0 {
+			resolved.BasePricing.CacheReadImagePricePerToken = *chPricing.CacheReadPrice
+			resolved.BasePricing.HasCacheReadImagePricing = true
+		}
 	}
 	if chPricing.ImageOutputPrice != nil {
 		resolved.BasePricing.ImageOutputPricePerToken = *chPricing.ImageOutputPrice
+		resolved.BasePricing.HasImageOutputPricing = true
 	}
 }
 
@@ -204,6 +213,10 @@ func intervalToModelPricing(iv *PricingInterval, basePricing *ModelPricing, supp
 	if iv.InputPrice != nil {
 		pricing.InputPricePerToken = *iv.InputPrice
 		pricing.InputPricePerTokenPriority = *iv.InputPrice
+		if pricing.HasImageInputPricing || pricing.ImageInputPricePerToken != 0 {
+			pricing.ImageInputPricePerToken = *iv.InputPrice
+			pricing.HasImageInputPricing = true
+		}
 	}
 	if iv.OutputPrice != nil {
 		pricing.OutputPricePerToken = *iv.OutputPrice
@@ -218,6 +231,10 @@ func intervalToModelPricing(iv *PricingInterval, basePricing *ModelPricing, supp
 	if iv.CacheReadPrice != nil {
 		pricing.CacheReadPricePerToken = *iv.CacheReadPrice
 		pricing.CacheReadPricePerTokenPriority = *iv.CacheReadPrice
+		if pricing.HasCacheReadImagePricing || pricing.CacheReadImagePricePerToken != 0 {
+			pricing.CacheReadImagePricePerToken = *iv.CacheReadPrice
+			pricing.HasCacheReadImagePricing = true
+		}
 	}
 	return pricing
 }

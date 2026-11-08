@@ -1720,11 +1720,11 @@ export default {
 				familyMappingTitle: "Family Par défaut Mapping",
 				familyMappingHint: "Requêtes cela match the Opus, Sonnet, ou Haiku families will prefer the target Modèle configured here.",
 				opusModel: "Opus Target Modèle",
-				opusModelPlaceholder: "e.g., gpt-5.4",
+				opusModelPlaceholder: "e.g., gpt-6-sol",
 				sonnetModel: "Sonnet Target Modèle",
-				sonnetModelPlaceholder: "e.g., gpt-5.3-codex",
+				sonnetModelPlaceholder: "e.g., gpt-6-sol",
 				haikuModel: "Haiku Target Modèle",
-				haikuModelPlaceholder: "e.g., gpt-5.4-mini",
+				haikuModelPlaceholder: "e.g., gpt-6-luna",
 				exactMappingTitle: "Exact Modèle Overrides",
 				exactMappingHint: "Exact Claude Modèle overrides take priority over the family defaults et can route a specific Claude Modèle à a different target Modèle.",
 				noExactMappings: "Aucun exact Modèle overrides pour le moment",
@@ -1732,7 +1732,7 @@ export default {
 				claudeModel: "Claude Modèle",
 				claudeModelPlaceholder: "e.g., claude-sonnet-4-5-20250929",
 				targetModel: "Target Modèle",
-				targetModelPlaceholder: "e.g., gpt-5.4",
+				targetModelPlaceholder: "e.g., gpt-6-sol",
 				removeExactMapping: "Retirer Exact Mapping"
 			},
 			invalidRequestFallback: {

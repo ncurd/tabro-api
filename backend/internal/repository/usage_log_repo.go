@@ -3479,28 +3479,22 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 	stats.TotalAccountCost = &totalAccountCost
 	stats.TotalTokens = stats.TotalInputTokens + stats.TotalOutputTokens + stats.TotalCacheTokens
 
-	start := time.Unix(0, 0).UTC()
-	if filters.StartTime != nil {
-		start = *filters.StartTime
+	// Reuse the total's filters, including billing_mode, for every breakdown.
+	// Preserve the endpoint APIs' default epoch-to-now time range.
+	if filters.StartTime == nil {
+		conditions = append(conditions, fmt.Sprintf("created_at >= $%d", len(args)+1))
+		args = append(args, time.Unix(0, 0).UTC())
 	}
-	end := time.Now().UTC()
-	if filters.EndTime != nil {
-		end = *filters.EndTime
+	if filters.EndTime == nil {
+		conditions = append(conditions, fmt.Sprintf("created_at < $%d", len(args)+1))
+		args = append(args, time.Now().UTC())
 	}
-
-	endpoints, endpointErr := r.GetEndpointStatsWithFilters(ctx, start, end, filters.UserID, filters.APIKeyID, filters.AccountID, filters.GroupID, filters.Model, filters.RequestType, filters.Stream, filters.BillingType)
+	accountCost := filters.AccountID > 0 && filters.UserID == 0 && filters.APIKeyID == 0
+	endpoints, upstreamEndpoints, endpointPaths, endpointErr := r.getEndpointBreakdowns(ctx, conditions, args, accountCost)
 	if endpointErr != nil {
-		logger.LegacyPrintf("repository.usage_log", "GetEndpointStatsWithFilters failed in GetStatsWithFilters: %v", endpointErr)
+		logger.LegacyPrintf("repository.usage_log", "getEndpointBreakdowns failed in GetStatsWithFilters: %v", endpointErr)
 		endpoints = []EndpointStat{}
-	}
-	upstreamEndpoints, upstreamEndpointErr := r.GetUpstreamEndpointStatsWithFilters(ctx, start, end, filters.UserID, filters.APIKeyID, filters.AccountID, filters.GroupID, filters.Model, filters.RequestType, filters.Stream, filters.BillingType)
-	if upstreamEndpointErr != nil {
-		logger.LegacyPrintf("repository.usage_log", "GetUpstreamEndpointStatsWithFilters failed in GetStatsWithFilters: %v", upstreamEndpointErr)
 		upstreamEndpoints = []EndpointStat{}
-	}
-	endpointPaths, endpointPathErr := r.getEndpointPathStatsWithFilters(ctx, start, end, filters.UserID, filters.APIKeyID, filters.AccountID, filters.GroupID, filters.Model, filters.RequestType, filters.Stream, filters.BillingType)
-	if endpointPathErr != nil {
-		logger.LegacyPrintf("repository.usage_log", "getEndpointPathStatsWithFilters failed in GetStatsWithFilters: %v", endpointPathErr)
 		endpointPaths = []EndpointStat{}
 	}
 	stats.Endpoints = endpoints
@@ -3589,75 +3583,72 @@ func (r *usageLogRepository) getEndpointStatsByColumnWithFilters(ctx context.Con
 	return results, nil
 }
 
-func (r *usageLogRepository) getEndpointPathStatsWithFilters(ctx context.Context, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, model string, requestType *int16, stream *bool, billingType *int8) (results []EndpointStat, err error) {
-	actualCostExpr := "COALESCE(SUM(actual_cost), 0) as actual_cost"
-	if accountID > 0 && userID == 0 && apiKeyID == 0 {
-		actualCostExpr = "COALESCE(SUM(COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)), 0) as actual_cost"
+// getEndpointBreakdowns computes all endpoint distributions in one scan. The
+// grouping sets return exactly the same groups as three independent aggregates,
+// without transferring or retaining individual usage records in memory.
+func (r *usageLogRepository) getEndpointBreakdowns(ctx context.Context, conditions []string, args []any, accountCost bool) (endpoints, upstreamEndpoints, endpointPaths []EndpointStat, err error) {
+	actualCostExpr := "COALESCE(SUM(actual_cost), 0)"
+	if accountCost {
+		actualCostExpr = "COALESCE(SUM(COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)), 0)"
 	}
-
 	query := fmt.Sprintf(`
 		SELECT
-			CONCAT(
-				COALESCE(NULLIF(TRIM(inbound_endpoint), ''), 'unknown'),
-				' -> ',
-				COALESCE(NULLIF(TRIM(upstream_endpoint), ''), 'unknown')
-			) AS endpoint,
+			GROUPING(inbound, upstream, path) AS endpoint_type,
+			COALESCE(inbound, upstream, path) AS endpoint,
 			COUNT(*) AS requests,
 			COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) AS total_tokens,
-			COALESCE(SUM(total_cost), 0) as cost,
+			COALESCE(SUM(total_cost), 0) AS cost,
+			%s AS actual_cost
+		FROM (
+			SELECT
+				COALESCE(NULLIF(TRIM(inbound_endpoint), ''), 'unknown') AS inbound,
+				COALESCE(NULLIF(TRIM(upstream_endpoint), ''), 'unknown') AS upstream,
+				CONCAT(
+					COALESCE(NULLIF(TRIM(inbound_endpoint), ''), 'unknown'),
+					' -> ',
+					COALESCE(NULLIF(TRIM(upstream_endpoint), ''), 'unknown')
+				) AS path,
+				input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
+				total_cost, actual_cost, account_stats_cost, account_rate_multiplier
+			FROM usage_logs
 			%s
-		FROM usage_logs
-		WHERE created_at >= $1 AND created_at < $2
-	`, actualCostExpr)
-
-	args := []any{startTime, endTime}
-	if userID > 0 {
-		query += fmt.Sprintf(" AND user_id = $%d", len(args)+1)
-		args = append(args, userID)
-	}
-	if apiKeyID > 0 {
-		query += fmt.Sprintf(" AND api_key_id = $%d", len(args)+1)
-		args = append(args, apiKeyID)
-	}
-	if accountID > 0 {
-		query += fmt.Sprintf(" AND account_id = $%d", len(args)+1)
-		args = append(args, accountID)
-	}
-	if groupID > 0 {
-		query += fmt.Sprintf(" AND group_id = $%d", len(args)+1)
-		args = append(args, groupID)
-	}
-	query, args = appendRawUsageLogModelQueryFilter(query, args, model)
-	query, args = appendRequestTypeOrStreamQueryFilter(query, args, requestType, stream)
-	if billingType != nil {
-		query += fmt.Sprintf(" AND billing_type = $%d", len(args)+1)
-		args = append(args, int16(*billingType))
-	}
-	query += " GROUP BY endpoint ORDER BY requests DESC"
+		) AS filtered
+		GROUP BY GROUPING SETS ((inbound), (upstream), (path))
+		ORDER BY requests DESC, endpoint
+	`, actualCostExpr, buildWhere(conditions))
 
 	rows, err := r.sql.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 	defer func() {
 		if closeErr := rows.Close(); closeErr != nil && err == nil {
-			err = closeErr
-			results = nil
+			endpoints, upstreamEndpoints, endpointPaths, err = nil, nil, nil, closeErr
 		}
 	}()
 
-	results = make([]EndpointStat, 0)
+	endpoints = make([]EndpointStat, 0)
+	upstreamEndpoints = make([]EndpointStat, 0)
+	endpointPaths = make([]EndpointStat, 0)
 	for rows.Next() {
+		var endpointType int
 		var row EndpointStat
-		if err := rows.Scan(&row.Endpoint, &row.Requests, &row.TotalTokens, &row.Cost, &row.ActualCost); err != nil {
-			return nil, err
+		if err := rows.Scan(&endpointType, &row.Endpoint, &row.Requests, &row.TotalTokens, &row.Cost, &row.ActualCost); err != nil {
+			return nil, nil, nil, err
 		}
-		results = append(results, row)
+		switch endpointType {
+		case 3: // inbound is grouped; upstream and path are omitted (0b011).
+			endpoints = append(endpoints, row)
+		case 5: // upstream is grouped (0b101).
+			upstreamEndpoints = append(upstreamEndpoints, row)
+		case 6: // path is grouped (0b110).
+			endpointPaths = append(endpointPaths, row)
+		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
-	return results, nil
+	return endpoints, upstreamEndpoints, endpointPaths, nil
 }
 
 // GetEndpointStatsWithFilters returns inbound endpoint statistics with optional filters.

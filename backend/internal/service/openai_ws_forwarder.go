@@ -2587,6 +2587,19 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		if upstreamModel == "" {
 			upstreamModel = normalizeOpenAIModelForUpstream(account, account.GetMappedModel(originalModel))
 		}
+		effort := firstNonEmpty(gjson.GetBytes(normalized, "reasoning.effort").String(), gjson.GetBytes(normalized, "reasoning_effort").String())
+		if err := validateGPT61SolReasoning(originalModel, upstreamModel, effort); err != nil {
+			return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, err.Error(), err)
+		}
+		if account.Type == AccountTypeOAuth && effort == "" {
+			if derivedEffort := deriveCodexRequestReasoningEffortFromModel(originalModel); derivedEffort != "" {
+				next, setErr := applyPayloadMutation(normalized, "reasoning.effort", derivedEffort)
+				if setErr != nil {
+					return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket reasoning effort", setErr)
+				}
+				normalized = next
+			}
+		}
 		if upstreamModel != originalModel {
 			next, setErr := applyPayloadMutation(normalized, "model", upstreamModel)
 			if setErr != nil {

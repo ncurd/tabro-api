@@ -1720,11 +1720,11 @@ export default {
 				familyMappingTitle: "Family Mặc định Mapping",
 				familyMappingHint: "Yêu cầu đó match the Opus, Sonnet, hoặc Haiku families will prefer the target Mô hình configured here.",
 				opusModel: "Opus Target Mô hình",
-				opusModelPlaceholder: "e.g., gpt-5.4",
+				opusModelPlaceholder: "e.g., gpt-6-sol",
 				sonnetModel: "Sonnet Target Mô hình",
-				sonnetModelPlaceholder: "e.g., gpt-5.3-codex",
+				sonnetModelPlaceholder: "e.g., gpt-6-sol",
 				haikuModel: "Haiku Target Mô hình",
-				haikuModelPlaceholder: "e.g., gpt-5.4-mini",
+				haikuModelPlaceholder: "e.g., gpt-6-luna",
 				exactMappingTitle: "Exact Mô hình Overrides",
 				exactMappingHint: "Exact Claude Mô hình overrides take priority over the family defaults và can route a specific Claude Mô hình đến a different target Mô hình.",
 				noExactMappings: "Chưa có exact Mô hình overrides",
@@ -1732,7 +1732,7 @@ export default {
 				claudeModel: "Claude Mô hình",
 				claudeModelPlaceholder: "e.g., claude-sonnet-4-5-20250929",
 				targetModel: "Target Mô hình",
-				targetModelPlaceholder: "e.g., gpt-5.4",
+				targetModelPlaceholder: "e.g., gpt-6-sol",
 				removeExactMapping: "Xóa Exact Mapping"
 			},
 			invalidRequestFallback: {

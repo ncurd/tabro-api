@@ -98,10 +98,18 @@ curl https://<host>/v1/responses \
 
 | 方法 | 路径 | 平台 | 说明 |
 | --- | --- | --- | --- |
-| `POST` | `/v1/images/generations` | `openai` | OpenAI 图像生成，支持 `gpt-image-2.5-sunburst`、`gpt-image-2.5-flare` 和 `gpt-image-2` 等模型，具体取决于账号可用模型 |
+| `POST` | `/v1/images/generations` | `openai` | OpenAI 图像生成，支持 GPT Image 2.6、2.5 和 `gpt-image-2` 等模型，具体取决于账号可用模型 |
 | `POST` | `/v1/images/edits` | `openai` | 参考图生成、编辑、蒙版编辑，支持 URL/base64 和流式响应 |
 
 GPT Image 2.5 提供两个模型：`gpt-image-2.5-sunburst` 侧重精确编辑，`gpt-image-2.5-flare` 侧重快速日常生成。请使用完整模型 ID。
+
+GPT Image 2.6 同样支持生成和编辑：`gpt-image-2.6-sunburst` 用于细节较多的视觉任务，`gpt-image-2.6-flare` 用于快速迭代。请使用这两个完整模型 ID，实际访问权限取决于上游账号。账号配置了模型白名单时，需要加入所用的 2.6 模型。
+
+GPT Image 2.6 优先使用平台配置的每张图片单价和尺寸、质量档位；未配置按张价格时，按上游报告的文本输入、图片输入、缓存输入和图片输出 token 分别计费。缓存折扣只使用上游明确提供的明细，缺少缓存图片明细时不推测优惠。当前分组的单价可在模型价格页查看。
+
+按 token 计费时，SVG 输出会另计作者模型的 token 费用，OAuth 转接会另计文本编排模型的费用。配置了明确按张价格的请求按该报价收取，不再叠加这些 token 费用。中心计费要求明确配置按张报价。
+
+API key 直连的 GPT Image 2.6 请求未配置按张价格时，请使用 `n=1` 或 `stream=false`；多张流式完成事件的用量累计方式尚未明确。配置明确按张报价后，可按实际完成图片数结算。本地计费的 OAuth 转接会拆成单张请求并汇总用量，支持多张流式请求；中心计费的 OAuth 请求要求 `n=1`。
 
 Image 2.5 的 `quality` 支持 `low`、`medium`、`high`、`xhigh`、`max` 和 `auto`。模型与参数说明参见 [OpenAI 图像生成文档](https://developers.openai.com/api/docs/guides/image-generation)。
 

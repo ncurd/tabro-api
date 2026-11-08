@@ -57,7 +57,12 @@ type ModelPricing struct {
 	LongContextInputThreshold          int     // 超过阈值后按整次会话提升输入价格
 	LongContextInputMultiplier         float64 // 长上下文整次会话输入倍率
 	LongContextOutputMultiplier        float64 // 长上下文整次会话输出倍率
+	ImageInputPricePerToken            float64 // 图片输入 token 价格 (USD)
+	CacheReadImagePricePerToken        float64 // 图片缓存读取 token 价格 (USD)
+	HasImageInputPricing               bool    // distinguishes a configured free image-input rate from no rate
+	HasCacheReadImagePricing           bool    // distinguishes a configured free cached-image rate from no rate
 	ImageOutputPricePerToken           float64 // 图片输出 token 价格 (USD)
+	HasImageOutputPricing              bool    // distinguishes an explicit free image-output rate from legacy fallback
 }
 
 func cloneModelPricing(pricing *ModelPricing) *ModelPricing {
@@ -109,6 +114,8 @@ type UsageTokens struct {
 	CacheReadTokens       int
 	CacheCreation5mTokens int
 	CacheCreation1hTokens int
+	ImageInputTokens      int // subset of InputTokens: uncached image input
+	CacheReadImageTokens  int // subset of CacheReadTokens: cached image input
 	ImageOutputTokens     int
 }
 
@@ -434,11 +441,26 @@ func (s *BillingService) initFallbackPricing() {
 		SupportsCacheBreakdown:         false,
 	}
 	s.fallbackPrices["gpt-5.3-codex"] = s.fallbackPrices["gpt-5.1-codex"]
+	for _, model := range []string{"gpt-image-2.6-sunburst", "gpt-image-2.6-flare"} {
+		s.fallbackPrices[model] = &ModelPricing{
+			InputPricePerToken:          5e-6,
+			ImageInputPricePerToken:     8e-6,
+			HasImageInputPricing:        true,
+			CacheReadPricePerToken:      1.25e-6,
+			CacheReadImagePricePerToken: 2e-6,
+			HasCacheReadImagePricing:    true,
+			ImageOutputPricePerToken:    30e-6,
+			HasImageOutputPricing:       true,
+		}
+	}
 }
 
 // getFallbackPricing 根据模型系列获取回退价格
 func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	modelLower := strings.ToLower(model)
+	if isGPTImage26Model(modelLower) {
+		return s.fallbackPrices[lastSegment(strings.TrimSpace(modelLower))]
+	}
 
 	// 按模型系列匹配
 	if strings.Contains(modelLower, "fable") {
@@ -556,6 +578,11 @@ func (s *BillingService) GetModelPricing(model string) (*ModelPricing, error) {
 				LongContextInputMultiplier:         litellmPricing.LongContextInputCostMultiplier,
 				LongContextOutputMultiplier:        litellmPricing.LongContextOutputCostMultiplier,
 				ImageOutputPricePerToken:           litellmPricing.OutputCostPerImageToken,
+				HasImageOutputPricing:              litellmPricing.HasImageOutputPricing,
+				ImageInputPricePerToken:            litellmPricing.InputCostPerImageToken,
+				CacheReadImagePricePerToken:        litellmPricing.CacheReadInputImageTokenCost,
+				HasImageInputPricing:               litellmPricing.HasImageInputPricing || litellmPricing.InputCostPerImageToken != 0,
+				HasCacheReadImagePricing:           litellmPricing.HasCacheReadImagePricing || litellmPricing.CacheReadInputImageTokenCost != 0,
 			}), nil
 		}
 	}
@@ -586,6 +613,10 @@ func (s *BillingService) GetModelPricingWithChannel(model string, channelPricing
 	if channelPricing.InputPrice != nil {
 		pricing.InputPricePerToken = *channelPricing.InputPrice
 		pricing.InputPricePerTokenPriority = *channelPricing.InputPrice
+		if pricing.HasImageInputPricing || pricing.ImageInputPricePerToken != 0 {
+			pricing.ImageInputPricePerToken = *channelPricing.InputPrice
+			pricing.HasImageInputPricing = true
+		}
 	}
 	if channelPricing.OutputPrice != nil {
 		pricing.OutputPricePerToken = *channelPricing.OutputPrice
@@ -600,9 +631,14 @@ func (s *BillingService) GetModelPricingWithChannel(model string, channelPricing
 	if channelPricing.CacheReadPrice != nil {
 		pricing.CacheReadPricePerToken = *channelPricing.CacheReadPrice
 		pricing.CacheReadPricePerTokenPriority = *channelPricing.CacheReadPrice
+		if pricing.HasCacheReadImagePricing || pricing.CacheReadImagePricePerToken != 0 {
+			pricing.CacheReadImagePricePerToken = *channelPricing.CacheReadPrice
+			pricing.HasCacheReadImagePricing = true
+		}
 	}
 	if channelPricing.ImageOutputPrice != nil {
 		pricing.ImageOutputPricePerToken = *channelPricing.ImageOutputPrice
+		pricing.HasImageOutputPricing = true
 	}
 	return pricing, nil
 }
@@ -720,7 +756,12 @@ func (s *BillingService) computeTokenBreakdown(
 	}
 
 	bd := &CostBreakdown{}
-	bd.InputCost = float64(tokens.InputTokens) * inputPrice
+	imageInputTokens := min(max(tokens.ImageInputTokens, 0), max(tokens.InputTokens, 0))
+	imageInputPrice := pricing.ImageInputPricePerToken
+	if !pricing.HasImageInputPricing && imageInputPrice == 0 {
+		imageInputPrice = inputPrice
+	}
+	bd.InputCost = float64(tokens.InputTokens-imageInputTokens)*inputPrice + float64(imageInputTokens)*imageInputPrice
 
 	// 分离图片输出 token 与文本输出 token
 	textOutputTokens := tokens.OutputTokens - tokens.ImageOutputTokens
@@ -732,7 +773,7 @@ func (s *BillingService) computeTokenBreakdown(
 	// 图片输出 token 费用（独立费率）
 	if tokens.ImageOutputTokens > 0 {
 		imgPrice := pricing.ImageOutputPricePerToken
-		if imgPrice == 0 {
+		if imgPrice == 0 && !pricing.HasImageOutputPricing {
 			imgPrice = outputPrice // 回退到常规输出价格
 		}
 		bd.ImageOutputCost = float64(tokens.ImageOutputTokens) * imgPrice
@@ -741,7 +782,12 @@ func (s *BillingService) computeTokenBreakdown(
 	// 缓存创建费用
 	bd.CacheCreationCost = s.computeCacheCreationCost(pricing, tokens, cacheCreationPrice)
 
-	bd.CacheReadCost = float64(tokens.CacheReadTokens) * cacheReadPrice
+	cachedImageTokens := min(max(tokens.CacheReadImageTokens, 0), max(tokens.CacheReadTokens, 0))
+	cachedImagePrice := pricing.CacheReadImagePricePerToken
+	if !pricing.HasCacheReadImagePricing && cachedImagePrice == 0 {
+		cachedImagePrice = cacheReadPrice
+	}
+	bd.CacheReadCost = float64(tokens.CacheReadTokens-cachedImageTokens)*cacheReadPrice + float64(cachedImageTokens)*cachedImagePrice
 
 	if tierMultiplier != 1.0 {
 		bd.InputCost *= tierMultiplier
@@ -1022,6 +1068,11 @@ func (s *BillingService) CalculateImageCost(model string, imageSize string, imag
 	if imageCount <= 0 {
 		return &CostBreakdown{}
 	}
+	if isGPTImage26Model(model) {
+		if _, configured := configuredImageUnitPrice(groupConfig, imageSize); !configured {
+			return &CostBreakdown{BillingMode: string(BillingModeImage), PricingFailed: true}
+		}
+	}
 
 	// 获取单价
 	unitPrice := s.getImageUnitPrice(model, imageSize, groupConfig)
@@ -1040,6 +1091,34 @@ func (s *BillingService) CalculateImageCost(model string, imageSize string, imag
 		ActualCost:  actualCost,
 		BillingMode: string(BillingModeImage),
 	}
+}
+
+func isGPTImage26Model(model string) bool {
+	switch lastSegment(strings.ToLower(strings.TrimSpace(model))) {
+	case "gpt-image-2.6-sunburst", "gpt-image-2.6-flare":
+		return true
+	default:
+		return false
+	}
+}
+
+func configuredImageUnitPrice(groupConfig *ImagePriceConfig, imageSize string) (float64, bool) {
+	if groupConfig == nil {
+		return 0, false
+	}
+	var price *float64
+	switch imageSize {
+	case "1K":
+		price = groupConfig.Price1K
+	case "2K":
+		price = groupConfig.Price2K
+	case "4K":
+		price = groupConfig.Price4K
+	}
+	if price == nil {
+		return 0, false
+	}
+	return *price, true
 }
 
 // getImageUnitPrice 获取图片单价
@@ -1068,6 +1147,9 @@ func (s *BillingService) getImageUnitPrice(model string, imageSize string, group
 
 // getDefaultImagePrice 获取 LiteLLM 默认图片价格
 func (s *BillingService) getDefaultImagePrice(model string, imageSize string) float64 {
+	if isGPTImage26Model(model) {
+		return 0 // token-priced; no published fixed per-image default
+	}
 	basePrice := 0.0
 
 	// 从 PricingService 获取 output_cost_per_image

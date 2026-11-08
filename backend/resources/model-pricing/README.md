@@ -49,4 +49,12 @@ The same catalog retains explicit `max_input_tokens` / `max_output_tokens` for c
 
 Admission requires an exact capability entry. Price-family fuzzy matching is not a safe bound for unknown models. Codex OAuth strips client output limits, so a request that may use OAuth reserves the full catalogued output cap. API-key Responses retains its executable limit. No-max requests receive the model cap; all text requests reserve the full input cap to cover transformed instructions, vision and WebSocket continuations. Settlement still charges actual usage and releases the difference.
 
-Last updated: 2026-09-30
+GPT Image 2.6 Sunburst and Flare use the published Standard token rates: text input $5/M, cached text input $1.25/M, image input $8/M, cached image input $2/M, and image output $30/M. Both entries retain distinct image-input and cached-image-input fields. No fixed per-image or Batch price, bare `gpt-image-2.6` alias, or unannounced dated snapshot is supplied. Sources:
+
+- https://developers.openai.com/api/docs/models/gpt-image-2.6-sunburst
+- https://developers.openai.com/api/docs/models/gpt-image-2.6-flare
+- https://developers.openai.com/api/docs/pricing
+
+Local token billing requires an upstream modality breakdown. Group and channel image prices remain explicit overrides; central billing continues to use its frozen admission price rather than estimating an unbounded image-token reservation.
+
+Last updated: 2026-11-08

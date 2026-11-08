@@ -19,6 +19,8 @@ export interface AvailableModelPricingModel {
   priority_input_price_per_million?: number
   priority_output_price_per_million?: number
   priority_cache_read_price_per_million?: number
+  image_input_price_per_million?: number
+  cached_image_input_price_per_million?: number
   image_output_price_per_million?: number
   source?: string
 }

@@ -24,6 +24,47 @@ This directory contains files for deploying Tabro on Linux servers.
 | `sub2api-datamanagementd.service` | datamanagementd systemd service unit file |
 | `DATAMANAGEMENTD_CN.md` | datamanagementd 部署与联动说明（中文） |
 | `config.example.yaml` | Example configuration file |
+| `Caddyfile` | Caddy reverse proxy example with a 256 MiB request body limit |
+
+---
+
+## Large Requests and 413 Errors
+
+A long conversation can exceed an HTTP request body limit before reaching the model's token context window. The body includes the entire serialized conversation, tool data and embedded attachments. These limits measure bytes, not tokens.
+
+For Nginx, add or update the following directive inside the existing HTTPS `server` block for the API hostname:
+
+```nginx
+client_max_body_size 256m;
+```
+
+Check the matching `location` blocks as well: a smaller `client_max_body_size` there overrides the server setting. Keep the existing TLS certificates and routing. In panels such as BaoTa or 1Panel, edit the site's Nginx configuration and reload it. With a shell, validate and reload:
+
+```bash
+sudo nginx -t && sudo nginx -s reload
+```
+
+Nginx documents this directive in its [HTTP core module reference](https://nginx.org/en/docs/http/ngx_http_core_module.html#client_max_body_size). An HTML 413 page mentioning Nginx identifies a rejection by a proxy in the request path; check its effective site configuration and error log. If it reports `client intended to send too large body`, that proxy rejected the request before forwarding it. Changing the model's context setting or only the application's body limit cannot lift that proxy limit. Apply a consistent limit to every proxy/CDN/WAF in the path, including a proxy in front of an upstream provider if the request already reached Tabro.
+
+The application's default global and gateway limits are both 256 MiB (268435456 bytes). To configure them in `config.yaml`:
+
+```yaml
+server:
+  max_request_body_size: 268435456
+gateway:
+  max_body_size: 268435456
+```
+
+For Docker Compose, the same settings are passed from `.env` to the application:
+
+```dotenv
+SERVER_MAX_REQUEST_BODY_SIZE=268435456
+GATEWAY_MAX_BODY_SIZE=268435456
+```
+
+After changing `.env` or the Compose file, recreate just the application service using your deployed Compose variant, for example `docker compose -f docker-compose.local.yml up -d --force-recreate sub2api`. Empty/unset variables preserve `config.yaml` and application defaults. The provided Caddy example also uses 268435456 bytes; adjust it if you choose a different application limit.
+
+Retry the previously failing request after reloading Nginx. A JSON 413 containing the application's configured limit points to the application; an upstream provider may impose its own smaller limit. A request reaching the gateway still needs to satisfy the model's input/output token limits. Raising an HTTP limit does not increase model capacity.
 
 ---
 

@@ -11,6 +11,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"golang.org/x/sync/singleflight"
 )
 
 var (
@@ -38,6 +39,7 @@ type SchedulerSnapshotService struct {
 	stopOnce      sync.Once
 	wg            sync.WaitGroup
 	fallbackLimit *fallbackLimiter
+	fallbackGroup singleflight.Group
 	lagMu         sync.Mutex
 	lagFailures   int
 }
@@ -118,25 +120,34 @@ func (s *SchedulerSnapshotService) ListSchedulableAccounts(ctx context.Context, 
 		}
 	}
 
-	if err := s.guardFallback(ctx); err != nil {
-		return nil, useMixed, err
-	}
-
-	fallbackCtx, cancel := s.withFallbackTimeout(ctx)
-	defer cancel()
-
-	accounts, err := s.loadAccountsFromDB(fallbackCtx, bucket, useMixed)
+	payload, err := s.loadFallback(ctx, "snapshot:"+bucket.String(), func(fallbackCtx context.Context) (any, error) {
+		// Another request or the outbox worker may have populated the cache
+		// since this request's first lookup.
+		if s.cache != nil {
+			if cached, hit, err := s.cache.GetSnapshot(fallbackCtx, bucket); err == nil && hit {
+				return derefAccounts(cached), nil
+			}
+		}
+		if err := s.guardFallback(fallbackCtx); err != nil {
+			return nil, err
+		}
+		accounts, err := s.loadAccountsFromDB(fallbackCtx, bucket, useMixed)
+		if err != nil {
+			return nil, err
+		}
+		if s.cache != nil {
+			if err := s.cache.SetSnapshot(fallbackCtx, bucket, accounts); err != nil {
+				logger.LegacyPrintf("service.scheduler_snapshot", "[Scheduler] cache write failed: bucket=%s err=%v", bucket.String(), err)
+			}
+		}
+		return accounts, nil
+	})
 	if err != nil {
 		return nil, useMixed, err
 	}
-
-	if s.cache != nil {
-		if err := s.cache.SetSnapshot(fallbackCtx, bucket, accounts); err != nil {
-			logger.LegacyPrintf("service.scheduler_snapshot", "[Scheduler] cache write failed: bucket=%s err=%v", bucket.String(), err)
-		}
-	}
-
-	return accounts, useMixed, nil
+	var accounts []Account
+	err = json.Unmarshal(payload, &accounts)
+	return accounts, useMixed, err
 }
 
 func (s *SchedulerSnapshotService) GetAccount(ctx context.Context, accountID int64) (*Account, error) {
@@ -152,12 +163,73 @@ func (s *SchedulerSnapshotService) GetAccount(ctx context.Context, accountID int
 		}
 	}
 
-	if err := s.guardFallback(ctx); err != nil {
+	payload, err := s.loadFallback(ctx, "account:"+strconv.FormatInt(accountID, 10), func(fallbackCtx context.Context) (any, error) {
+		if s.cache != nil {
+			if account, err := s.cache.GetAccount(fallbackCtx, accountID); err == nil && account != nil {
+				return account, nil
+			}
+		}
+		if err := s.guardFallback(fallbackCtx); err != nil {
+			return nil, err
+		}
+		if s.accountRepo == nil {
+			return nil, ErrSchedulerCacheNotReady
+		}
+		account, err := s.accountRepo.GetByID(fallbackCtx, accountID)
+		if err != nil {
+			return nil, err
+		}
+		if s.cache != nil {
+			if err := s.cache.SetAccount(fallbackCtx, account); err != nil {
+				logger.LegacyPrintf("service.scheduler_snapshot", "[Scheduler] account cache write failed: id=%d err=%v", accountID, err)
+			}
+		}
+		return account, nil
+	})
+	if err != nil {
 		return nil, err
 	}
-	fallbackCtx, cancel := s.withFallbackTimeout(ctx)
-	defer cancel()
-	return s.accountRepo.GetByID(fallbackCtx, accountID)
+	var account *Account
+	err = json.Unmarshal(payload, &account)
+	return account, err
+}
+
+type schedulerFallbackResult struct {
+	payload    []byte
+	err        error
+	requestErr error
+}
+
+// Merge cache misses before applying the DB fallback limit. Each caller decodes
+// its own account objects, since scheduling and token refresh mutate them.
+func (s *SchedulerSnapshotService) loadFallback(ctx context.Context, key string, load func(context.Context) (any, error)) ([]byte, error) {
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		resultCh := s.fallbackGroup.DoChan(key, func() (any, error) {
+			fallbackCtx, cancel := s.withFallbackTimeout(ctx)
+			defer cancel()
+			value, err := load(fallbackCtx)
+			if err != nil {
+				return schedulerFallbackResult{err: err, requestErr: ctx.Err()}, nil
+			}
+			payload, err := json.Marshal(value)
+			return schedulerFallbackResult{payload: payload, err: err}, nil
+		})
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case result := <-resultCh:
+			loaded := result.Val.(schedulerFallbackResult)
+			// A cancelled leader must not fail other live requests. Retry with
+			// a live caller's context; configured DB timeouts are not retried.
+			if loaded.requestErr != nil && ctx.Err() == nil {
+				continue
+			}
+			return loaded.payload, loaded.err
+		}
+	}
 }
 
 // GetGroupByID 获取分组信息（供调度器使用）

@@ -1720,11 +1720,11 @@ export default {
 				familyMappingTitle: "Family डिफ़ॉल्ट Mapping",
 				familyMappingHint: "अनुरोध वह match the Opus, Sonnet, या Haiku families will prefer the target मॉडल configured here.",
 				opusModel: "Opus Target मॉडल",
-				opusModelPlaceholder: "e.g., gpt-5.4",
+				opusModelPlaceholder: "e.g., gpt-6-sol",
 				sonnetModel: "Sonnet Target मॉडल",
-				sonnetModelPlaceholder: "e.g., gpt-5.3-codex",
+				sonnetModelPlaceholder: "e.g., gpt-6-sol",
 				haikuModel: "Haiku Target मॉडल",
-				haikuModelPlaceholder: "e.g., gpt-5.4-mini",
+				haikuModelPlaceholder: "e.g., gpt-6-luna",
 				exactMappingTitle: "Exact मॉडल Overrides",
 				exactMappingHint: "Exact Claude मॉडल overrides take priority over the family defaults और can route a specific Claude मॉडल को a different target मॉडल.",
 				noExactMappings: "अभी तक कोई exact मॉडल overrides नहीं",
@@ -1732,7 +1732,7 @@ export default {
 				claudeModel: "Claude मॉडल",
 				claudeModelPlaceholder: "e.g., claude-sonnet-4-5-20250929",
 				targetModel: "Target मॉडल",
-				targetModelPlaceholder: "e.g., gpt-5.4",
+				targetModelPlaceholder: "e.g., gpt-6-sol",
 				removeExactMapping: "हटाएँ Exact Mapping"
 			},
 			invalidRequestFallback: {

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"net/http"
 	"strings"
 	"time"
 
@@ -27,6 +28,9 @@ func ProvideGatewayAuthMiddleware(keys *service.APIKeyService, subscriptions *se
 }
 
 func gatewayBillingError(err error) (int, string, string) {
+	if message, tooLarge := gatewayRequestBodyLimitError(err); tooLarge {
+		return http.StatusRequestEntityTooLarge, "REQUEST_BODY_TOO_LARGE", message
+	}
 	if errors.Is(err, service.ErrUnsupportedGPT61SolReasoning) {
 		return 400, "INVALID_MODEL_REASONING", "GPT-6.1 Sol does not support this reasoning effort"
 	}
@@ -105,13 +109,9 @@ func prepareGatewayBilling(c *gin.Context, keys *service.APIKeyService, key *ser
 	if c.Request.Method != "POST" || c.Request.Body == nil {
 		return noop, bc.ErrState
 	}
-	body, err := io.ReadAll(io.LimitReader(c.Request.Body, 32*1024*1024+1))
+	body, err := readGatewayRequestBody(c)
 	if err != nil {
 		return noop, err
-	}
-	c.Request.Body = io.NopCloser(bytes.NewReader(body))
-	if len(body) > 32*1024*1024 {
-		return noop, bc.ErrConflict
 	}
 	if route.Mode == "central" {
 		body, err = keys.GatewayBilling.BoundGeminiRequest(c.Request.URL.Path, body)

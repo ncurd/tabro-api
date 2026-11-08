@@ -36,7 +36,7 @@ func TestBuildOpenAIImagesGenerationsURL(t *testing.T) {
 }
 
 func TestOpenAIGatewayServiceForwardImagesGenerations_ForwardsToImagesEndpoint(t *testing.T) {
-	for _, imageModel := range []string{"gpt-image-2", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare"} {
+	for _, imageModel := range []string{"gpt-image-2", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare", "gpt-image-2.6-sunburst", "gpt-image-2.6-flare"} {
 		t.Run(imageModel, func(t *testing.T) {
 			gin.SetMode(gin.TestMode)
 			body := []byte(fmt.Sprintf(`{"model":%q,"prompt":"draw","n":2,"size":"1024x1024"}`, imageModel))
@@ -163,7 +163,7 @@ func TestOpenAIGatewayServiceForwardImagesGenerations_FailoverStatusDoesNotWrite
 }
 
 func TestOpenAIGatewayServiceForwardImagesGenerations_OAuthUsesCodexResponsesImageTool(t *testing.T) {
-	for _, imageModel := range []string{"gpt-image-2", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare"} {
+	for _, imageModel := range []string{"gpt-image-2", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare", "gpt-image-2.6-sunburst", "gpt-image-2.6-flare"} {
 		t.Run(imageModel, func(t *testing.T) {
 			gin.SetMode(gin.TestMode)
 			body := []byte(fmt.Sprintf(`{"model":%q,"prompt":"draw a cat","n":2,"size":"1024x1024","quality":"high","output_format":"png"}`, imageModel))
@@ -206,7 +206,7 @@ func TestOpenAIGatewayServiceForwardImagesGenerations_OAuthUsesCodexResponsesIma
 			require.Equal(t, "gpt-5.6-luna", gjson.GetBytes(upstream.lastBody, "model").String())
 			require.Equal(t, "image_generation", gjson.GetBytes(upstream.lastBody, "tools.0.type").String())
 			require.Equal(t, imageModel, gjson.GetBytes(upstream.lastBody, "tools.0.model").String())
-			require.Equal(t, int64(2), gjson.GetBytes(upstream.lastBody, "tools.0.n").Int())
+			require.False(t, gjson.GetBytes(upstream.lastBody, "tools.0.n").Exists())
 			require.Equal(t, "draw a cat", gjson.GetBytes(upstream.lastBody, "input.0.content.0.text").String())
 			require.Equal(t, http.StatusOK, rec.Code)
 			require.Equal(t, "aW1hZ2UtMQ==", gjson.Get(rec.Body.String(), "data.0.b64_json").String())
@@ -222,7 +222,7 @@ func TestOpenAIGatewayServiceForwardImagesGenerations_OAuthUsesCodexResponsesIma
 }
 
 func TestOpenAIGatewayServiceForwardImagesGenerations_OAuthStreamsImagesSSE(t *testing.T) {
-	for _, imageModel := range []string{"gpt-image-2", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare"} {
+	for _, imageModel := range []string{"gpt-image-2", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare", "gpt-image-2.6-sunburst", "gpt-image-2.6-flare"} {
 		t.Run(imageModel, func(t *testing.T) {
 			gin.SetMode(gin.TestMode)
 			body := []byte(fmt.Sprintf(`{"model":%q,"prompt":"draw a cat","stream":true,"partial_images":1,"size":"1024x1024","quality":"high","output_format":"png"}`, imageModel))
@@ -242,7 +242,7 @@ func TestOpenAIGatewayServiceForwardImagesGenerations_OAuthStreamsImagesSSE(t *t
 					``,
 					`data: {"type":"response.output_item.done","item":{"type":"image_generation_call","result":"final-b64","revised_prompt":"draw a cat","output_format":"png"}}`,
 					``,
-					`data: {"type":"response.completed","response":{"created_at":1710000000,"usage":{"input_tokens":11,"output_tokens":22,"input_tokens_details":{"cached_tokens":3},"output_tokens_details":{"image_tokens":7}}}}`,
+					`data: {"type":"response.completed","response":{"created_at":1710000000,"tool_usage":{"image_gen":{"input_tokens":5,"input_tokens_details":{"text_tokens":2,"image_tokens":3},"output_tokens":7}},"usage":{"input_tokens":11,"output_tokens":22,"input_tokens_details":{"cached_tokens":3},"output_tokens_details":{"image_tokens":7}}}}`,
 					``,
 					`data: [DONE]`,
 					``,
@@ -358,7 +358,7 @@ func TestOpenAICodexImageBridgePreservesSelectedModelAndQuality(t *testing.T) {
 }
 
 func TestOpenAIGatewayServiceForwardCodexImageGeneration_WrapsImagesResponse(t *testing.T) {
-	for _, imageModel := range []string{"gpt-image-2", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare"} {
+	for _, imageModel := range []string{"gpt-image-2", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare", "gpt-image-2.6-sunburst", "gpt-image-2.6-flare"} {
 		t.Run(imageModel, func(t *testing.T) {
 			gin.SetMode(gin.TestMode)
 			body := []byte(fmt.Sprintf(`{
@@ -413,7 +413,7 @@ func TestOpenAIGatewayServiceForwardCodexImageGeneration_WrapsImagesResponse(t *
 }
 
 func TestOpenAIGatewayServiceForwardCodexImageGeneration_OAuthUsesCodexResponsesImageTool(t *testing.T) {
-	for _, imageModel := range []string{"gpt-image-2", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare"} {
+	for _, imageModel := range []string{"gpt-image-2", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare", "gpt-image-2.6-sunburst", "gpt-image-2.6-flare"} {
 		t.Run(imageModel, func(t *testing.T) {
 			gin.SetMode(gin.TestMode)
 			body := []byte(fmt.Sprintf(`{

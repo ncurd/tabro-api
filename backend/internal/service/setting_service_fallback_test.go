@@ -26,6 +26,26 @@ func TestSettingService_InitializeDefaultSettings_UsesAvailableAnthropicFallback
 
 	require.NoError(t, svc.InitializeDefaultSettings(context.Background()))
 	require.Equal(t, "claude-sonnet-4-6", repo.initialized[SettingKeyFallbackModelAnthropic])
+	require.Equal(t, "gpt-6-sol", repo.initialized[SettingKeyFallbackModelOpenAI])
+}
+
+func TestSettingService_OpenAIFallback_DefaultAndStoredValues(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		values map[string]string
+		want   string
+	}{
+		{name: "missing", want: "gpt-6-sol"},
+		{name: "empty", values: map[string]string{SettingKeyFallbackModelOpenAI: ""}, want: "gpt-6-sol"},
+		{name: "custom", values: map[string]string{SettingKeyFallbackModelOpenAI: "custom-chat"}, want: "custom-chat"},
+		{name: "explicit API model", values: map[string]string{SettingKeyFallbackModelOpenAI: "gpt-5.4"}, want: "gpt-5.4"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewSettingService(&settingRepoStub{values: tt.values}, &config.Config{})
+			require.Equal(t, tt.want, svc.GetFallbackModel(context.Background(), PlatformOpenAI))
+			require.Equal(t, tt.want, svc.parseSettings(tt.values).FallbackModelOpenAI)
+		})
+	}
 }
 
 func TestSettingService_AnthropicFallback_DefaultAndStoredValues(t *testing.T) {

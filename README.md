@@ -45,6 +45,16 @@ underscores_in_headers on;
 
 Nginx drops headers containing underscores by default (e.g. `session_id`), which breaks sticky session routing in multi-account setups.
 
+Long conversations also need a request body limit matching the application. Add this to the existing HTTPS `server` block serving your API hostname:
+
+```nginx
+client_max_body_size 256m;
+```
+
+Check for smaller overrides in matching `location` blocks, then run `sudo nginx -t && sudo nginx -s reload`. This matches the application's default 256 MiB (268435456 bytes). An HTML `413 Request Entity Too Large` response from Nginx is a proxy body-size rejection; changing only the application's limit cannot fix it. Each proxy, CDN, or WAF in the request path must permit the intended size.
+
+The HTTP byte limit covers the entire JSON/attachment payload and is independent of the model's token context window. See [deployment troubleshooting](deploy/README.md#large-requests-and-413-errors) for application settings and verification.
+
 ---
 
 ## Deployment

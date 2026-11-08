@@ -37,6 +37,7 @@ const openaiModels = [
   'gpt-image-2', 'gpt-image-2-2026-04-21',
   'gpt-image-2.5-sunburst', 'gpt-image-2.5-sunburst-2026-09-08',
   'gpt-image-2.5-flare', 'gpt-image-2.5-flare-2026-09-08',
+  'gpt-image-2.6-sunburst', 'gpt-image-2.6-flare',
   'gpt-realtime-1.5', 'gpt-realtime-2', 'gpt-realtime-mini', 'gpt-realtime-translate',
   // GPT-5.3 系列
   'gpt-5.3-codex', 'gpt-5.3-codex-spark',
@@ -292,6 +293,8 @@ const openaiPresetMappings = [
   { label: 'GPT-5.6 Sol', from: 'gpt-5.6', to: 'gpt-5.6', color: 'bg-violet-100 text-violet-700 hover:bg-violet-200 dark:bg-violet-900/30 dark:text-violet-400' },
   { label: 'GPT-5.6 Terra', from: 'gpt-5.6-terra', to: 'gpt-5.6-terra', color: 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-400' },
   { label: 'GPT-5.6 Luna', from: 'gpt-5.6-luna', to: 'gpt-5.6-luna', color: 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800/60 dark:text-slate-300' },
+  { label: 'GPT Image 2.6 Sunburst', from: 'gpt-image-2.6-sunburst', to: 'gpt-image-2.6-sunburst', color: 'bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-900/30 dark:text-orange-400' },
+  { label: 'GPT Image 2.6 Flare', from: 'gpt-image-2.6-flare', to: 'gpt-image-2.6-flare', color: 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400' },
   { label: 'Haiku→5.6 Luna', from: 'claude-haiku-4-5-20251001', to: 'gpt-5.6-luna', color: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400' },
   { label: 'Opus→5.6 Terra', from: 'claude-opus-4-6', to: 'gpt-5.6-terra', color: 'bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-400' },
   { label: 'Sonnet→5.6 Terra', from: 'claude-sonnet-4-6', to: 'gpt-5.6-terra', color: 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400' }
@@ -400,7 +403,8 @@ const retiredOpenAIOAuthModels = new Set([
   'gpt-5.2', 'gpt-5.2-2025-12-11',
   'gpt-5.2-pro', 'gpt-5.2-pro-2025-12-11',
   'gpt-5.3-codex', 'gpt-5.3-codex-spark',
-  'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-pro', 'gpt-5.4-2026-03-05'
+  'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-pro', 'gpt-5.4-2026-03-05',
+  'gpt-5.5', 'gpt-5.5-2026-04-23', 'gpt-5.5-pro', 'gpt-5.5-pro-2026-04-23'
 ])
 
 // 按平台和账号类型获取可选模型，不改写账号已有配置。

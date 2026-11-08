@@ -44,7 +44,8 @@ type openAIImageEditPart struct {
 var openAIImageEditMetadataFields = []string{
 	"model", "prompt", "n", "size", "quality", "background", "output_format",
 	"output_compression", "input_fidelity", "moderation", "response_format", "user",
-	"stream", "partial_images", "style",
+	"stream", "partial_images", "style", "safety_identifier", "complexity",
+	"frame_count", "frame_duration_ms", "svg",
 }
 
 // ParseOpenAIImageEditRequest accepts the native JSON and multipart encodings.
@@ -98,9 +99,11 @@ func ParseOpenAIImageEditRequest(body []byte, contentType string) (*OpenAIImageE
 				return nil, fmt.Errorf("invalid images reference: %w", err)
 			}
 		}
-		if mask := gjson.GetBytes(body, "mask"); mask.Exists() && mask.Type != gjson.Null {
-			if err := validateOpenAIImageEditReference(mask); err != nil {
-				return nil, fmt.Errorf("invalid mask: %w", err)
+		for _, key := range []string{"mask", "markup"} {
+			if ref := gjson.GetBytes(body, key); ref.Exists() && ref.Type != gjson.Null {
+				if err := validateOpenAIImageEditReference(ref); err != nil {
+					return nil, fmt.Errorf("invalid %s: %w", key, err)
+				}
 			}
 		}
 	case "multipart/form-data":
@@ -151,12 +154,18 @@ func ParseOpenAIImageEditRequest(body []byte, contentType string) (*OpenAIImageE
 						return nil, errors.New("stream must be a boolean")
 					}
 					metadata[key] = value == "true"
-				case "n", "partial_images", "output_compression":
+				case "n", "partial_images", "output_compression", "frame_count", "frame_duration_ms":
 					n, err := strconv.Atoi(value)
 					if err != nil {
 						return nil, fmt.Errorf("%s must be an integer", key)
 					}
 					metadata[key] = n
+				case "svg":
+					var options map[string]any
+					if err := json.Unmarshal(data, &options); err != nil || options == nil {
+						return nil, errors.New("svg must be a JSON object")
+					}
+					metadata[key] = options
 				default:
 					metadata[key] = value
 				}
@@ -281,6 +290,9 @@ func (r *OpenAIImageEditRequest) upstreamBody() ([]byte, string, error) {
 func (r *OpenAIImageEditRequest) oauthBody() ([]byte, error) {
 	body := r.MetadataBody
 	if r.parts == nil {
+		if markup := gjson.GetBytes(r.body, "markup"); markup.Exists() && markup.Type != gjson.Null {
+			return nil, &OpenAIImageRequestError{Message: "markup image edits require an OpenAI API key account"}
+		}
 		body, _ = sjson.SetRawBytes(body, "images", []byte(gjson.GetBytes(r.body, "images").Raw))
 		if mask := gjson.GetBytes(r.body, "mask"); mask.Exists() && mask.Type != gjson.Null {
 			body, _ = sjson.SetRawBytes(body, "mask", []byte(mask.Raw))
@@ -288,6 +300,9 @@ func (r *OpenAIImageEditRequest) oauthBody() ([]byte, error) {
 		return body, nil
 	}
 	for _, part := range r.parts {
+		if part.name == "markup" {
+			return nil, &OpenAIImageRequestError{Message: "markup image edits require an OpenAI API key account"}
+		}
 		if part.name != "image" && part.name != "image[]" && part.name != "mask" {
 			continue
 		}
@@ -350,12 +365,16 @@ func buildOpenAIImagesEditsURL(base string) string {
 
 // ForwardImagesEdits forwards uploads intact for API-key accounts and bridges
 // OAuth accounts to Responses with every reference image and mask preserved.
-func (s *OpenAIGatewayService) ForwardImagesEdits(ctx context.Context, c *gin.Context, account *Account, request *OpenAIImageEditRequest) (*OpenAIForwardResult, error) {
+func (s *OpenAIGatewayService) ForwardImagesEdits(ctx context.Context, c *gin.Context, account *Account, request *OpenAIImageEditRequest, defaultMappedModel ...string) (*OpenAIForwardResult, error) {
 	if account == nil || request == nil {
 		return nil, errors.New("account and image edit request are required")
 	}
 	mapped := *request
-	if err := mapped.SetModel(account.GetMappedModel(request.Model)); err != nil {
+	channelModel := ""
+	if len(defaultMappedModel) > 0 {
+		channelModel = defaultMappedModel[0]
+	}
+	if err := mapped.SetModel(resolveOpenAIForwardModel(account, request.Model, channelModel)); err != nil {
 		return nil, err
 	}
 	if err := ValidateBillingImageRequest(ctx, mapped.MetadataBody); err != nil {

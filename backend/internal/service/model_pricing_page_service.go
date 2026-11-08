@@ -82,7 +82,9 @@ type AvailableModelPricingModel struct {
 	PriorityInputPricePerMillion     float64                     `json:"priority_input_price_per_million,omitempty"`
 	PriorityOutputPricePerMillion    float64                     `json:"priority_output_price_per_million,omitempty"`
 	PriorityCacheReadPricePerMillion float64                     `json:"priority_cache_read_price_per_million,omitempty"`
-	ImageOutputPricePerMillion       float64                     `json:"image_output_price_per_million,omitempty"`
+	ImageOutputPricePerMillion       *float64                    `json:"image_output_price_per_million,omitempty"`
+	ImageInputPricePerMillion        *float64                    `json:"image_input_price_per_million,omitempty"`
+	CachedImageInputPricePerMillion  *float64                    `json:"cached_image_input_price_per_million,omitempty"`
 	Source                           string                      `json:"source,omitempty"`
 }
 
@@ -207,7 +209,16 @@ func finiteConvertedModelPricing(model AvailableModelPricingModel) bool {
 		model.InputPricePerMillion, model.OutputPricePerMillion,
 		model.CacheWritePricePerMillion, model.CacheReadPricePerMillion,
 		model.PriorityInputPricePerMillion, model.PriorityOutputPricePerMillion,
-		model.PriorityCacheReadPricePerMillion, model.ImageOutputPricePerMillion,
+		model.PriorityCacheReadPricePerMillion,
+	}
+	if model.ImageOutputPricePerMillion != nil {
+		prices = append(prices, *model.ImageOutputPricePerMillion)
+	}
+	if model.ImageInputPricePerMillion != nil {
+		prices = append(prices, *model.ImageInputPricePerMillion)
+	}
+	if model.CachedImageInputPricePerMillion != nil {
+		prices = append(prices, *model.CachedImageInputPricePerMillion)
 	}
 	if model.UnitPrice != nil {
 		prices = append(prices, *model.UnitPrice)
@@ -414,7 +425,18 @@ func (s *ModelPricingPageService) resolveModelPricing(ctx context.Context, group
 	result.PriorityInputPricePerMillion = toEffectivePerMillion(pricing.InputPricePerTokenPriority, effectiveRate)
 	result.PriorityOutputPricePerMillion = toEffectivePerMillion(pricing.OutputPricePerTokenPriority, effectiveRate)
 	result.PriorityCacheReadPricePerMillion = toEffectivePerMillion(pricing.CacheReadPricePerTokenPriority, effectiveRate)
-	result.ImageOutputPricePerMillion = toEffectivePerMillion(pricing.ImageOutputPricePerToken, effectiveRate)
+	if pricing.HasImageOutputPricing || pricing.ImageOutputPricePerToken != 0 {
+		price := toEffectivePerMillion(pricing.ImageOutputPricePerToken, effectiveRate)
+		result.ImageOutputPricePerMillion = &price
+	}
+	if pricing.HasImageInputPricing || pricing.ImageInputPricePerToken != 0 {
+		price := toEffectivePerMillion(pricing.ImageInputPricePerToken, effectiveRate)
+		result.ImageInputPricePerMillion = &price
+	}
+	if pricing.HasCacheReadImagePricing || pricing.CacheReadImagePricePerToken != 0 {
+		price := toEffectivePerMillion(pricing.CacheReadImagePricePerToken, effectiveRate)
+		result.CachedImageInputPricePerMillion = &price
+	}
 	return result
 }
 

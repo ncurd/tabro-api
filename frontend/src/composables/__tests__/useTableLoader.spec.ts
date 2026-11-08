@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { useTableLoader } from '@/composables/useTableLoader'
+import { onUnmounted } from 'vue'
 
 // Mock @vueuse/core 的 useDebounceFn
 vi.mock('@vueuse/core', () => ({
@@ -192,6 +193,48 @@ describe('useTableLoader', () => {
   // --- 请求取消 ---
 
   describe('请求取消', () => {
+    it('离开页面后尚未触发的搜索防抖不会再发送请求', async () => {
+      const fetchFn = createMockFetchFn()
+      const { debouncedReload } = useTableLoader({ fetchFn })
+      debouncedReload()
+
+      const dispose = vi.mocked(onUnmounted).mock.calls.at(-1)?.[0]
+      dispose!()
+      await vi.runAllTimersAsync()
+
+      expect(fetchFn).not.toHaveBeenCalled()
+    })
+
+    it('即使 fetchFn 不支持取消，旧响应也不能覆盖新筛选结果', async () => {
+      let finishOld!: (response: any) => void
+      const fetchFn = vi.fn()
+        .mockImplementationOnce(() => new Promise((resolve) => { finishOld = resolve }))
+        .mockResolvedValueOnce({ items: [{ id: 2 }], total: 1, pages: 1 })
+      const { load, items, pagination } = useTableLoader({ fetchFn })
+      const oldRequest = load()
+      await load()
+
+      finishOld({ items: [{ id: 1 }], total: 50, pages: 5 })
+      await oldRequest
+
+      expect(items.value).toEqual([{ id: 2 }])
+      expect(pagination.total).toBe(1)
+    })
+
+    it('卸载期间返回的响应不会修改已销毁表格', async () => {
+      let finish!: (response: any) => void
+      const fetchFn = vi.fn(() => new Promise((resolve) => { finish = resolve }))
+      const { load, items, loading } = useTableLoader({ fetchFn })
+      const request = load()
+      const dispose = vi.mocked(onUnmounted).mock.calls.at(-1)?.[0]
+      dispose!()
+      finish({ items: [{ id: 1 }], total: 1, pages: 1 })
+      await request
+
+      expect(items.value).toEqual([])
+      expect(loading.value).toBe(false)
+    })
+
     it('新请求取消前一个未完成的请求', async () => {
       let callCount = 0
       const fetchFn = vi.fn((_page, _size, _params, options) => {

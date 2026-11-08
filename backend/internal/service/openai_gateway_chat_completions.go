@@ -65,9 +65,18 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	// derive a stable seed from the final upstream model family.
 	billingModel := resolveOpenAIForwardModel(account, originalModel, defaultMappedModel)
 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
+	if account.Type == AccountTypeOAuth && upstreamModel != normalizeCodexModel(billingModel) {
+		billingModel = upstreamModel
+	}
 	effort := chatReq.ReasoningEffort
 	if effort == "" {
 		effort = gjson.GetBytes(body, "reasoning.effort").String()
+	}
+	if account.Type == AccountTypeOAuth && effort == "" {
+		effort = deriveCodexRequestReasoningEffortFromModel(originalModel)
+	}
+	if account.Type == AccountTypeOAuth && chatReq.ReasoningEffort == "" {
+		chatReq.ReasoningEffort = effort
 	}
 	if err := validateGPT61SolReasoning(originalModel, upstreamModel, effort); err != nil {
 		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
@@ -104,6 +113,12 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 		responsesBody, err = sjson.SetBytes(body, "model", upstreamModel)
 		if err != nil {
 			return nil, fmt.Errorf("rewrite model in responses-shape body: %w", err)
+		}
+		if account.Type == AccountTypeOAuth && effort != "" && gjson.GetBytes(responsesBody, "reasoning.effort").String() == "" {
+			responsesBody, err = sjson.SetBytes(responsesBody, "reasoning.effort", effort)
+			if err != nil {
+				return nil, fmt.Errorf("preserve reasoning effort in responses-shape body: %w", err)
+			}
 		}
 		// Strip Responses API parameters that no Codex upstream accepts.
 		// Because this branch forwards the raw body (the normal path rebuilds

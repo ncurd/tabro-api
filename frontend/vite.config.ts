@@ -82,8 +82,13 @@ export default defineConfig(({ mode }) => {
               return 'vendor-vue'
             }
 
-            // UI 工具库（较大，单独分离）
-            if (id.includes('/@vueuse/') || id.includes('/xlsx/')) {
+            // Excel 导出按需加载，避免与首屏使用的 VueUse 合并。
+            if (id.includes('/xlsx/')) {
+              return 'vendor-xlsx'
+            }
+
+            // UI 工具库
+            if (id.includes('/@vueuse/')) {
               return 'vendor-ui'
             }
 

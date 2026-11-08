@@ -569,9 +569,9 @@ func TestIsInstructionsEmpty(t *testing.T) {
 	}
 }
 
-func TestNormalizeCodexModel_Gpt55SnapshotsStayOnAvailableModel(t *testing.T) {
+func TestNormalizeCodexModel_Gpt55SnapshotsMigrateToAvailableOAuthModel(t *testing.T) {
 	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth}
 	for _, model := range []string{"gpt-5.5-2026-04-23", "gpt-5.5-pro-2026-04-23"} {
-		require.Equal(t, "gpt-5.5", normalizeOpenAIModelForUpstream(account, model))
+		require.Equal(t, "gpt-6.1-sol", normalizeOpenAIModelForUpstream(account, model))
 	}
 }

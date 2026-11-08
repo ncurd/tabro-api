@@ -2,7 +2,8 @@ package openai
 
 import "strings"
 
-// IsRetiredModel applies the published shutdowns as of 2026-09-19.
+// IsRetiredModel filters published API and ChatGPT Codex shutdowns, including
+// the 2026-10-14 retirement of GPT-5.5 from ChatGPT-authenticated Codex.
 // API and ChatGPT-authenticated Codex have different model lifecycles:
 // https://developers.openai.com/api/docs/deprecations
 // https://learn.chatgpt.com/docs/models#deprecated-codex-models
@@ -40,14 +41,14 @@ func IsRetiredModel(model string, chatGPTAccount bool) bool {
 	if chatGPTAccount {
 		// These older mainline/pro aliases normalize to retired Codex models in
 		// the ChatGPT adapter. They remain available to API-key accounts.
-		for _, prefix := range []string{"gpt-5.2-", "gpt-5.1-", "gpt-5-mini", "gpt-5-nano", "gpt-5-pro", "gpt-5-chat", "gpt-5-2025-"} {
+		for _, prefix := range []string{"gpt-5.5-", "gpt-5.4-mini-", "gpt-5.4-pro-", "gpt-5.2-", "gpt-5.1-", "gpt-5-mini", "gpt-5-nano", "gpt-5-pro", "gpt-5-chat", "gpt-5-2025-"} {
 			if strings.HasPrefix(model, prefix) {
 				return true
 			}
 		}
 		switch model {
 		case "gpt-5", "gpt-5.1", "gpt-5.2", "gpt-5.3", "gpt-5.3-codex", "gpt-5.3-codex-spark",
-			"gpt-5.4", "gpt-5.4-2026-03-05", "gpt-5.4-mini", "gpt-5.4-pro":
+			"gpt-5.4", "gpt-5.4-2026-03-05", "gpt-5.4-mini", "gpt-5.4-pro", "gpt-5.5":
 			// The Codex adapter normalizes gpt-5.4-pro to gpt-5.4.
 			return true
 		}

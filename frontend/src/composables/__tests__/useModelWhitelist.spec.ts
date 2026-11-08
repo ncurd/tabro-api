@@ -35,14 +35,15 @@ describe('useModelWhitelist', () => {
       'gpt-5-mini', 'gpt-5-mini-2025-08-07', 'gpt-5-nano', 'gpt-5-nano-2025-08-07',
       'gpt-5.1', 'gpt-5.1-2025-11-13', 'gpt-5.2-pro', 'gpt-5.2-pro-2025-12-11',
       'gpt-5.2', 'gpt-5.2-2025-12-11', 'gpt-5.3-codex', 'gpt-5.3-codex-spark',
-      'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-pro', 'gpt-5.4-2026-03-05'
+      'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-pro', 'gpt-5.4-2026-03-05',
+      'gpt-5.5', 'gpt-5.5-2026-04-23', 'gpt-5.5-pro', 'gpt-5.5-pro-2026-04-23'
     ]) {
       expect(oauthModels).not.toContain(model)
       expect(oauthTargets).not.toContain(model)
       expect(apiKeyModels).toContain(model)
     }
     expect(oauthModels).toEqual(expect.arrayContaining([
-      'gpt-6.1-sol', 'gpt-6-sol', 'gpt-6-luna', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5', 'gpt-image-2.5-flare'
+      'gpt-6.1-sol', 'gpt-6-sol', 'gpt-6-luna', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-image-2.5-flare'
     ]))
     expect(buildModelMappingObject('whitelist', ['gpt-5.4'], [])).toEqual({
       'gpt-5.4': 'gpt-5.4'
@@ -180,6 +181,25 @@ describe('useModelWhitelist', () => {
     expect(models).toContain('gpt-realtime-2')
     expect(models).toContain('gpt-realtime-mini')
     expect(models).toContain('gpt-realtime-translate')
+  })
+
+  it('offers complete GPT Image 2.6 IDs for configured accounts without replacing their whitelist', () => {
+    const imageModels = ['gpt-image-2.6-sunburst', 'gpt-image-2.6-flare']
+    for (const accountType of ['apikey', 'oauth'] as const) {
+      const models = getModelsByPlatform('openai', accountType)
+      const presets = getPresetMappingsByPlatform('openai', accountType)
+      for (const model of imageModels) {
+        expect(models).toContain(model)
+        expect(presets).toContainEqual(expect.objectContaining({ from: model, to: model }))
+      }
+      expect(models).not.toContain('gpt-image-2.6')
+      expect(models.filter(model => model.startsWith('gpt-image-2.6-'))).toEqual(imageModels)
+    }
+    expect(buildModelMappingObject('whitelist', [...imageModels, 'gpt-image-2'], [])).toEqual({
+      'gpt-image-2.6-sunburst': 'gpt-image-2.6-sunburst',
+      'gpt-image-2.6-flare': 'gpt-image-2.6-flare',
+      'gpt-image-2': 'gpt-image-2'
+    })
   })
 
   it('antigravity 模型列表包含图片模型兼容项', () => {

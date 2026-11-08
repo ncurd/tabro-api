@@ -201,6 +201,9 @@ gateway:
   # Max bytes to read for non-stream upstream responses (default: 8MB)
   # 非流式上游响应体读取上限（默认 8MB）
   upstream_response_read_max_bytes: 8388608
+  # Max bytes for buffered Images API responses, including Base64/OAuth SSE (default: 128MB)
+  # 图片接口同步响应读取上限，包含 Base64 和 OAuth SSE（默认 128MB；0 使用默认值）
+  image_response_read_max_bytes: 134217728
   # Max bytes to read for proxy probe responses (default: 1MB)
   # 代理探测响应体读取上限（默认 1MB）
   proxy_probe_response_read_max_bytes: 1048576

@@ -41,6 +41,9 @@ services:
       - SERVER_PORT=8080
       - SERVER_MODE=${SERVER_MODE:-release}
       - RUN_MODE=${RUN_MODE:-standard}
+      # Empty values preserve config.yaml and application defaults (256 MiB).
+      - SERVER_MAX_REQUEST_BODY_SIZE=${SERVER_MAX_REQUEST_BODY_SIZE:-}
+      - GATEWAY_MAX_BODY_SIZE=${GATEWAY_MAX_BODY_SIZE:-}
 
       # =======================================================================
       # Database Configuration (PostgreSQL) - Required

@@ -13,15 +13,26 @@ func TestModelsForAccount_RespectsRetirementScope(t *testing.T) {
 				t.Errorf("oauth=%v advertises retired API model %s", oauth, retired)
 			}
 		}
-		for _, retiredOnOAuth := range []string{"gpt-5.4", "gpt-5.4-mini", "gpt-5.2", "gpt-5.3-codex", "gpt-5.3-codex-spark"} {
+		for _, retiredOnOAuth := range []string{"gpt-5.5", "gpt-5.5-pro", "gpt-5.4", "gpt-5.4-mini", "gpt-5.2", "gpt-5.3-codex", "gpt-5.3-codex-spark"} {
 			if ids[retiredOnOAuth] == oauth {
 				t.Errorf("oauth=%v has incorrect availability for %s", oauth, retiredOnOAuth)
 			}
 		}
-		for _, current := range []string{"gpt-6.1-sol", "gpt-6-astra", "gpt-5.6-luna", "gpt-5.5", "gpt-image-1.5", "gpt-image-2.5-flare", DefaultTestModel} {
+		for _, current := range []string{"gpt-6.1-sol", "gpt-6-astra", "gpt-5.6-luna", "gpt-image-1.5", "gpt-image-2.5-flare", DefaultTestModel} {
 			if !ids[current] {
 				t.Errorf("oauth=%v lost currently available model %s", oauth, current)
 			}
+		}
+	}
+}
+
+func TestCodexRetiredTextSnapshotsAndReasoningAliases(t *testing.T) {
+	for _, model := range []string{"gpt-5.4-mini-2026-03-17", "gpt-5.4-pro-2026-03-05", "gpt-5.5", "gpt-5.5-pro", "gpt-5.5-2026-04-23", "openai/gpt-5.5-high"} {
+		if !IsRetiredModel(model, true) {
+			t.Errorf("Codex must not advertise retired text model %s", model)
+		}
+		if IsRetiredModel(model, false) {
+			t.Errorf("Codex retirement must not disable API-key model %s", model)
 		}
 	}
 }

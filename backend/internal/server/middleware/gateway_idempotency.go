@@ -1,13 +1,11 @@
 package middleware
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	bc "github.com/Wei-Shaw/sub2api/internal/billingcenter"
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -75,13 +73,16 @@ func GatewayInvocationIdempotency(writeError GatewayErrorWriter) gin.HandlerFunc
 			return
 		}
 
-		body, err := io.ReadAll(c.Request.Body)
+		body, err := readGatewayRequestBody(c)
 		if err != nil {
-			writeError(c, http.StatusBadRequest, "Failed to read request body")
+			if message, tooLarge := gatewayRequestBodyLimitError(err); tooLarge {
+				writeError(c, http.StatusRequestEntityTooLarge, message)
+			} else {
+				writeError(c, http.StatusBadRequest, "Failed to read request body")
+			}
 			c.Abort()
 			return
 		}
-		c.Request.Body = io.NopCloser(bytes.NewReader(body))
 
 		bodyHash := sha256.Sum256(body)
 		query := c.Request.URL.Query()

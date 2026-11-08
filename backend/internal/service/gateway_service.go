@@ -374,10 +374,7 @@ func isClaudeCodeMimicRelevantError(msg string) bool {
 	return isClaudeCodeCredentialScopeError(msg) || isClaudeThirdPartyUsageError(msg)
 }
 
-// sseDataRe matches SSE data lines with optional whitespace after colon.
-// Some upstream APIs return non-standard "data:" without space (should be "data: ").
 var (
-	sseDataRe            = regexp.MustCompile(`^data:\s*`)
 	claudeCliUserAgentRe = regexp.MustCompile(`^claude-cli/\d+\.\d+\.\d+`)
 
 	// claudeCodePromptPrefixes 用于检测 Claude Code 系统提示词的前缀列表
@@ -6827,8 +6824,10 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 				eventName = strings.TrimSpace(strings.TrimPrefix(trimmed, "event:"))
 				continue
 			}
-			if dataLine == "" && sseDataRe.MatchString(trimmed) {
-				dataLine = sseDataRe.ReplaceAllString(trimmed, "")
+			if dataLine == "" {
+				if data, ok := extractAnthropicSSEDataLine(trimmed); ok {
+					dataLine = strings.TrimSpace(data)
+				}
 			}
 		}
 
@@ -6848,6 +6847,18 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 			}
 			block += "data: " + dataLine + "\n\n"
 			return []string{block}, dataLine, nil, nil
+		}
+
+		// Token deltas have no usage, model, or tool name to rewrite. Avoid
+		// allocating nested maps and decoded token strings for every token.
+		if anthropicContentDeltaCanPassThrough(dataLine) {
+			if eventName == "" {
+				eventName = "content_block_delta"
+			}
+			if anthropicStreamEventIsTerminal(eventName, "") {
+				sawTerminalEvent = true
+			}
+			return []string{"event: " + eventName + "\ndata: " + dataLine + "\n\n"}, dataLine, nil, nil
 		}
 
 		var event map[string]any
@@ -8336,6 +8347,9 @@ func (s *GatewayService) isUpstreamModelRestrictedByChannel(ctx context.Context,
 func resolveAccountUpstreamModel(account *Account, requestedModel string) string {
 	if account.Platform == PlatformAntigravity {
 		return mapAntigravityModel(account, requestedModel)
+	}
+	if account.IsOpenAIOAuth() {
+		return normalizeOpenAIModelForUpstream(account, account.GetMappedModel(requestedModel))
 	}
 	return account.GetMappedModel(requestedModel)
 }

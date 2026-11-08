@@ -15,6 +15,8 @@ func TestDefaultModels_ContainsLatestOpenAIModels(t *testing.T) {
 		"gpt-5.4-pro",
 		"gpt-5.5",
 		"gpt-5.5-pro",
+		"gpt-image-2.6-sunburst",
+		"gpt-image-2.6-flare",
 		"gpt-image-1-mini",
 		"gpt-image-1.5",
 		"gpt-image-1.5-2025-12-16",

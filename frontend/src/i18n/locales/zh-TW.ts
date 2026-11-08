@@ -1733,11 +1733,11 @@ export default {
         "familyMappingTitle": "系列默認映射",
         "familyMappingHint": "當請求命中 Opus、Sonnet、Haiku 系列時，會優先使用這裏配置的目標模型。",
         "opusModel": "Opus 映射模型",
-        "opusModelPlaceholder": "例如: gpt-5.4",
+        "opusModelPlaceholder": "例如: gpt-6-sol",
         "sonnetModel": "Sonnet 映射模型",
-        "sonnetModelPlaceholder": "例如: gpt-5.3-codex",
+        "sonnetModelPlaceholder": "例如: gpt-6-sol",
         "haikuModel": "Haiku 映射模型",
-        "haikuModelPlaceholder": "例如: gpt-5.4-mini",
+        "haikuModelPlaceholder": "例如: gpt-6-luna",
         "exactMappingTitle": "精確模型覆蓋",
         "exactMappingHint": "精確 Claude 模型覆蓋優先級高於系列默認映射，可將某個具體 Claude 模型單獨映射到不同的目標模型。",
         "noExactMappings": "暫無精確模型覆蓋規則",
@@ -1745,7 +1745,7 @@ export default {
         "claudeModel": "Claude 模型",
         "claudeModelPlaceholder": "例如: claude-sonnet-4-5-20250929",
         "targetModel": "目標模型",
-        "targetModelPlaceholder": "例如: gpt-5.4",
+        "targetModelPlaceholder": "例如: gpt-6-sol",
         "removeExactMapping": "刪除精確映射"
       },
       "invalidRequestFallback": {

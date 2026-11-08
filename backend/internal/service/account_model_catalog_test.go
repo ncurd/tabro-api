@@ -24,15 +24,16 @@ func TestAccountAvailableOpenAIModels_RespectsAuthenticationLifecycle(t *testing
 			account := &Account{Platform: PlatformOpenAI, Type: accountType}
 			ids := accountCatalogModelIDs(account.AvailableOpenAIModels())
 			for _, model := range []string{
-				"gpt-6.1-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5",
+				"gpt-6.1-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna",
 				"gpt-image-2.5-sunburst", "gpt-image-2.5-flare",
+				"gpt-image-2.6-sunburst", "gpt-image-2.6-flare",
 			} {
 				require.Contains(t, ids, model)
 			}
 			for _, model := range []string{"gpt-5.1-codex", "gpt-5.1-codex-max", "gpt-5.1-codex-mini", "gpt-5.2-codex"} {
 				require.NotContains(t, ids, model)
 			}
-			for _, model := range []string{"gpt-5", "gpt-5.1", "gpt-5.2", "gpt-5.3-codex", "gpt-5.4", "gpt-5.4-mini"} {
+			for _, model := range []string{"gpt-5", "gpt-5.1", "gpt-5.2", "gpt-5.3-codex", "gpt-5.4", "gpt-5.4-mini", "gpt-5.5", "gpt-5.5-pro"} {
 				if accountType == AccountTypeOAuth {
 					require.NotContains(t, ids, model)
 				} else {

@@ -444,15 +444,11 @@ import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
 import type { Account, AccountUsageInfo, GeminiCredentials, WindowStats } from '@/types'
 import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
-import { enqueueUsageRequest } from '@/utils/usageLoadQueue'
+import { loadAccountUsage } from '@/utils/accountUsageCache'
 import { formatCompactNumber } from '@/utils/format'
 import { formatCredits } from '@/utils/credits'
 import UsageProgressBar from './UsageProgressBar.vue'
 import AccountQuotaInfo from './AccountQuotaInfo.vue'
-
-// Module-level cache shared across all AccountUsageCell instances
-const _usageCache = new Map<number, { data: AccountUsageInfo; ts: number }>()
-const USAGE_CACHE_TTL = 5 * 60 * 1000 // 5 minutes
 
 const props = withDefaults(
   defineProps<{
@@ -951,36 +947,28 @@ const isAnthropicOAuthOrSetupToken = computed(() => {
   return props.account.platform === 'anthropic' && (props.account.type === 'oauth' || props.account.type === 'setup-token')
 })
 
+let usageRequestSequence = 0
+
 const loadUsage = async (options?: { source?: 'passive' | 'active'; bypassCache?: boolean }) => {
   if (!shouldFetchUsage.value) return
-
-  // Check cache
-  if (!options?.bypassCache) {
-    const cached = _usageCache.get(props.account.id)
-    if (cached && Date.now() - cached.ts < USAGE_CACHE_TTL) {
-      usageInfo.value = cached.data
-      loading.value = false
-      return
-    }
-  }
-
+  const requestSequence = ++usageRequestSequence
+  const account = props.account
   loading.value = true
   error.value = null
 
   try {
-    const fetchFn = () => adminAPI.accounts.getUsage(props.account.id, options?.source)
-    const result = await enqueueUsageRequest(props.account, fetchFn)
-    if (!unmounted.value) {
+    const fetchFn = () => adminAPI.accounts.getUsage(account.id, options?.source)
+    const result = await loadAccountUsage(account, fetchFn, options)
+    if (!unmounted.value && requestSequence === usageRequestSequence) {
       usageInfo.value = result
-      _usageCache.set(props.account.id, { data: result, ts: Date.now() })
     }
   } catch (e: any) {
-    if (!unmounted.value) {
+    if (!unmounted.value && requestSequence === usageRequestSequence) {
       error.value = t('common.error')
       console.error('Failed to load usage:', e)
     }
   } finally {
-    if (!unmounted.value) loading.value = false
+    if (!unmounted.value && requestSequence === usageRequestSequence) loading.value = false
   }
 }
 
@@ -1035,13 +1023,21 @@ const attachVisibilityObserver = () => {
 }
 
 const loadActiveUsage = async () => {
+  const requestSequence = ++usageRequestSequence
+  const account = props.account
   activeQueryLoading.value = true
   try {
-    usageInfo.value = await adminAPI.accounts.getUsage(props.account.id, 'active')
+    const result = await loadAccountUsage(
+      account,
+      () => adminAPI.accounts.getUsage(account.id, 'active'),
+      { source: 'active', bypassCache: true }
+    )
+    if (!unmounted.value && requestSequence === usageRequestSequence) usageInfo.value = result
   } catch (e: any) {
     console.error('Failed to load active usage:', e)
   } finally {
     activeQueryLoading.value = false
+    if (!unmounted.value && requestSequence === usageRequestSequence) loading.value = false
   }
 }
 
@@ -1155,8 +1151,7 @@ watch(openAIUsageRefreshKey, (nextKey, prevKey) => {
   if (!prevKey || nextKey === prevKey) return
   if (props.account.platform !== 'openai' || props.account.type !== 'oauth') return
 
-  // A changed server usage revision invalidates the previous row's cache.
-  _usageCache.delete(props.account.id)
+  // Cache entries also carry this revision, including across virtual row mounts.
   requestAutoLoad()
 })
 
@@ -1167,7 +1162,6 @@ watch(
     if (!shouldFetchUsage.value) return
 
     const source = isAnthropicOAuthOrSetupToken.value ? 'passive' : undefined
-    _usageCache.delete(props.account.id)
     loadUsage({ source, bypassCache: true }).catch((e) => {
       console.error('Failed to refresh usage after manual refresh:', e)
     })

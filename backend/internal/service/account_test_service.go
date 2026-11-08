@@ -419,15 +419,8 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 		testModelID = openai.DefaultTestModel
 	}
 
-	// For API Key accounts with model mapping, map the model
-	if account.Type == "apikey" {
-		mapping := account.GetModelMapping()
-		if len(mapping) > 0 {
-			if mappedModel, exists := mapping[testModelID]; exists {
-				testModelID = mappedModel
-			}
-		}
-	}
+	// Match the production account mapping before applying OAuth-only migration.
+	testModelID = account.GetMappedModel(testModelID)
 
 	// Determine authentication method and API URL
 	var authToken string
@@ -909,6 +902,8 @@ func createOpenAITestPayload(modelID string, isOAuth bool) map[string]any {
 
 	// OAuth accounts using ChatGPT internal API require store: false
 	if isOAuth {
+		payload["model"] = normalizeCodexOAuthModel(modelID)
+		applyCodexReasoningEffortFromModel(payload, modelID)
 		payload["store"] = false
 	}
 

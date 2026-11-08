@@ -3331,7 +3331,7 @@ const form = reactive<SettingsForm>({
   // Model fallback
   enable_model_fallback: false,
   fallback_model_anthropic: 'claude-sonnet-4-6',
-  fallback_model_openai: 'gpt-4o',
+  fallback_model_openai: 'gpt-6-sol',
   fallback_model_gemini: 'gemini-2.5-pro',
   fallback_model_antigravity: 'gemini-2.5-pro',
   // Identity patch (Claude -> Gemini)

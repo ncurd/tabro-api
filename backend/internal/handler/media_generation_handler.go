@@ -232,6 +232,10 @@ func readMediaBody(c *gin.Context) ([]byte, *service.APIKey, middleware2.AuthSub
 	}
 	body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
 	if err != nil {
+		if maxErr, ok := extractMaxBytesError(err); ok {
+			mediaError(c, http.StatusRequestEntityTooLarge, "invalid_request_error", buildBodyTooLargeMessage(maxErr.Limit))
+			return nil, nil, middleware2.AuthSubject{}, false
+		}
 		mediaError(c, http.StatusBadRequest, "invalid_request_error", "Failed to read request body")
 		return nil, nil, middleware2.AuthSubject{}, false
 	}

@@ -1,7 +1,9 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import AccountUsageCell from '../AccountUsageCell.vue'
-import type { Account } from '@/types'
+import { clearAccountUsageCache } from '@/utils/accountUsageCache'
+import { enqueueUsageRequest } from '@/utils/usageLoadQueue'
+import type { Account, AccountUsageInfo } from '@/types'
 
 const { getUsage } = vi.hoisted(() => ({
   getUsage: vi.fn()
@@ -56,6 +58,7 @@ function makeAccount(overrides: Partial<Account>): Account {
 
 describe('AccountUsageCell', () => {
   beforeEach(() => {
+    clearAccountUsageCache()
     getUsage.mockReset()
     // jsdom has no responsive media-query implementation. These cases exercise
     // the desktop usage cell; the mock retains the browser event API.
@@ -66,7 +69,164 @@ describe('AccountUsageCell', () => {
     })))
   })
 
-  afterEach(() => vi.unstubAllGlobals())
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  function mountUsage(account: Account) {
+    return mount(AccountUsageCell, {
+      props: { account },
+      global: { stubs: { UsageProgressBar: true, AccountQuotaInfo: true } }
+    })
+  }
+
+  it('虚拟滚动重新挂载账号时复用五分钟缓存', async () => {
+    getUsage.mockResolvedValue({ ai_credits: [{ amount: 25 }] })
+    const account = makeAccount({ id: 4001 })
+    const first = mountUsage(account)
+    await flushPromises()
+    first.unmount()
+
+    const second = mountUsage(account)
+    await flushPromises()
+
+    expect(getUsage).toHaveBeenCalledTimes(1)
+    expect(second.text()).toContain('25')
+    second.unmount()
+  })
+
+  it('请求未结束时重新挂载账号只发送一次并缓存最终结果', async () => {
+    let finish!: (data: AccountUsageInfo) => void
+    getUsage.mockImplementation(() => new Promise<AccountUsageInfo>((resolve) => { finish = resolve }))
+    const account = makeAccount({ id: 4002 })
+    const first = mountUsage(account)
+    await flushPromises()
+    first.unmount()
+    const second = mountUsage(account)
+    await flushPromises()
+    expect(getUsage).toHaveBeenCalledTimes(1)
+
+    finish({ ai_credits: [{ credit_type: 'GOOGLE_ONE_AI', amount: 42, minimum_balance: 0 }] })
+    await flushPromises()
+    expect(second.text()).toContain('42')
+    second.unmount()
+
+    const third = mountUsage(account)
+    await flushPromises()
+    expect(getUsage).toHaveBeenCalledTimes(1)
+    expect(third.text()).toContain('42')
+    third.unmount()
+  })
+
+  it('重新挂载时账号版本变化会重新拉取用量', async () => {
+    getUsage.mockResolvedValue({})
+    const account = makeAccount({ id: 4003 })
+    const first = mountUsage(account)
+    await flushPromises()
+    first.unmount()
+
+    const second = mountUsage({ ...account, updated_at: '2026-03-16T00:00:00Z' })
+    await flushPromises()
+    expect(getUsage).toHaveBeenCalledTimes(2)
+    second.unmount()
+  })
+
+  it('共享用量缓存超过五分钟会重新请求', async () => {
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
+    getUsage.mockResolvedValue({})
+    const account = makeAccount({ id: 4006 })
+    const first = mountUsage(account)
+    await flushPromises()
+    first.unmount()
+
+    clock.mockReturnValue(1_000_000 + 5 * 60 * 1000)
+    const second = mountUsage(account)
+    await flushPromises()
+    expect(getUsage).toHaveBeenCalledTimes(2)
+    second.unmount()
+  })
+
+  it('请求失败后重新挂载可以重试', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    getUsage.mockRejectedValueOnce(new Error('network error')).mockResolvedValueOnce({ ai_credits: [{ amount: 23 }] })
+    const account = makeAccount({ id: 4007 })
+    const first = mountUsage(account)
+    await flushPromises()
+    first.unmount()
+
+    const second = mountUsage(account)
+    await flushPromises()
+    expect(getUsage).toHaveBeenCalledTimes(2)
+    expect(second.text()).toContain('23')
+    second.unmount()
+  })
+
+  it('主动查询不等待被动队列，并将新结果保留给重新挂载的账号', async () => {
+    getUsage.mockResolvedValueOnce({ source: 'passive' })
+      .mockResolvedValueOnce({ source: 'active', error: 'fresh-active-probe' })
+    const account = makeAccount({ id: 4008, platform: 'anthropic' })
+    const wrapper = mountUsage(account)
+    await flushPromises()
+
+    let finishBackground!: () => void
+    const background = enqueueUsageRequest(account, () => new Promise<void>((resolve) => { finishBackground = resolve }))
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    expect(getUsage).toHaveBeenCalledTimes(2)
+    expect(getUsage).toHaveBeenLastCalledWith(4008, 'active')
+    expect(wrapper.text()).toContain('fresh-active-probe')
+    finishBackground()
+    await background
+    wrapper.unmount()
+
+    const remounted = mountUsage(account)
+    await flushPromises()
+    expect(getUsage).toHaveBeenCalledTimes(2)
+    expect(remounted.text()).toContain('fresh-active-probe')
+    remounted.unmount()
+  })
+
+  it('手动刷新之后较早的响应不会覆盖新用量或共享缓存', async () => {
+    let finishOld!: (data: AccountUsageInfo) => void
+    getUsage.mockImplementationOnce(() => new Promise<AccountUsageInfo>((resolve) => { finishOld = resolve }))
+      .mockResolvedValueOnce({ ai_credits: [{ amount: 90 }] })
+    const account = makeAccount({ id: 4004 })
+    const wrapper = mountUsage(account)
+    await flushPromises()
+
+    await wrapper.setProps({ manualRefreshToken: 1 })
+    await flushPromises()
+    finishOld({ ai_credits: [{ credit_type: 'GOOGLE_ONE_AI', amount: 10, minimum_balance: 0 }] })
+    await flushPromises()
+    expect(wrapper.text()).toContain('90')
+    wrapper.unmount()
+
+    const remounted = mountUsage(account)
+    await flushPromises()
+    expect(getUsage).toHaveBeenCalledTimes(2)
+    expect(remounted.text()).toContain('90')
+    remounted.unmount()
+  })
+
+  it('清除登录态缓存后旧请求不会重新填充缓存', async () => {
+    let finishOld!: (data: AccountUsageInfo) => void
+    getUsage.mockImplementationOnce(() => new Promise<AccountUsageInfo>((resolve) => { finishOld = resolve }))
+      .mockResolvedValueOnce({ ai_credits: [{ amount: 77 }] })
+    const account = makeAccount({ id: 4005 })
+    const first = mountUsage(account)
+    await flushPromises()
+    first.unmount()
+    clearAccountUsageCache()
+    finishOld({})
+    await flushPromises()
+
+    const second = mountUsage(account)
+    await flushPromises()
+    expect(getUsage).toHaveBeenCalledTimes(2)
+    expect(second.text()).toContain('77')
+    second.unmount()
+  })
 
   it('Antigravity 图片用量会聚合新旧 image 模型', async () => {
     getUsage.mockResolvedValue({

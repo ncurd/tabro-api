@@ -34,10 +34,9 @@ func resolveRequestGatewayGroup(c *gin.Context, keys *service.APIKeyService, key
 		if strings.Contains(request.Path, "/v1beta/models/") {
 			request.Model = strings.SplitN(strings.TrimPrefix(strings.SplitN(request.Path, "/models/", 2)[1], "models/"), ":", 2)[0]
 		} else if c.Request.Method == http.MethodPost && c.Request.Body != nil {
-			body, err := io.ReadAll(io.LimitReader(c.Request.Body, 32*1024*1024+1))
-			c.Request.Body = io.NopCloser(bytes.NewReader(body))
-			if err != nil || len(body) > 32*1024*1024 {
-				return nil, errGatewayRoutingBody
+			body, err := readGatewayRequestBody(c)
+			if err != nil {
+				return nil, errors.Join(errGatewayRoutingBody, err)
 			}
 			mediaType, params, _ := mime.ParseMediaType(c.GetHeader("Content-Type"))
 			if mediaType == "multipart/form-data" {
@@ -90,6 +89,9 @@ func gatewayModelCatalogPath(path string) bool {
 }
 
 func gatewayGroupRoutingError(err error) (int, string, string) {
+	if message, tooLarge := gatewayRequestBodyLimitError(err); tooLarge {
+		return http.StatusRequestEntityTooLarge, "REQUEST_BODY_TOO_LARGE", message
+	}
 	if errors.Is(err, service.ErrGatewayMediaResourceNotFound) {
 		return http.StatusNotFound, "MEDIA_RESOURCE_NOT_FOUND", "Media resource not found"
 	}

@@ -26,6 +26,18 @@ func TestMediaGenerationHandler_AudioSpeechRequiresModelAndInput(t *testing.T) {
 	require.Equal(t, "invalid_request_error", jsonPathString(t, w.Body.Bytes(), "error.type"))
 }
 
+func TestReadMediaBodyReportsConfiguredBodyLimit(t *testing.T) {
+	c, w := newMediaGenerationHandlerTestContext(http.MethodPost, "/v1/audio/speech", `{"input":"long payload"}`)
+	c.Request.Body = http.MaxBytesReader(w, c.Request.Body, 8)
+	body, key, _, ok := readMediaBody(c)
+	require.False(t, ok)
+	require.Nil(t, body)
+	require.Nil(t, key)
+	require.Equal(t, http.StatusRequestEntityTooLarge, w.Code)
+	require.Equal(t, "invalid_request_error", jsonPathString(t, w.Body.Bytes(), "error.type"))
+	require.Contains(t, jsonPathString(t, w.Body.Bytes(), "error.message"), "8B")
+}
+
 func TestMediaGenerationHandler_CreateVideoGenerationReturnsJobObject(t *testing.T) {
 	account := &service.Account{ID: 42, Platform: service.PlatformDashScope}
 	mediaSvc := &mediaGenerationServiceStub{

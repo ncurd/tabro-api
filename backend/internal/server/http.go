@@ -115,13 +115,19 @@ func ProvideHTTPServer(cfg *config.Config, router *gin.Engine) *http.Server {
 	// 根据配置决定是否启用 H2C
 	if cfg.Server.H2C.Enabled {
 		h2cConfig := cfg.Server.H2C
-		httpHandler = h2c.NewHandler(router, &http2.Server{
+		httpHandler = h2c.NewHandler(httpHandler, &http2.Server{
 			MaxConcurrentStreams:         h2cConfig.MaxConcurrentStreams,
 			IdleTimeout:                  time.Duration(h2cConfig.IdleTimeout) * time.Second,
 			MaxReadFrameSize:             uint32(h2cConfig.MaxReadFrameSize),
 			MaxUploadBufferPerConnection: int32(h2cConfig.MaxUploadBufferPerConnection),
 			MaxUploadBufferPerStream:     int32(h2cConfig.MaxUploadBufferPerStream),
 		})
+		if globalMaxSize > 0 {
+			// h2c buffers an Upgrade request before calling the inner handler.
+			// Keep both limits: this one bounds that initial buffer, while the
+			// inner handler limits every request on the upgraded connection.
+			httpHandler = http.MaxBytesHandler(httpHandler, globalMaxSize)
+		}
 		log.Printf("HTTP/2 Cleartext (h2c) enabled: max_concurrent_streams=%d, idle_timeout=%ds, max_read_frame_size=%d, max_upload_buffer_per_connection=%d, max_upload_buffer_per_stream=%d",
 			h2cConfig.MaxConcurrentStreams,
 			h2cConfig.IdleTimeout,

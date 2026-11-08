@@ -73,6 +73,59 @@ describe('ModelPricingView media prices', () => {
     expect(wrapper.findAll('th').map((header) => header.text())).toEqual(['模型', '计费单位与单价'])
   })
 
+  it('displays configured GPT Image 2.6 per-image prices and quality tiers without multiplying them again', async () => {
+    getAvailable.mockResolvedValue({ groups: [{
+      id: 6, name: 'GPT Image 2.6', platform: 'openai', rate_multiplier: 2, effective_rate_multiplier: 3,
+      models: [
+        { id: 'gpt-image-2.6-sunburst', pricing_available: true, billing_mode: 'image', price_unit: 'image', unit_price: 0.24, tiers: [{ label: '1024x1024:high', unit_price: 0.36 }] },
+        { id: 'gpt-image-2.6-flare', pricing_available: true, billing_mode: 'image', price_unit: 'image', tiers: [{ label: '1024x1024:medium', unit_price: 0.12 }] }
+      ]
+    }] })
+    const wrapper = mountPricing()
+    await flushPromises()
+    const rows = wrapper.findAll('tbody tr')
+    expect(rows).toHaveLength(2)
+    expect(rows[0].text()).toContain('gpt-image-2.6-sunburst')
+    expect(rows[0].text()).toContain('默认：0.24 ✦ / 张')
+    expect(rows[0].text()).toContain('1024x1024:high：0.36 ✦ / 张')
+    expect(rows[1].text()).toContain('gpt-image-2.6-flare')
+    expect(rows[1].text()).toContain('1024x1024:medium：0.12 ✦ / 张')
+    expect(rows[1].text()).toContain('仅已配置档位可用')
+    expect(wrapper.text()).not.toContain('1M tokens')
+    expect(wrapper.text()).not.toContain('0.72 ✦')
+  })
+
+  it('shows backend GPT Image 2.6 text and image token rates independently, preserving zero and missing rates', async () => {
+    getAvailable.mockResolvedValue({ groups: [{
+      id: 26, name: '图片 token 价格', platform: 'openai', rate_multiplier: 2, effective_rate_multiplier: 3,
+      models: [
+        {
+          id: 'gpt-image-2.6-sunburst', pricing_available: true, billing_mode: 'token', price_unit: 'million_tokens',
+          input_price_per_million: 15.01, cache_read_price_per_million: 3.02,
+          image_input_price_per_million: 24.03, cached_image_input_price_per_million: 6.04,
+          image_output_price_per_million: 90.05
+        },
+        {
+          id: 'gpt-image-2.6-flare', pricing_available: true, billing_mode: 'token', price_unit: 'million_tokens',
+          image_input_price_per_million: 0, image_output_price_per_million: 0
+        },
+        { id: 'custom-image', pricing_available: true, billing_mode: 'image', price_unit: 'image', unit_price: 0.24 }
+      ]
+    }] })
+    const wrapper = mountPricing()
+    await flushPromises()
+    expect(wrapper.findAll('th').map(header => header.text())).toEqual([
+      '模型', '计费单位与单价', '输入', '输出', '缓存写入', '缓存读取', '优先输入', '优先输出', '图片输入', '缓存图片输入', '图片输出'
+    ])
+    const rows = wrapper.findAll('tbody tr')
+    expect(rows[0].findAll('td').slice(2).map(cell => cell.text())).toEqual([
+      '15.0100 ✦', '暂无', '暂无', '3.0200 ✦', '暂无', '暂无', '24.0300 ✦', '6.0400 ✦', '90.0500 ✦'
+    ])
+    expect(rows[1].findAll('td').slice(-3).map(cell => cell.text())).toEqual(['0.0000 ✦', '暂无', '0.0000 ✦'])
+    expect(rows[2].findAll('td')[1].attributes('colspan')).toBe('10')
+    expect(rows[2].text()).toContain('默认：0.24 ✦ / 张')
+  })
+
   it('keeps token prices and uses character/request units for audio models', async () => {
     getAvailable.mockResolvedValue({ groups: [{
       id: 2, name: '混合', platform: 'openai', rate_multiplier: 1, effective_rate_multiplier: 1,

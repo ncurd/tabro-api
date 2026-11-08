@@ -65,6 +65,13 @@ func tryModelFilePricing(billingService *BillingService, model string, tokens Us
 	if err != nil || pricing == nil {
 		return nil
 	}
+	if isGPTImage26Model(model) {
+		cost := billingService.computeTokenBreakdown(pricing, tokens, 1, "", false).TotalCost
+		if cost <= 0 {
+			return nil
+		}
+		return &cost
+	}
 	cost := float64(tokens.InputTokens)*pricing.InputPricePerToken +
 		float64(tokens.OutputTokens)*pricing.OutputPricePerToken +
 		float64(tokens.CacheCreationTokens)*pricing.CacheCreationPricePerToken +
@@ -89,6 +96,9 @@ func tryCustomRules(
 		pricing := findPricingForModel(rule.Pricing, platform, modelLower)
 		if pricing == nil {
 			continue // 规则匹配但模型不在规则定价中，继续下一条
+		}
+		if isGPTImage26Model(modelLower) && pricing.BillingMode != BillingModePerRequest && pricing.BillingMode != BillingModeImage {
+			return calculateTokenStatsCost(pricing, tokens, true)
 		}
 		return calculateStatsCost(pricing, tokens, requestCount)
 	}
@@ -183,7 +193,8 @@ func calculatePerRequestStatsCost(pricing *ChannelModelPricing, requestCount int
 // calculateTokenStatsCost Token 计费。
 // If the pricing has intervals, find the matching interval by total token count
 // and use its prices instead of the flat pricing fields.
-func calculateTokenStatsCost(pricing *ChannelModelPricing, tokens UsageTokens) *float64 {
+func calculateTokenStatsCost(pricing *ChannelModelPricing, tokens UsageTokens, separateImageOutput ...bool) *float64 {
+	separateImages := len(separateImageOutput) > 0 && separateImageOutput[0]
 	p := pricing
 	if len(pricing.Intervals) > 0 {
 		totalTokens := tokens.InputTokens + tokens.OutputTokens + tokens.CacheCreationTokens + tokens.CacheReadTokens
@@ -195,6 +206,9 @@ func calculateTokenStatsCost(pricing *ChannelModelPricing, tokens UsageTokens) *
 				CacheReadPrice:  iv.CacheReadPrice,
 				PerRequestPrice: iv.PerRequestPrice,
 			}
+			if separateImages {
+				p.ImageOutputPrice = pricing.ImageOutputPrice
+			}
 		}
 	}
 	deref := func(ptr *float64) float64 {
@@ -203,11 +217,21 @@ func calculateTokenStatsCost(pricing *ChannelModelPricing, tokens UsageTokens) *
 		}
 		return *ptr
 	}
+	textOutput := tokens.OutputTokens
+	imagePrice := deref(p.ImageOutputPrice)
+	if separateImages {
+		textOutput = max(tokens.OutputTokens-tokens.ImageOutputTokens, 0)
+		if p.ImageOutputPrice == nil {
+			imagePrice = deref(p.OutputPrice)
+		}
+	}
+	// InputTokens/CacheReadTokens already contain their image subsets. A custom
+	// generic input or cache rate applies once to that aggregate count.
 	cost := float64(tokens.InputTokens)*deref(p.InputPrice) +
-		float64(tokens.OutputTokens)*deref(p.OutputPrice) +
+		float64(textOutput)*deref(p.OutputPrice) +
 		float64(tokens.CacheCreationTokens)*deref(p.CacheWritePrice) +
 		float64(tokens.CacheReadTokens)*deref(p.CacheReadPrice) +
-		float64(tokens.ImageOutputTokens)*deref(p.ImageOutputPrice)
+		float64(tokens.ImageOutputTokens)*imagePrice
 	if cost <= 0 {
 		return nil
 	}

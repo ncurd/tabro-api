@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/textproto"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -20,11 +21,15 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-func imageEditMultipart(t *testing.T, model string, stream bool) ([]byte, string) {
+func imageEditMultipart(t *testing.T, model string, stream bool, imageCount ...int) ([]byte, string) {
 	t.Helper()
 	var body bytes.Buffer
 	w := multipart.NewWriter(&body)
-	for _, field := range [][2]string{{"prompt", "edit both references"}, {"model", model}, {"n", "2"}, {"output_compression", "85"}, {"vendor_option", "preserved"}} {
+	count := "2"
+	if len(imageCount) > 0 {
+		count = strconv.Itoa(imageCount[0])
+	}
+	for _, field := range [][2]string{{"prompt", "edit both references"}, {"model", model}, {"n", count}, {"output_compression", "85"}, {"vendor_option", "preserved"}} {
 		if field[1] != "" {
 			require.NoError(t, w.WriteField(field[0], field[1]))
 		}
@@ -195,7 +200,7 @@ func TestForwardImagesEditsOAuthPreservesReferences(t *testing.T) {
 			body := []byte(`{"model":"gpt-image-2.5-sunburst","prompt":"edit","images":[{"image_url":"https://example.com/image.png"},{"file_id":"file-1"}],"mask":{"file_id":"file-mask"},"input_fidelity":"high","output_compression":85}`)
 			contentType := "application/json"
 			if multipartInput {
-				body, contentType = imageEditMultipart(t, "gpt-image-2.5-sunburst", false)
+				body, contentType = imageEditMultipart(t, "gpt-image-2.5-sunburst", false, 1)
 			}
 			request, err := ParseOpenAIImageEditRequest(body, contentType)
 			require.NoError(t, err)
@@ -224,7 +229,7 @@ func TestForwardImagesEditsOAuthPreservesReferences(t *testing.T) {
 }
 
 func TestForwardImagesEditsOAuthStreamEventTypes(t *testing.T) {
-	body, contentType := imageEditMultipart(t, "gpt-image-2", true)
+	body, contentType := imageEditMultipart(t, "gpt-image-2", true, 1)
 	request, err := ParseOpenAIImageEditRequest(body, contentType)
 	require.NoError(t, err)
 	response := "data: {\"type\":\"response.image_generation_call.partial_image\",\"partial_image_b64\":\"partial\",\"partial_image_index\":0}\n\n" +

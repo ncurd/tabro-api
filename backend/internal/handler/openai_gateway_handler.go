@@ -550,15 +550,10 @@ func (h *OpenAIGatewayHandler) forwardOpenAIImagesGenerationBody(
 	editRequest *service.OpenAIImageEditRequest,
 ) {
 	streamStarted := false
-	channelMapping := service.ChannelMappingResult{MappedModel: reqModel}
-	if editRequest != nil {
-		channelMapping, _ = h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
-	}
-	if editRequest != nil && channelMapping.Mapped {
-		if err := editRequest.SetModel(channelMapping.MappedModel); err != nil {
-			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", err.Error())
-			return
-		}
+	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
+	defaultMappedModel := ""
+	if channelMapping.Mapped {
+		defaultMappedModel = channelMapping.MappedModel
 	}
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 
@@ -617,11 +612,11 @@ func (h *OpenAIGatewayHandler) forwardOpenAIImagesGenerationBody(
 		forwardStart := time.Now()
 		var result *service.OpenAIForwardResult
 		if editRequest != nil {
-			result, err = h.gatewayService.ForwardImagesEdits(c.Request.Context(), c, account, editRequest)
+			result, err = h.gatewayService.ForwardImagesEdits(c.Request.Context(), c, account, editRequest, defaultMappedModel)
 		} else if codexBridge {
-			result, err = h.gatewayService.ForwardCodexImageGeneration(c.Request.Context(), c, account, body)
+			result, err = h.gatewayService.ForwardCodexImageGeneration(c.Request.Context(), c, account, body, defaultMappedModel)
 		} else {
-			result, err = h.gatewayService.ForwardImagesGenerations(c.Request.Context(), c, account, body)
+			result, err = h.gatewayService.ForwardImagesGenerations(c.Request.Context(), c, account, body, defaultMappedModel)
 		}
 		forwardDurationMs := time.Since(forwardStart).Milliseconds()
 		if accountReleaseFunc != nil {
@@ -629,6 +624,11 @@ func (h *OpenAIGatewayHandler) forwardOpenAIImagesGenerationBody(
 		}
 		service.SetOpsLatencyMs(c, service.OpsResponseLatencyMsKey, forwardDurationMs)
 		if err != nil {
+			var imageRequestErr *service.OpenAIImageRequestError
+			if errors.As(err, &imageRequestErr) {
+				h.handleStreamingAwareError(c, http.StatusBadRequest, "invalid_request_error", imageRequestErr.Error(), streamStarted)
+				return
+			}
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
 				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, false, nil)
@@ -645,9 +645,17 @@ func (h *OpenAIGatewayHandler) forwardOpenAIImagesGenerationBody(
 			if !c.Writer.Written() {
 				h.handleStreamingAwareError(c, http.StatusBadGateway, "upstream_error", "Image request failed", streamStarted)
 			}
-			return
+			if result == nil || result.ImageCount == 0 {
+				return
+			}
+			// A batch or stream can fail after returning completed images. Record
+			// those images and their usage even though the request itself failed.
+		} else {
+			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, true, nil)
 		}
-		h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, true, nil)
+		if result != nil {
+			result.Model = reqModel
+		}
 		userAgent := c.GetHeader("User-Agent")
 		clientIP := ip.GetClientIP(c)
 		requestPayloadHash := service.HashUsageRequestPayload(body)

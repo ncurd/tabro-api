@@ -93,12 +93,18 @@ func TestGatewayModelsCatalog_OAuthPreservesOpenAIMetadata(t *testing.T) {
 		byID[model.ID] = model
 		require.Equal(t, "model", model.Object)
 		require.Equal(t, "openai", model.OwnedBy)
-		require.Positive(t, model.Created)
+		switch model.ID {
+		case "gpt-image-2.6-sunburst", "gpt-image-2.6-flare":
+			// OpenAI has not published a creation timestamp for these models.
+			require.Zero(t, model.Created)
+		default:
+			require.Positive(t, model.Created)
+		}
 	}
 	require.NotContains(t, byID, "gpt-5.4")
 	require.NotContains(t, byID, "gpt-5.4-mini")
 	for _, model := range openai.DefaultModels {
-		if model.ID == "gpt-6-sol" || model.ID == "gpt-6-luna" || model.ID == "gpt-5.6-luna" || model.ID == "gpt-image-2.5-sunburst" {
+		if model.ID == "gpt-6-sol" || model.ID == "gpt-6-luna" || model.ID == "gpt-5.6-luna" || model.ID == "gpt-image-2.5-sunburst" || model.ID == "gpt-image-2.6-sunburst" || model.ID == "gpt-image-2.6-flare" {
 			require.Equal(t, model, byID[model.ID])
 		}
 	}
