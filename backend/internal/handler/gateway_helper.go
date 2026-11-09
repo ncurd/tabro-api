@@ -13,6 +13,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 )
 
 // claudeCodeValidator is a singleton validator for Claude Code client detection
@@ -72,7 +73,16 @@ func claudeCodeBodyMapFromParsedRequest(parsedReq *service.ParsedRequest) map[st
 		return nil
 	}
 	bodyMap := map[string]any{
-		"model": parsedReq.Model,
+		"model":      parsedReq.Model,
+		"max_tokens": parsedReq.MaxTokens,
+		"messages":   parsedReq.Messages,
+	}
+	if parsedReq.MaxTokens == 1 || parsedReq.MaxTokens == 80 {
+		for _, field := range []string{"tools", "output_config"} {
+			if value := gjson.GetBytes(parsedReq.Body, field); value.Exists() {
+				bodyMap[field] = value.Value()
+			}
+		}
 	}
 	if parsedReq.System != nil || parsedReq.HasSystem {
 		bodyMap["system"] = parsedReq.System

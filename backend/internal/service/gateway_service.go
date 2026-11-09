@@ -3707,6 +3707,7 @@ func (s *GatewayService) claudeOAuthMimicNormalizeOptions(ctx context.Context, c
 		}
 	}
 
+	fp = managedClaudeCodeFingerprint(fp)
 	metadataUserID := s.buildOAuthMetadataUserID(parsed, account, fp)
 	if metadataUserID == "" && parsed != nil && strings.TrimSpace(parsed.MetadataUserID) != "" && ParseMetadataUserID(parsed.MetadataUserID) == nil {
 		parsedCopy := *parsed
@@ -3880,7 +3881,7 @@ func rewriteSystemForNonClaudeCode(body []byte, system any) []byte {
 
 	originalSystemText := systemTextForForwarding(system)
 	ccPromptTrimmed := strings.TrimSpace(claudeCodeSystemPrompt)
-	if originalSystemText == "" || originalSystemText == ccPromptTrimmed || hasClaudeCodePrefix(originalSystemText) {
+	if originalSystemText == "" || originalSystemText == ccPromptTrimmed {
 		return out
 	}
 
@@ -5663,6 +5664,13 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 			logger.LegacyPrintf("service.gateway", "Warning: failed to get fingerprint for account %d: %v", account.ID, err)
 			// 失败时降级为透传原始headers
 		} else {
+			if mimicClaudeCode {
+				fp = managedClaudeCodeFingerprint(fp)
+			} else {
+				copy := *fp
+				fp = &copy
+				mergeHeadersIntoFingerprint(fp, clientHeaders)
+			}
 			if enableFP {
 				fingerprint = fp
 			}
@@ -5685,19 +5693,21 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	var oauthToolNamesReverseMap map[string]string
 	if tokenType == "oauth" {
 		bodyBetas, body = extractAndRemoveClaudeOAuthBodyBetas(body)
-		if next, changed := normalizeClaudeOAuthThinkingControls(body); changed {
-			body = next
+		if mimicClaudeCode {
+			if next, changed := normalizeClaudeOAuthThinkingControls(body); changed {
+				body = next
+			}
+			body, oauthToolNamesReverseMap = prepareClaudeOAuthToolNamesForUpstream(body)
 		}
-		body, oauthToolNamesReverseMap = prepareClaudeOAuthToolNamesForUpstream(body)
 		setClaudeOAuthToolNamesReverseMap(c, oauthToolNamesReverseMap)
 	}
 
 	// 同步 billing header cc_version 与实际发送的 User-Agent 版本
-	if fingerprint != nil {
-		body = syncBillingHeaderVersion(body, fingerprint.UserAgent)
+	if tokenType == "oauth" && mimicClaudeCode {
+		body = syncBillingHeaderVersion(body, claude.DefaultHeaders["User-Agent"])
 	}
 	// CCH 签名：OAuth/SetupToken 默认按 Claude Code 形态签名；配置开关仍可覆盖非 OAuth 实验路径。
-	if tokenType == "oauth" || enableCCH {
+	if tokenType != "oauth" && enableCCH {
 		body = signBillingHeaderCCH(body)
 	}
 
@@ -5755,6 +5765,9 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 
 			incomingBeta := mergeClaudeOAuthBodyBetasIntoHeader(bodyBetas, getHeaderRaw(req.Header, "anthropic-beta"))
 			requiredBetas := splitAnthropicBetaHeader(claude.DefaultBetaHeader)
+			if gjson.GetBytes(body, "output_config.effort").Exists() {
+				requiredBetas = append(requiredBetas, claude.BetaEffort)
+			}
 			setHeaderRaw(req.Header, "anthropic-beta", mergeAnthropicBetaDropping(requiredBetas, incomingBeta, effectiveDropSet))
 		} else {
 			// Claude Code 客户端：尽量透传原始 header，仅补齐 oauth beta
@@ -5777,6 +5790,7 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	if tokenType == "oauth" {
 		syncClaudeCodeSessionIDHeader(req, body, token)
 		applyClaudeOAuthTransportHeaders(req, reqStream)
+		body = finalizeClaudeOAuthBody(req, body, false, mimicClaudeCode)
 	}
 
 	// 同步 X-Claude-Code-Session-Id 头：取 body 中已处理的 metadata.user_id 的 session_id 覆盖
@@ -6203,6 +6217,9 @@ func applyClaudeCodeMimicHeaders(req *http.Request, isStream bool) {
 	// 使用 resolveWireCasing 确保 key 与真实 wire format 一致（如 "x-app" 而非 "X-App"）
 	for key, value := range claude.DefaultHeaders {
 		if value == "" {
+			continue
+		}
+		if (key == "X-Stainless-OS" || key == "X-Stainless-Arch") && getHeaderRaw(req.Header, key) != "" {
 			continue
 		}
 		setHeaderRaw(req.Header, resolveWireCasing(key), value)
@@ -8779,6 +8796,13 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 	if account.IsOAuth() && s.identityService != nil {
 		fp, err := s.identityService.GetOrCreateFingerprint(ctx, account.ID, clientHeaders)
 		if err == nil {
+			if mimicClaudeCode {
+				fp = managedClaudeCodeFingerprint(fp)
+			} else {
+				copy := *fp
+				fp = &copy
+				mergeHeadersIntoFingerprint(fp, clientHeaders)
+			}
 			ctFingerprint = fp
 			if !ctEnableMPT {
 				accountUUID := account.GetExtraString("account_uuid")
@@ -8794,17 +8818,19 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 	var ctBodyBetas []string
 	if tokenType == "oauth" {
 		ctBodyBetas, body = extractAndRemoveClaudeOAuthBodyBetas(body)
-		if next, changed := normalizeClaudeOAuthThinkingControls(body); changed {
-			body = next
+		if mimicClaudeCode {
+			if next, changed := normalizeClaudeOAuthThinkingControls(body); changed {
+				body = next
+			}
+			body, _ = prepareClaudeOAuthToolNamesForUpstream(body)
 		}
-		body, _ = prepareClaudeOAuthToolNamesForUpstream(body)
 	}
 
 	// 同步 billing header cc_version 与实际发送的 User-Agent 版本
-	if ctFingerprint != nil && ctEnableFP {
-		body = syncBillingHeaderVersion(body, ctFingerprint.UserAgent)
+	if tokenType == "oauth" && mimicClaudeCode {
+		body = syncBillingHeaderVersion(body, claude.DefaultHeaders["User-Agent"])
 	}
-	if tokenType == "oauth" || ctEnableCCH {
+	if tokenType != "oauth" && ctEnableCCH {
 		body = signBillingHeaderCCH(body)
 	}
 
@@ -8857,7 +8883,7 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 			applyClaudeCodeMimicHeaders(req, false)
 
 			incomingBeta := mergeClaudeOAuthBodyBetasIntoHeader(ctBodyBetas, getHeaderRaw(req.Header, "anthropic-beta"))
-			requiredBetas := append(splitAnthropicBetaHeader(claude.DefaultBetaHeader), claude.BetaTokenCounting)
+			requiredBetas := splitAnthropicBetaHeader(claude.CountTokensBetaHeader)
 			setHeaderRaw(req.Header, "anthropic-beta", mergeAnthropicBetaDropping(requiredBetas, incomingBeta, ctEffectiveDropSet))
 		} else {
 			clientBetaHeader := mergeClaudeOAuthBodyBetasIntoHeader(ctBodyBetas, getHeaderRaw(req.Header, "anthropic-beta"))
@@ -8887,6 +8913,7 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 	if tokenType == "oauth" {
 		syncClaudeCodeSessionIDHeader(req, body, token)
 		applyClaudeOAuthTransportHeaders(req, false)
+		body = finalizeClaudeOAuthBody(req, body, true, mimicClaudeCode)
 	}
 
 	// 同步 X-Claude-Code-Session-Id 头：取 body 中已处理的 metadata.user_id 的 session_id 覆盖

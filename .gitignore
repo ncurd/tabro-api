@@ -137,6 +137,10 @@ docs/*
 !docs/BILLING_CENTER_GATEWAY_CN.md
 !docs/PAYMENT.md
 !docs/PAYMENT_CN.md
+!docs/CLAUDE_CODE_COMPATIBILITY_CN.md
+!docs/licenses/
+docs/licenses/*
+!docs/licenses/CLIProxyAPI-MIT.txt
 .serena/
 .codex/
 frontend/coverage/

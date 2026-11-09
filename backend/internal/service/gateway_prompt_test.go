@@ -309,7 +309,7 @@ func TestRewriteSystemForNonClaudeCode(t *testing.T) {
 			wantMessagesLen:    1,
 			wantReminder:       true,
 			wantFirstMsgRole:   "user",
-			wantFirstMsgSubstr: "Use the available tools when needed to help with software engineering tasks.",
+			wantFirstMsgSubstr: "You are a personal assistant running inside OpenClaw.",
 		},
 		{
 			name:            "system equals Claude Code prompt - no reminder injected",
@@ -327,7 +327,7 @@ func TestRewriteSystemForNonClaudeCode(t *testing.T) {
 			wantMessagesLen:    1,
 			wantReminder:       true,
 			wantFirstMsgRole:   "user",
-			wantFirstMsgSubstr: "Use the available tools when needed to help with software engineering tasks.",
+			wantFirstMsgSubstr: "First instruction",
 		},
 		{
 			name:            "empty array system - no reminder injected",
@@ -342,7 +342,7 @@ func TestRewriteSystemForNonClaudeCode(t *testing.T) {
 			wantMessagesLen:    1,
 			wantReminder:       true,
 			wantFirstMsgRole:   "user",
-			wantFirstMsgSubstr: "Use the available tools when needed to help with software engineering tasks.",
+			wantFirstMsgSubstr: "Custom prompt",
 		},
 		{
 			name:            "json.RawMessage nil system",
@@ -357,7 +357,7 @@ func TestRewriteSystemForNonClaudeCode(t *testing.T) {
 			wantMessagesLen:    3,
 			wantReminder:       true,
 			wantFirstMsgRole:   "user",
-			wantFirstMsgSubstr: "Use the available tools when needed to help with software engineering tasks.",
+			wantFirstMsgSubstr: "Be helpful",
 		},
 	}
 
@@ -366,10 +366,9 @@ func TestRewriteSystemForNonClaudeCode(t *testing.T) {
 			result := signBillingHeaderCCH(rewriteSystemForNonClaudeCode([]byte(tt.body), tt.system))
 
 			systemArr := gjson.GetBytes(result, "system").Array()
-			require.Len(t, systemArr, 3, "system array should match CLIProxy shape")
-			require.Regexp(t, `^x-anthropic-billing-header: cc_version=2\.1\.63\.[0-9a-f]{3}; cc_entrypoint=cli; cch=[0-9a-f]{5};$`, systemArr[0].Get("text").String())
+			require.Len(t, systemArr, 2, "system array should match CLIProxy shape")
+			require.Regexp(t, `^x-anthropic-billing-header: cc_version=2\.1\.280\.[0-9a-f]{3}; cc_entrypoint=cli; cch=[0-9a-f]{5};$`, systemArr[0].Get("text").String())
 			require.Equal(t, claudeCodeSystemPrompt, systemArr[1].Get("text").String())
-			require.Contains(t, systemArr[2].Get("text").String(), "# System")
 			require.False(t, systemArr[1].Get("cache_control").Exists())
 
 			messages := gjson.GetBytes(result, "messages").Array()

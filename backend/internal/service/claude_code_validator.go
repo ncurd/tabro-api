@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 )
 
@@ -47,6 +48,13 @@ var claudeCodeSystemPrompts = []string{
 	"You are an interactive CLI tool that helps users",
 }
 
+const claudeCodeSecurityMonitorPrefix = "You are a security monitor for autonomous AI coding agents."
+
+var claudeCodeSecurityMonitorMarkers = []string{
+	"## Threat Model", "- `<transcript>`:", "## HARD BLOCK", "## SOFT BLOCK",
+	"## Classification Process", "## Output Format", "<block>yes</block>", "<block>no</block>",
+}
+
 // NewClaudeCodeValidator 创建验证器实例
 func NewClaudeCodeValidator() *ClaudeCodeValidator {
 	return &ClaudeCodeValidator{}
@@ -85,12 +93,8 @@ func (v *ClaudeCodeValidator) Validate(r *http.Request, body map[string]any) boo
 
 	// Step 4: messages 路径，进行严格验证
 
-	// 4.1 检查 system prompt 相似度
-	if !v.hasClaudeCodeSystemPrompt(body) {
-		return false
-	}
-
-	// 4.2 检查必需的 headers（值不为空即可）
+	// Auxiliary native requests can omit the identity prompt, but a copied UA
+	// alone must not bypass Claude-Code-only group restrictions.
 	xApp := r.Header.Get("X-App")
 	if xApp == "" {
 		return false
@@ -104,6 +108,10 @@ func (v *ClaudeCodeValidator) Validate(r *http.Request, body map[string]any) boo
 	anthropicVersion := r.Header.Get("anthropic-version")
 	if anthropicVersion == "" {
 		return false
+	}
+	if strings.HasSuffix(path, "/messages/count_tokens") {
+		model, _ := body["model"].(string)
+		return xApp == "cli" && model != "" && containsBetaToken(anthropicBeta, claude.BetaClaudeCode)
 	}
 
 	// 4.3 验证 metadata.user_id
@@ -121,10 +129,82 @@ func (v *ClaudeCodeValidator) Validate(r *http.Request, body map[string]any) boo
 		return false
 	}
 
-	if ParseMetadataUserID(userID) == nil {
+	parsedUserID := ParseMetadataUserID(userID)
+	if parsedUserID == nil {
 		return false
 	}
 
+	if v.hasClaudeCodeSystemPrompt(body) {
+		return true
+	}
+	if xApp != "cli" {
+		return false
+	}
+	if hasClaudeCodeBillingBlock(body) && containsBetaToken(anthropicBeta, claude.BetaClaudeCode) {
+		return true
+	}
+	return isClaudeCodeMinimalHelper(r, body, parsedUserID)
+}
+
+func hasClaudeCodeBillingBlock(body map[string]any) bool {
+	system, _ := body["system"].([]any)
+	if len(system) == 0 {
+		return false
+	}
+	block, _ := system[0].(map[string]any)
+	text, _ := block["text"].(string)
+	return block["type"] == "text" && strings.HasPrefix(text, "x-anthropic-billing-header:") &&
+		strings.Contains(text, "cc_version=") && strings.Contains(text, "cc_entrypoint=")
+}
+
+func isClaudeCodeMinimalHelper(r *http.Request, body map[string]any, userID *ParsedUserID) bool {
+	maxTokens := 0
+	switch value := body["max_tokens"].(type) {
+	case int:
+		maxTokens = value
+	case int64:
+		if value == 1 || value == 80 {
+			maxTokens = int(value)
+		}
+	case float64:
+		if value == 1 || value == 80 {
+			maxTokens = int(value)
+		}
+	}
+	model, _ := body["model"].(string)
+	messages, _ := body["messages"].([]any)
+	if (maxTokens != 1 && maxTokens != 80) || !strings.HasPrefix(model, "claude-") || len(messages) != 1 || body["system"] != nil || body["tools"] != nil {
+		return false
+	}
+	message, _ := messages[0].(map[string]any)
+	text, ok := message["content"].(string)
+	if message["role"] != "user" || !ok || text == "" {
+		return false
+	}
+	if maxTokens == 80 {
+		output, _ := body["output_config"].(map[string]any)
+		format, _ := output["format"].(map[string]any)
+		schema, _ := format["schema"].(map[string]any)
+		if !strings.Contains(model, "haiku") || format["type"] != "json_schema" || schema["type"] != "object" {
+			return false
+		}
+	}
+	beta := r.Header.Get("anthropic-beta")
+	if containsBetaToken(beta, claude.BetaClaudeCode) {
+		return true
+	}
+	// Measured Haiku quota probes omit the Claude Code beta. Bind this narrow
+	// profile to the native SDK and metadata session instead of accepting UA alone.
+	if !strings.Contains(model, "haiku") || r.Header.Get("X-Claude-Code-Session-Id") != userID.SessionID ||
+		r.Header.Get("X-Stainless-Lang") != "js" || r.Header.Get("X-Stainless-Runtime") != "node" ||
+		r.Header.Get("X-Stainless-Package-Version") == "" {
+		return false
+	}
+	for _, required := range []string{claude.BetaOAuth, claude.BetaInterleavedThinking, claude.BetaContextManagement, claude.BetaPromptCachingScope, "thinking-token-count-2026-05-13"} {
+		if !containsBetaToken(beta, required) {
+			return false
+		}
+	}
 	return true
 }
 
@@ -144,6 +224,20 @@ func (v *ClaudeCodeValidator) hasClaudeCodeSystemPrompt(body map[string]any) boo
 	systemEntries, ok := body["system"].([]any)
 	if !ok {
 		return false
+	}
+	for _, entry := range systemEntries {
+		block, _ := entry.(map[string]any)
+		text, _ := block["text"].(string)
+		if block["type"] != "text" || len(text) < 10_000 || !strings.HasPrefix(text, claudeCodeSecurityMonitorPrefix) {
+			continue
+		}
+		matches := true
+		for _, marker := range claudeCodeSecurityMonitorMarkers {
+			matches = matches && strings.Contains(text, marker)
+		}
+		if matches {
+			return true
+		}
 	}
 
 	// 检查每个 system entry

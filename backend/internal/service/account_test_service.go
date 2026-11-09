@@ -31,7 +31,6 @@ import (
 var sseDataPrefix = regexp.MustCompile(`^data:\s*`)
 
 const (
-	testClaudeAPIURL   = "https://api.anthropic.com/v1/messages?beta=true"
 	chatgptCodexAPIURL = "https://chatgpt.com/backend-api/codex/responses"
 )
 
@@ -212,7 +211,6 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 	if account.IsOAuth() {
 		// OAuth or Setup Token - use Bearer token
 		useBearer = true
-		apiURL = testClaudeAPIURL
 		authToken = account.GetCredential("access_token")
 		if authToken == "" {
 			return s.sendErrorAndEnd(c, "No access token available")
@@ -250,41 +248,51 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Failed to create test payload")
 	}
+	if useBearer {
+		metadata := payload["metadata"].(map[string]string)
+		if userID := ParseMetadataUserID(metadata["user_id"]); userID != nil {
+			metadata["user_id"] = FormatMetadataUserID(userID.DeviceID, account.GetExtraString("account_uuid"), userID.SessionID, ExtractCLIVersion(claude.DefaultHeaders["User-Agent"]))
+		}
+	}
 	payloadBytes, _ := json.Marshal(payload)
 
-	// Send test_start event
-	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
-
-	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(payloadBytes))
-	if err != nil {
-		return s.sendErrorAndEnd(c, "Failed to create request")
-	}
-
-	// Set common headers
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("anthropic-version", "2023-06-01")
-
-	// Apply Claude Code client headers
-	for key, value := range claude.DefaultHeaders {
-		req.Header.Set(key, value)
-	}
-
-	// Set authentication header
+	gateway := &GatewayService{cfg: s.cfg, tlsFPProfileService: s.tlsFPProfileService}
+	var req *http.Request
 	if useBearer {
-		req.Header.Set("anthropic-beta", claude.DefaultBetaHeader)
-		req.Header.Set("Authorization", "Bearer "+authToken)
+		payloadBytes = rewriteBodyWithCLIProxySystemBlocks(payloadBytes)
+		payloadBytes, testModelID = normalizeClaudeOAuthRequestBody(payloadBytes, testModelID, claudeOAuthNormalizeOptions{})
+		// Use the production OAuth builder without forwarding the admin browser's
+		// fingerprint or beta headers into the test request.
+		testContext := &gin.Context{Request: c.Request.Clone(ctx)}
+		testContext.Request.Header = make(http.Header)
+		req, err = gateway.buildUpstreamRequest(ctx, testContext, account, payloadBytes, authToken, "oauth", testModelID, true, true)
 	} else {
-		req.Header.Set("anthropic-beta", claude.APIKeyBetaHeader)
-		req.Header.Set("x-api-key", authToken)
+		req, err = http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(payloadBytes))
+		if err == nil {
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("anthropic-version", "2023-06-01")
+			for key, value := range claude.DefaultHeaders {
+				req.Header.Set(key, value)
+			}
+			req.Header.Set("anthropic-beta", claude.APIKeyBetaHeader)
+			req.Header.Set("x-api-key", authToken)
+		}
 	}
+	if err != nil {
+		return s.sendErrorAndEnd(c, fmt.Sprintf("Failed to create request: %s", err.Error()))
+	}
+
+	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
 
 	// Get proxy URL
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
-		proxyURL = account.Proxy.URL()
+		if !useBearer || !account.IsCustomBaseURLEnabled() || account.GetCustomBaseURL() == "" {
+			proxyURL = account.Proxy.URL()
+		}
 	}
 
-	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
+	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, gateway.resolveAnthropicOAuthTLSProfile(account))
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Request failed: %s", err.Error()))
 	}
@@ -919,10 +927,9 @@ func (s *AccountTestService) processClaudeStream(c *gin.Context, body io.Reader)
 
 	for {
 		line, err := reader.ReadString('\n')
-		if err != nil {
+		if err != nil && len(line) == 0 {
 			if err == io.EOF {
-				s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
-				return nil
+				return s.sendErrorAndEnd(c, "Upstream stream ended before message_stop")
 			}
 			return s.sendErrorAndEnd(c, fmt.Sprintf("Stream read error: %s", err.Error()))
 		}

@@ -19,10 +19,10 @@ func TestSyncBillingHeaderVersion(t *testing.T) {
 		unchanged bool   // expect body to remain the same
 	}{
 		{
-			name:      "replaces cc_version preserving message-derived suffix",
+			name:      "replaces cc_version and recomputes version-dependent suffix",
 			body:      `{"system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.81.df2; cc_entrypoint=cli; cch=00000;"},{"type":"text","text":"You are Claude Code.","cache_control":{"type":"ephemeral"}}],"messages":[]}`,
 			userAgent: "claude-cli/2.1.22 (external, cli)",
-			wantSub:   "cc_version=2.1.22.df2",
+			wantSub:   "cc_version=2.1.22.15f",
 		},
 		{
 			name:      "no billing header in system",
@@ -50,7 +50,7 @@ func TestSyncBillingHeaderVersion(t *testing.T) {
 		},
 		{
 			name:      "version already matches",
-			body:      `{"system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.22; cc_entrypoint=cli; cch=00000;"}],"messages":[]}`,
+			body:      `{"system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.22.15f; cc_entrypoint=cli; cch=00000;"}],"messages":[]}`,
 			userAgent: "claude-cli/2.1.22",
 			unchanged: true,
 		},
@@ -84,7 +84,7 @@ func TestSignBillingHeaderCCH(t *testing.T) {
 		assert.Regexp(t, `cch=[0-9a-f]{5};`, billingText)
 	})
 
-	t.Run("no placeholder - body unchanged", func(t *testing.T) {
+	t.Run("re-signs existing digits for a proxy-managed request", func(t *testing.T) {
 		body := []byte(`{"system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.63; cc_entrypoint=cli; cch=abcde;"}],"messages":[]}`)
 		result := signBillingHeaderCCH(body)
 		assert.NotEqual(t, string(body), string(result))

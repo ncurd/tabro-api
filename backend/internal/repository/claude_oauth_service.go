@@ -99,9 +99,9 @@ func parseClaudeOAuthRetryAfter(resp *req.Response) time.Duration {
 
 func setClaudeTokenRequestHeaders(r *req.Request) *req.Request {
 	return r.
-		SetHeader("Accept", "application/json").
+		SetHeader("Accept", "application/json, text/plain, */*").
 		SetHeader("Content-Type", "application/json").
-		SetHeader("User-Agent", "")
+		SetHeader("User-Agent", "axios/1.15.2")
 }
 
 func (s *claudeOAuthService) GetOrganizationUUID(ctx context.Context, sessionKey, proxyURL string) (string, error) {

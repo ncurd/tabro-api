@@ -17,6 +17,8 @@ const (
 	BetaFastMode                 = "fast-mode-2026-02-01"
 	BetaRedactThinking           = "redact-thinking-2026-02-12"
 	BetaTokenEfficientTools      = "token-efficient-tools-2026-03-28"
+	BetaThinkingTokenCount       = "thinking-token-count-2026-05-13"
+	BetaEffort                   = "effort-2025-11-24"
 )
 
 // DroppedBetas 是转发时需要从 anthropic-beta header 中移除的 beta token 列表。
@@ -25,7 +27,7 @@ var DroppedBetas = []string{}
 
 // DefaultBetaHeader Claude Code 客户端默认的 anthropic-beta header.
 // Keep this aligned with CLIProxyAPI 2's Claude OAuth request shape.
-const DefaultBetaHeader = BetaClaudeCode + "," + BetaOAuth + "," + BetaInterleavedThinking + "," + BetaContextManagement + "," + BetaPromptCachingScope + "," + BetaStructuredOutputs + "," + BetaFastMode + "," + BetaRedactThinking + "," + BetaTokenEfficientTools
+const DefaultBetaHeader = BetaClaudeCode + "," + BetaOAuth + "," + BetaInterleavedThinking + "," + BetaRedactThinking + "," + BetaThinkingTokenCount + "," + BetaContextManagement + "," + BetaPromptCachingScope
 
 // MessageBetaHeaderNoTools /v1/messages 在无工具时的 beta header
 //
@@ -39,7 +41,7 @@ const MessageBetaHeaderNoTools = BetaClaudeCode + "," + BetaOAuth + "," + BetaIn
 const MessageBetaHeaderWithTools = BetaClaudeCode + "," + BetaOAuth + "," + BetaInterleavedThinking
 
 // CountTokensBetaHeader count_tokens 请求使用的 anthropic-beta header
-const CountTokensBetaHeader = DefaultBetaHeader + "," + BetaTokenCounting
+const CountTokensBetaHeader = BetaClaudeCode + "," + BetaOAuth + "," + BetaInterleavedThinking + "," + BetaContextManagement + "," + BetaTokenCounting
 
 // HaikuBetaHeader Haiku 模型使用的 anthropic-beta header（不需要 claude-code beta）
 const HaikuBetaHeader = BetaOAuth + "," + BetaInterleavedThinking
@@ -50,15 +52,18 @@ const APIKeyBetaHeader = BetaClaudeCode + "," + BetaInterleavedThinking + "," + 
 // APIKeyHaikuBetaHeader Haiku 模型在 API-key 账号下使用的 anthropic-beta header（不包含 oauth / claude-code）
 const APIKeyHaikuBetaHeader = BetaInterleavedThinking
 
+// CLICurrentVersion is the pinned, source-verified proxy-managed CLI profile.
+const CLICurrentVersion = "2.1.280"
+
 // DefaultHeaders 是 Claude Code 客户端默认请求头。
 var DefaultHeaders = map[string]string{
-	"User-Agent":                  "claude-cli/2.1.63 (external, cli)",
+	"User-Agent":                  "claude-cli/" + CLICurrentVersion + " (external, cli)",
 	"X-Stainless-Lang":            "js",
-	"X-Stainless-Package-Version": "0.74.0",
+	"X-Stainless-Package-Version": "0.112.1",
 	"X-Stainless-OS":              "MacOS",
 	"X-Stainless-Arch":            "arm64",
 	"X-Stainless-Runtime":         "node",
-	"X-Stainless-Runtime-Version": "v24.3.0",
+	"X-Stainless-Runtime-Version": "v26.3.0",
 	"X-Stainless-Retry-Count":     "0",
 	"X-Stainless-Timeout":         "600",
 	"X-App":                       "cli",

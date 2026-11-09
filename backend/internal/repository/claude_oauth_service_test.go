@@ -220,8 +220,8 @@ func (s *ClaudeOAuthServiceSuite) TestExchangeCodeForToken() {
 			validate: func(captured requestCapture) {
 				require.Equal(s.T(), http.MethodPost, captured.method, "expected POST")
 				require.True(s.T(), strings.HasPrefix(captured.contentType, "application/json"), "unexpected content-type")
-				require.Equal(s.T(), "application/json", captured.accept)
-				require.Empty(s.T(), captured.userAgent)
+				require.Equal(s.T(), "application/json, text/plain, */*", captured.accept)
+				require.Equal(s.T(), "axios/1.15.2", captured.userAgent)
 				require.Equal(s.T(), "AUTH", captured.bodyJSON["code"])
 				require.Equal(s.T(), "STATE2", captured.bodyJSON["state"])
 				require.Equal(s.T(), oauth.ClientID, captured.bodyJSON["client_id"])
@@ -327,8 +327,8 @@ func (s *ClaudeOAuthServiceSuite) TestRefreshToken() {
 			},
 			validate: func(captured requestCapture) {
 				require.Equal(s.T(), http.MethodPost, captured.method, "expected POST")
-				require.Equal(s.T(), "application/json", captured.accept)
-				require.Empty(s.T(), captured.userAgent)
+				require.Equal(s.T(), "application/json, text/plain, */*", captured.accept)
+				require.Equal(s.T(), "axios/1.15.2", captured.userAgent)
 				// 验证使用 JSON 格式（不是 form 格式）
 				require.True(s.T(), strings.HasPrefix(captured.contentType, "application/json"),
 					"expected JSON content-type, got: %s", captured.contentType)
@@ -404,7 +404,7 @@ func (s *ClaudeOAuthServiceSuite) TestRefreshToken() {
 func (s *ClaudeOAuthServiceSuite) TestDefaultTokenURLMatchesCLIProxyAnthropicEndpoint() {
 	client, ok := NewClaudeOAuthClient().(*claudeOAuthService)
 	require.True(s.T(), ok, "type assertion failed")
-	require.Equal(s.T(), "https://api.anthropic.com/v1/oauth/token", client.tokenURL)
+	require.Equal(s.T(), "https://platform.claude.com/v1/oauth/token", client.tokenURL)
 }
 
 func (s *ClaudeOAuthServiceSuite) TestRefreshToken429RetryAfterBlocksRepeatedUpstreamCall() {

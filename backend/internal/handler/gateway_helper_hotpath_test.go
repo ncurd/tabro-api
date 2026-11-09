@@ -217,6 +217,32 @@ func TestSetClaudeCodeClientContext_ReuseParsedRequestAndContextCache(t *testing
 	})
 }
 
+func TestSetClaudeCodeClientContext_NativeAuxiliaryParsedRequest(t *testing.T) {
+	for _, fixture := range []struct {
+		name string
+		path string
+		body string
+		want bool
+	}{
+		{"sonnet probe", "/v1/messages", `{"model":"claude-sonnet-4-6","max_tokens":1,"messages":[{"role":"user","content":"quota probe"}],"metadata":{"user_id":"user_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa_account__session_aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}}`, true},
+		{"probe with tools", "/v1/messages", `{"model":"claude-sonnet-4-6","max_tokens":1,"messages":[{"role":"user","content":"quota probe"}],"tools":[{"name":"Bash"}],"metadata":{"user_id":"user_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa_account__session_aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}}`, false},
+		{"title helper", "/v1/messages", `{"model":"claude-haiku-4-5-20251001","max_tokens":80,"messages":[{"role":"user","content":"session title"}],"metadata":{"user_id":"user_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa_account__session_aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"},"output_config":{"format":{"type":"json_schema","schema":{"type":"object"}}}}`, true},
+		{"count tokens", "/v1/messages/count_tokens", `{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hello"}]}`, true},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			c, _ := newHelperTestContext(http.MethodPost, fixture.path)
+			c.Request.Header.Set("User-Agent", "claude-cli/2.1.280 (external, cli)")
+			c.Request.Header.Set("X-App", "cli")
+			c.Request.Header.Set("Anthropic-Beta", "claude-code-20250219,oauth-2025-04-20")
+			c.Request.Header.Set("Anthropic-Version", "2023-06-01")
+			parsed, err := service.ParseGatewayRequest([]byte(fixture.body), service.PlatformAnthropic)
+			require.NoError(t, err)
+			SetClaudeCodeClientContext(c, []byte(fixture.body), parsed)
+			require.Equal(t, fixture.want, service.IsClaudeCodeClient(c.Request.Context()))
+		})
+	}
+}
+
 func TestWaitForSlotWithPingTimeout_AccountAndUserAcquire(t *testing.T) {
 	cache := &helperConcurrencyCacheStub{
 		accountSeq: []bool{false, true},

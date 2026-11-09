@@ -44,7 +44,7 @@ func TestBuildUpstreamRequest_AnthropicOAuthHeadersMatchCLIProxyShape(t *testing
 	require.Equal(t, "gzip, deflate, br, zstd", getHeaderRaw(req.Header, "Accept-Encoding"))
 	require.Equal(t, "keep-alive", getHeaderRaw(req.Header, "Connection"))
 	require.NotEmpty(t, getHeaderRaw(req.Header, "x-client-request-id"))
-	require.Equal(t, "", getHeaderRaw(req.Header, "anthropic-dangerous-direct-browser-access"))
+	require.Equal(t, "true", getHeaderRaw(req.Header, "anthropic-dangerous-direct-browser-access"))
 
 	beta := getHeaderRaw(req.Header, "anthropic-beta")
 	for _, token := range strings.Split(claude.DefaultBetaHeader, ",") {
@@ -53,8 +53,8 @@ func TestBuildUpstreamRequest_AnthropicOAuthHeadersMatchCLIProxyShape(t *testing
 
 	streamReq, err := svc.buildUpstreamRequest(context.Background(), c, account, body, "oauth-token", "oauth", "claude-sonnet-4-5-20250929", true, true)
 	require.NoError(t, err)
-	require.Equal(t, "text/event-stream", getHeaderRaw(streamReq.Header, "Accept"))
-	require.Equal(t, "identity", getHeaderRaw(streamReq.Header, "Accept-Encoding"))
+	require.Equal(t, "application/json", getHeaderRaw(streamReq.Header, "Accept"))
+	require.Equal(t, "gzip, deflate, br, zstd", getHeaderRaw(streamReq.Header, "Accept-Encoding"))
 	require.Equal(t, "stream", getHeaderRaw(streamReq.Header, "x-stainless-helper-method"))
 }
 
@@ -95,7 +95,7 @@ func TestBuildUpstreamRequest_ClaudeCodeMimicOverridesVSCodeHeaders(t *testing.T
 	require.Equal(t, claude.DefaultHeaders["X-App"], getHeaderRaw(req.Header, "X-App"))
 	require.Equal(t, claude.DefaultHeaders["X-Stainless-Lang"], getHeaderRaw(req.Header, "X-Stainless-Lang"))
 	require.Equal(t, claude.DefaultHeaders["X-Stainless-Runtime"], getHeaderRaw(req.Header, "X-Stainless-Runtime"))
-	require.Equal(t, "", getHeaderRaw(req.Header, "Anthropic-Dangerous-Direct-Browser-Access"))
+	require.Equal(t, "true", getHeaderRaw(req.Header, "Anthropic-Dangerous-Direct-Browser-Access"))
 	require.NotContains(t, getHeaderRaw(req.Header, "User-Agent"), "VSCode")
 
 	beta := getHeaderRaw(req.Header, "anthropic-beta")
@@ -145,15 +145,14 @@ func TestRewriteSystemForNonClaudeCode_InjectsCLIProxySystemBlocks(t *testing.T)
 
 	system := gjson.GetBytes(signed, "system")
 	require.True(t, system.IsArray())
-	require.Len(t, system.Array(), 3)
-	require.Regexp(t, `^x-anthropic-billing-header: cc_version=2\.1\.63\.[0-9a-f]{3}; cc_entrypoint=cli; cch=[0-9a-f]{5};$`, system.Array()[0].Get("text").String())
+	require.Len(t, system.Array(), 2)
+	require.Regexp(t, `^x-anthropic-billing-header: cc_version=2\.1\.280\.[0-9a-f]{3}; cc_entrypoint=cli; cch=[0-9a-f]{5};$`, system.Array()[0].Get("text").String())
 	require.Equal(t, claudeCodeSystemPrompt, system.Array()[1].Get("text").String())
-	require.Contains(t, system.Array()[2].Get("text").String(), "# System")
 	require.False(t, system.Array()[1].Get("cache_control").Exists())
 
 	firstUserText := gjson.GetBytes(signed, "messages.0.content.0.text").String()
 	require.Contains(t, firstUserText, "<system-reminder>")
-	require.Contains(t, firstUserText, "Use the available tools when needed to help with software engineering tasks.")
+	require.Contains(t, firstUserText, "You are a product-specific coding assistant.")
 	require.NotContains(t, firstUserText, "[System Instructions]")
 }
 
@@ -165,10 +164,9 @@ func TestRewriteSystemForNonClaudeCode_NoSystemStillBuildsCLIProxySystemBlocks(t
 
 	system := gjson.GetBytes(signed, "system")
 	require.True(t, system.IsArray())
-	require.Len(t, system.Array(), 3)
-	require.Regexp(t, `^x-anthropic-billing-header: cc_version=2\.1\.63\.[0-9a-f]{3}; cc_entrypoint=cli; cch=[0-9a-f]{5};$`, system.Array()[0].Get("text").String())
+	require.Len(t, system.Array(), 2)
+	require.Regexp(t, `^x-anthropic-billing-header: cc_version=2\.1\.280\.[0-9a-f]{3}; cc_entrypoint=cli; cch=[0-9a-f]{5};$`, system.Array()[0].Get("text").String())
 	require.Equal(t, claudeCodeSystemPrompt, system.Array()[1].Get("text").String())
-	require.Contains(t, system.Array()[2].Get("text").String(), "# System")
 
 	firstUserText := gjson.GetBytes(signed, "messages.0.content.0.text").String()
 	require.Equal(t, "hello", firstUserText)
@@ -219,13 +217,9 @@ func TestGatewayService_AnthropicOAuth_CountTokensUsesClaudeCodeMimicForVSCode(t
 	require.Contains(t, beta, claude.BetaOAuth)
 	require.Contains(t, beta, claude.BetaTokenCounting)
 
-	system := gjson.GetBytes(upstream.lastBody, "system")
-	require.True(t, system.IsArray())
-	require.Len(t, system.Array(), 3)
-	require.Equal(t, claudeCodeSystemPrompt, system.Array()[1].Get("text").String())
-	metadataUserID := gjson.GetBytes(upstream.lastBody, "metadata.user_id").String()
-	require.NotEmpty(t, metadataUserID)
-	require.NotNil(t, ParseMetadataUserID(metadataUserID))
+	require.False(t, gjson.GetBytes(upstream.lastBody, "system").Exists())
+	require.False(t, gjson.GetBytes(upstream.lastBody, "metadata").Exists())
+	require.Equal(t, "hello", gjson.GetBytes(upstream.lastBody, "messages.0.content.0.text").String())
 	require.False(t, gjson.GetBytes(upstream.lastBody, "betas").Exists())
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.JSONEq(t, `{"input_tokens":42}`, rec.Body.String())

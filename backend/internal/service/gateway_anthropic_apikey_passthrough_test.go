@@ -875,20 +875,18 @@ func TestGatewayService_AnthropicOAuth_ForwardUsesCLIProxySystemBlocks(t *testin
 			system := gjson.GetBytes(upstream.lastBody, "system")
 			require.True(t, system.Exists())
 			require.True(t, system.IsArray(), "system should be an array")
-			require.Len(t, system.Array(), 3)
-			require.Regexp(t, `^x-anthropic-billing-header: cc_version=2\.1\.63\.[0-9a-f]{3}; cc_entrypoint=cli; cch=[0-9a-f]{5};$`, system.Array()[0].Get("text").String())
+			require.Len(t, system.Array(), 2)
+			require.Regexp(t, `^x-anthropic-billing-header: cc_version=2\.1\.280\.[0-9a-f]{3}; cc_entrypoint=cli; cch=[0-9a-f]{5};$`, system.Array()[0].Get("text").String())
 			require.Equal(t, claudeCodeSystemPrompt, system.Array()[1].Get("text").String())
-			require.Contains(t, system.Array()[2].Get("text").String(), "# System")
 			require.False(t, system.Array()[1].Get("cache_control").Exists())
 
-			// 原始 system prompt 应按 CLIProxy 逻辑降为中性 system-reminder。
+			// Preserve the complete caller instruction in the relocated reminder.
 			messages := gjson.GetBytes(upstream.lastBody, "messages")
 			require.True(t, messages.IsArray())
 			firstMsg := messages.Array()[0]
 			require.Equal(t, "user", firstMsg.Get("role").String())
 			require.Contains(t, firstMsg.Get("content.0.text").String(), "<system-reminder>")
-			require.Contains(t, firstMsg.Get("content.0.text").String(), "Use the available tools when needed to help with software engineering tasks.")
-			require.NotContains(t, firstMsg.Get("content.0.text").String(), "x-anthropic-billing-header keep")
+			require.Contains(t, firstMsg.Get("content.0.text").String(), "x-anthropic-billing-header keep")
 		})
 	}
 }

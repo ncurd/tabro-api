@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -26,13 +27,13 @@ var (
 
 // 默认指纹值（当客户端未提供时使用）
 var defaultFingerprint = Fingerprint{
-	UserAgent:               "claude-cli/2.1.63 (external, cli)",
+	UserAgent:               claude.DefaultHeaders["User-Agent"],
 	StainlessLang:           "js",
-	StainlessPackageVersion: "0.74.0",
+	StainlessPackageVersion: claude.DefaultHeaders["X-Stainless-Package-Version"],
 	StainlessOS:             "MacOS",
 	StainlessArch:           "arm64",
 	StainlessRuntime:        "node",
-	StainlessRuntimeVersion: "v24.3.0",
+	StainlessRuntimeVersion: claude.DefaultHeaders["X-Stainless-Runtime-Version"],
 }
 
 // Fingerprint represents account fingerprint data
