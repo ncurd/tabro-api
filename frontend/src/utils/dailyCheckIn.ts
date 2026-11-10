@@ -12,5 +12,7 @@ export function readDailyCheckIn(input: unknown): DailyCheckInSummary | null {
     || value.expires_at != null && (typeof value.expires_at !== 'string' || !Number.isFinite(Date.parse(value.expires_at)))) return null
   return { status: value.status, day: value.day, minimum_points: value.minimum_points, maximum_points: value.maximum_points,
     validity_days: value.validity_days, claimed_points: value.status === 'claimed' ? value.claimed_points : null,
-    expires_at: value.expires_at ?? null }
+    expires_at: value.expires_at ?? null,
+    ...(typeof value.claim_token === 'string' && value.claim_token.length >= 32 && value.claim_token.length <= 8192
+      ? { claim_token: value.claim_token } : {}) }
 }

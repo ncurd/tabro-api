@@ -26,6 +26,7 @@ export interface OIDCAccountSummary {
 }
 
 export interface DailyCheckInSummary {
+  claim_token?: string
   status: 'available' | 'claimed' | 'disabled'
   day: string
   minimum_points: number
@@ -51,5 +52,17 @@ export async function getOIDCAccountSummary(url: string, signal: AbortSignal): P
     headers: { Accept: 'application/json' }
   })
   if (!response.ok) throw new Error('Auth account summary unavailable')
+  return response.json() as Promise<OIDCAccountSummary>
+}
+
+export async function claimOIDCCheckIn(summaryURL: string, subject: string, tenant: string, token: string, signal: AbortSignal): Promise<OIDCAccountSummary> {
+  const url = new URL(summaryURL)
+  if (url.protocol !== 'https:' || !url.pathname.endsWith('/api/account/header-summary') || !url.searchParams.get('client_id'))
+    throw new Error('Invalid check-in endpoint')
+  url.pathname = url.pathname.replace(/\/api\/account\/header-summary$/, '/api/account/daily-check-in')
+  const response = await fetch(url.href, { method: 'POST', credentials: 'include', cache: 'no-store', redirect: 'error', signal,
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ claimToken: token, expectedSubject: subject, tenantId: tenant }) })
+  if (!response.ok) throw new Error('Check-in failed')
   return response.json() as Promise<OIDCAccountSummary>
 }

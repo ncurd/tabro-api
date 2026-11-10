@@ -44,30 +44,39 @@
         <!-- Subscription Progress (for users with active subscriptions) -->
         <SubscriptionProgressMini v-if="user && !appStore.oidcBillingEnabled" />
 
-        <!-- Auth available credits include the deductions reserved for pending calls. -->
-        <component
-          :is="authCreditDetailsURL ? 'a' : 'div'"
-          v-if="user && appStore.oidcBillingEnabled"
-          :href="authCreditDetailsURL || undefined"
-          :target="authCreditDetailsURL ? '_blank' : undefined"
-          :rel="authCreditDetailsURL ? 'noopener noreferrer' : undefined"
-          :title="authCreditsTitle"
-          :aria-label="`${t('oidcAccount.availableCredits')}: ${authCreditsText}`"
-          :aria-busy="oidcAccountLoading"
-          data-testid="auth-available-credits"
-          class="flex max-w-[9rem] items-center gap-1.5 rounded-xl bg-primary-50 px-2 py-1.5 text-primary-700 dark:bg-primary-900/20 dark:text-primary-300 sm:max-w-[15rem] sm:px-3"
-        >
-          <Icon name="sparkles" size="sm" class="shrink-0" />
-          <span class="hidden text-xs sm:inline">{{ t('oidcAccount.availableCredits') }}</span>
-          <span class="min-w-0 break-all text-sm font-semibold tabular-nums" aria-live="polite">{{ authCreditsText }}</span>
-        </component>
-
-        <a v-if="authCheckIn?.status === 'available' && authCheckInURL" :href="authCheckInURL"
-          target="_blank" rel="noopener noreferrer" :title="authCheckInDetails" :aria-label="t('oidcAccount.checkIn')"
-          @click="beginCheckIn"
-          data-testid="auth-check-in" class="flex h-9 items-center gap-1.5 rounded-xl bg-emerald-50 px-2.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-900/20 dark:text-emerald-300">
-          <Icon name="gift" size="sm" /><span class="hidden sm:inline">{{ t('oidcAccount.checkIn') }}</span>
-        </a>
+        <div v-if="user && appStore.oidcBillingEnabled" ref="creditsRef" class="relative">
+          <button type="button" @click="toggleCredits"
+            :title="authCreditsTitle" :aria-label="`${t('oidcAccount.availableCredits')}: ${authCreditsText}`"
+            aria-haspopup="dialog" :aria-expanded="creditsOpen" aria-controls="header-credits-popover"
+            :aria-busy="oidcAccountLoading" data-testid="auth-available-credits"
+            class="relative flex max-w-[9rem] items-center gap-1.5 rounded-xl bg-primary-50 px-2 py-1.5 text-primary-700 dark:bg-primary-900/20 dark:text-primary-300 sm:max-w-[15rem] sm:px-3">
+            <Icon name="sparkles" size="sm" class="shrink-0" />
+            <span class="hidden text-xs sm:inline">{{ t('oidcAccount.availableCredits') }}</span>
+            <span class="min-w-0 break-all text-sm font-semibold tabular-nums" aria-live="polite">{{ authCreditsText }}</span>
+            <span v-if="authCheckIn?.status === 'available'" data-testid="auth-check-in-dot" aria-hidden="true"
+              class="pointer-events-none absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-red-500 ring-2 ring-white dark:ring-dark-900" />
+          </button>
+          <div v-if="creditsOpen" id="header-credits-popover" role="dialog" :aria-label="t('oidcAccount.availableCredits')"
+            class="absolute right-0 z-50 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-gray-200 bg-white p-4 shadow-xl dark:border-dark-700 dark:bg-dark-900">
+            <div class="flex items-center justify-between gap-3">
+              <div><p class="text-xs text-gray-500 dark:text-dark-400">{{ t('oidcAccount.availableCredits') }}</p><strong class="mt-1 block break-all text-2xl font-semibold tabular-nums text-gray-900 dark:text-white">{{ authCreditsText }}</strong></div>
+              <button type="button" @click="refreshOIDCAccount" :disabled="oidcAccountLoading || claimingCredits" :aria-label="t('oidcAccount.refresh')" class="rounded-lg p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-dark-800"><Icon name="refresh" size="sm" :class="{ 'animate-spin': oidcAccountLoading }" /></button>
+            </div>
+            <div v-if="authCheckIn && authCheckIn.status !== 'disabled'" class="mt-4 flex items-center justify-between gap-3 border-t border-gray-100 pt-4 dark:border-dark-700">
+              <div><strong class="text-sm font-medium text-gray-900 dark:text-white">{{ t('oidcAccount.dailyCheckIn') }}</strong><p class="mt-1 text-xs text-gray-500 dark:text-dark-400">{{ authCheckInDetails }}</p></div>
+              <button type="button" @click="claimCredits" :disabled="claimingCredits || authCheckIn.status !== 'available' || !authCheckIn.claim_token"
+                data-testid="auth-check-in-claim" class="shrink-0 rounded-lg bg-primary-600 px-3 py-2 text-xs font-medium text-white hover:bg-primary-700 disabled:opacity-50">
+                {{ authCheckIn.status === 'claimed' ? t('oidcAccount.checkedIn', { points: authCheckIn.claimed_points }) : t('oidcAccount.checkIn') }}
+              </button>
+            </div>
+            <p v-if="claimCreditsError && authCheckIn?.status !== 'claimed'" role="alert" class="mt-3 text-xs text-red-600">{{ t('oidcAccount.checkInFailed') }}</p>
+            <p v-if="authAccountNotice && !oidcAccountLoading" role="status" class="mt-3 text-xs text-gray-500">{{ authAccountNotice }}</p>
+            <div class="mt-4 flex items-center justify-between border-t border-gray-100 pt-3 text-xs text-gray-500 dark:border-dark-700 dark:text-dark-400">
+              <a v-if="authCreditDetailsURL" :href="authCreditDetailsURL" target="_blank" rel="noopener noreferrer">{{ t('oidcAccount.creditDetails') }}</a>
+              <a v-if="authCheckInURL && oidcAccount?.tenant_id && oidcAccount.status === 'available'" :href="authCheckInURL" target="_blank" rel="noopener noreferrer" data-testid="auth-check-in-history">{{ t('oidcAccount.checkInHistory') }}</a>
+            </div>
+          </div>
+        </div>
 
         <!-- Balance Display -->
         <div
@@ -142,20 +151,13 @@
                 <div class="px-4 py-2 text-xs font-medium text-gray-500 dark:text-dark-400">
                   {{ t('oidcAccount.accountMenu') }}
                 </div>
-                <a v-if="authCheckIn && authCheckIn.status !== 'disabled' && authCheckInURL" :href="authCheckInURL"
-                  target="_blank" rel="noopener noreferrer" @click="beginCheckIn" data-testid="auth-check-in-card"
-                  class="mx-2 mb-1 flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2.5 text-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-200">
-                  <Icon :name="authCheckIn.status === 'claimed' ? 'checkCircle' : 'gift'" size="sm" />
-                  <span class="min-w-0"><strong class="block text-sm font-medium">{{ authCheckIn.status === 'claimed' ? t('oidcAccount.checkedIn', { points: authCheckIn.claimed_points }) : t('oidcAccount.checkIn') }}</strong>
-                    <span class="mt-0.5 block text-xs opacity-80">{{ authCheckInDetails }}</span></span>
-                </a>
                 <a
                   v-for="item in authAccountMenu"
                   :key="item.id"
                   :href="item.url"
                   target="_blank"
                   rel="noopener noreferrer"
-                  @click="item.id === 'daily_check_in' ? beginCheckIn() : closeDropdown()"
+                  @click="closeDropdown"
                   class="dropdown-item"
                 >
                   <Icon :name="item.icon" size="sm" />
@@ -248,7 +250,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { readDailyCheckIn } from '@/utils/dailyCheckIn'
 import type { DailyCheckInSummary } from '@/api/oidcAccount'
 import { useRouter, useRoute } from 'vue-router'
@@ -260,7 +262,7 @@ import SubscriptionProgressMini from '@/components/common/SubscriptionProgressMi
 import AnnouncementBell from '@/components/common/AnnouncementBell.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { formatCredits, formatExactCredits } from '@/utils/credits'
-import { getOIDCAccountIdentity, getOIDCAccountSummary, type OIDCAccountIdentity, type OIDCAccountLinks } from '@/api/oidcAccount'
+import { claimOIDCCheckIn, getOIDCAccountIdentity, getOIDCAccountSummary, type OIDCAccountIdentity, type OIDCAccountLinks } from '@/api/oidcAccount'
 
 const router = useRouter()
 const route = useRoute()
@@ -280,6 +282,10 @@ interface AccountMenuLinks extends OIDCAccountLinks {
   account_and_bills?: string
 }
 interface HeaderAccount {
+  subject?: string
+  tenant_id?: string | null
+  summary_url?: string
+
   daily_check_in?: DailyCheckInSummary | null
   status: 'available' | 'unavailable' | 'unlinked' | 'disabled' | 'identity_mismatch'
   issuer: string | null
@@ -290,7 +296,11 @@ const oidcAccount = ref<HeaderAccount | null>(null)
 const oidcAccountLoading = ref(false)
 let accountRequest: AbortController | null = null
 let accountGeneration = 0
-let checkInPending = false
+const creditsRef = ref<HTMLElement | null>(null)
+const creditsOpen = ref(false)
+const claimingCredits = ref(false)
+const claimCreditsError = ref(false)
+let claimRequest: AbortController | null = null
 let accountRefreshTimer: ReturnType<typeof setInterval> | undefined
 let accountRequestTimeout: ReturnType<typeof setTimeout> | undefined
 
@@ -329,7 +339,6 @@ const authCreditsTitle = computed(() => authAccountNotice.value ||
   `${t('oidcAccount.creditDetails')}: ${formatExactCredits(oidcAccount.value?.available_credits)}`)
 
 const authMenuItems = [
-  { id: 'daily_check_in', label: 'oidcAccount.dailyCheckIn', icon: 'calendar' },
   { id: 'top_ups_and_plans', label: 'oidcAccount.topUpsAndPlans', icon: 'creditCard' },
   { id: 'orders_and_invoices', label: 'oidcAccount.ordersAndInvoices', icon: 'document' },
   { id: 'account_and_bills', label: 'oidcAccount.accountAndBills', icon: 'clipboard' },
@@ -337,7 +346,6 @@ const authMenuItems = [
   { id: 'security_settings', label: 'oidcAccount.securitySettings', icon: 'shield' }
 ] as const
 const authAccountMenu = computed(() => authMenuItems.flatMap(item => {
-  if (item.id === 'daily_check_in' && !authCheckIn.value) return []
   const url = safeAuthLink(oidcAccount.value?.links[item.id])
   return url ? [{ ...item, url }] : []
 }))
@@ -406,7 +414,7 @@ async function refreshOIDCAccount() {
     const amount = summary.status === 'available' && typeof summary.available_credits === 'string' &&
       formatExactCredits(summary.available_credits) !== '—' ? summary.available_credits : null
     oidcAccount.value = {
-      status: amount === null ? 'unavailable' : 'available', issuer, available_credits: amount,
+      status: amount === null ? 'unavailable' : 'available', issuer, available_credits: amount, subject: identity.subject, tenant_id: tenant, summary_url: summaryURL,
       links: { ...safeLinks, ...(tenant ? tenantAccountLinks(issuer!, tenant) : {}) },
       daily_check_in: amount === null || !tenant ? null : readDailyCheckIn(summary.daily_check_in)
     }
@@ -436,7 +444,8 @@ async function refreshOIDCAccount() {
 
 watch(() => [appStore.oidcBillingEnabled, user.value?.id, user.value?.email, authStore.token], () => {
   accountGeneration++
-  checkInPending = false
+  creditsOpen.value = false
+  claimRequest?.abort(); claimRequest = null; claimingCredits.value = false; claimCreditsError.value = false
   clearTimeout(accountRequestTimeout)
   accountRequestTimeout = undefined
   accountRequest?.abort()
@@ -447,22 +456,45 @@ watch(() => [appStore.oidcBillingEnabled, user.value?.id, user.value?.email, aut
 }, { immediate: true })
 
 function refreshVisibleOIDCAccount() {
-  if (document.visibilityState === 'hidden') return
-  if (checkInPending) {
-    checkInPending = false
-    accountGeneration++
-    clearTimeout(accountRequestTimeout)
-    accountRequestTimeout = undefined
-    accountRequest?.abort()
-    accountRequest = null
-    oidcAccountLoading.value = false
-  }
-  void refreshOIDCAccount()
+  if (document.visibilityState !== 'hidden') void refreshOIDCAccount()
 }
 
-function beginCheckIn() {
-  checkInPending = true
+async function toggleCredits() {
+  creditsOpen.value = !creditsOpen.value
   closeDropdown()
+  await nextTick()
+  const panel = document.getElementById('header-credits-popover')
+  if (!creditsOpen.value || !panel) return
+  const width = document.documentElement.clientWidth || window.innerWidth
+  panel.style.right = '0px'; panel.style.maxWidth = `${Math.max(0, width - 32)}px`
+  const box = panel.getBoundingClientRect()
+  panel.style.right = `${box.left - Math.max(16, Math.min(box.left, width - box.width - 16))}px`
+}
+
+async function claimCredits() {
+  const current = oidcAccount.value
+  const token = current?.daily_check_in?.claim_token
+  if (claimingCredits.value || !token || !current?.subject || !current.tenant_id || !current.summary_url) return
+  accountGeneration++
+  const generation = accountGeneration
+  clearTimeout(accountRequestTimeout); accountRequestTimeout = undefined
+  accountRequest?.abort(); accountRequest = null; oidcAccountLoading.value = false
+  const controller = new AbortController(); claimRequest = controller
+  claimingCredits.value = true; claimCreditsError.value = false
+  const timeout = setTimeout(() => controller.abort(), 10000)
+  try {
+    const result = await claimOIDCCheckIn(current.summary_url, current.subject, current.tenant_id, token, controller.signal)
+    if (generation !== accountGeneration) return
+    const daily = readDailyCheckIn(result.daily_check_in)
+    if (result.issuer !== current.issuer || result.subject !== current.subject || result.tenant_id !== current.tenant_id ||
+      result.status !== 'available' || daily?.status !== 'claimed' || formatExactCredits(result.available_credits) === '—') throw new Error('Invalid claim')
+    oidcAccount.value = { ...current, available_credits: result.available_credits, daily_check_in: daily }
+  } catch {
+    if (generation === accountGeneration) { claimCreditsError.value = true; await refreshOIDCAccount() }
+  } finally {
+    clearTimeout(timeout)
+    if (claimRequest === controller) { claimRequest = null; claimingCredits.value = false }
+  }
 }
 
 const userInitials = computed(() => {
@@ -533,13 +565,18 @@ async function handleLogout() {
 }
 
 function handleClickOutside(event: MouseEvent) {
+  if (creditsRef.value && !creditsRef.value.contains(event.target as Node)) creditsOpen.value = false
   if (dropdownRef.value && !dropdownRef.value.contains(event.target as Node)) {
     closeDropdown()
   }
 }
 
 function handleEscape(event: KeyboardEvent) {
-  if (event.key === 'Escape') closeDropdown()
+  if (event.key === 'Escape') {
+    const wasOpen = creditsOpen.value
+    closeDropdown(); creditsOpen.value = false
+    if (wasOpen) creditsRef.value?.querySelector('button')?.focus()
+  }
 }
 
 onMounted(() => {
@@ -551,6 +588,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  claimRequest?.abort()
   document.removeEventListener('click', handleClickOutside)
   document.removeEventListener('keydown', handleEscape)
   document.removeEventListener('visibilitychange', refreshVisibleOIDCAccount)

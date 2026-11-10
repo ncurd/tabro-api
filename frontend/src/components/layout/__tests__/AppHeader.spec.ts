@@ -10,6 +10,7 @@ const push = vi.fn()
 const replay = vi.fn()
 const getAccount = vi.fn()
 const getIdentity = vi.fn()
+const claimCheckIn = vi.fn()
 
 const authStore = reactive({
   token: 'api-token-one',
@@ -60,6 +61,7 @@ const messages: Record<string, string> = {
 }
 
 vi.mock('@/api/oidcAccount', () => ({
+  claimOIDCCheckIn: (...args: unknown[]) => claimCheckIn(...args),
   getOIDCAccountIdentity: (...args: unknown[]) => getIdentity(...args),
   getOIDCAccountSummary: (...args: unknown[]) => getAccount(...args)
 }))
@@ -143,44 +145,45 @@ describe('AppHeader', () => {
     logout.mockReset()
     push.mockReset()
     replay.mockReset()
+    claimCheckIn.mockReset()
     getAccount.mockReset()
     getIdentity.mockReset()
     getAccount.mockResolvedValue(account)
     getIdentity.mockResolvedValue(identity)
   })
 
-  it('guides check-in for the matched user and refreshes into the claimed state on return', async () => {
+  it('shows a red dot and claims inside the credits popup without navigation or a separate menu', async () => {
     appStore.oidcBillingEnabled = true
     const daily = { status: 'available', day: '2026-11-10', minimum_points: 5, maximum_points: 50,
-      validity_days: 30, claimed_points: null, expires_at: null }
+      validity_days: 30, claimed_points: null, expires_at: null, claim_token: 'a'.repeat(64) }
     getIdentity.mockResolvedValue({ ...identity, links: { ...identity.links, daily_check_in: `${account.issuer}/Identity/Account/Manage/DailyCheckIn` } })
     getAccount.mockResolvedValue({ ...account, daily_check_in: daily })
     const wrapper = mountHeader()
     await flushPromises()
-    const link = wrapper.get('[data-testid="auth-check-in"]')
-    const target = new URL(link.attributes('href'))
+    expect(wrapper.find('[data-testid="auth-check-in-dot"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="auth-check-in-claim"]').exists()).toBe(false)
+    await wrapper.get('[data-testid="auth-available-credits"]').trigger('click')
+    const target = new URL(wrapper.get('[data-testid="auth-check-in-history"]').attributes('href'))
     expect(target.searchParams.get('TenantId')).toBe(account.tenant_id)
     expect(target.searchParams.get('ExpectedSubject')).toBe(account.subject)
-    await wrapper.get('button[aria-label="User Menu"]').trigger('click')
-    expect(wrapper.find('[data-testid="auth-check-in-card"]').exists()).toBe(true)
     let finishOldRequest!: (value: unknown) => void
     getAccount.mockImplementationOnce(() => new Promise(resolve => { finishOldRequest = resolve }))
     window.dispatchEvent(new Event('focus'))
     await flushPromises()
-    const click = new MouseEvent('click', { bubbles: true, cancelable: true })
-    click.preventDefault()
-    link.element.dispatchEvent(click)
-    getAccount.mockResolvedValue({ ...account, available_credits: '5695.123456789', daily_check_in: {
+    claimCheckIn.mockResolvedValue({ ...account, available_credits: '5695.123456789', daily_check_in: {
       ...daily, status: 'claimed', claimed_points: 17, expires_at: '2026-12-10T06:00:00Z'
     } })
-    window.dispatchEvent(new Event('focus'))
+    await wrapper.get('[data-testid="auth-check-in-claim"]').trigger('click')
     await flushPromises()
     finishOldRequest(account)
     await flushPromises()
-    expect(wrapper.find('[data-testid="auth-check-in"]').exists()).toBe(false)
-    await wrapper.get('button[aria-label="User Menu"]').trigger('click')
-    expect(wrapper.get('[data-testid="auth-check-in-card"]').text()).toContain('oidcAccount.checkedIn')
+    expect(claimCheckIn).toHaveBeenCalledWith(identity.summary_url, account.subject, account.tenant_id, daily.claim_token, expect.any(AbortSignal))
+    expect(wrapper.find('[data-testid="auth-check-in-dot"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="auth-check-in-claim"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('#header-credits-popover').exists()).toBe(true)
     expect(wrapper.get('[data-testid="auth-available-credits"]').text()).toContain('5695.12')
+    await wrapper.get('button[aria-label="User Menu"]').trigger('click')
+    expect(wrapper.find('#header-account-menu [href*="DailyCheckIn"]').exists()).toBe(false)
     wrapper.unmount()
   })
 
@@ -239,7 +242,9 @@ describe('AppHeader', () => {
     const credits = wrapper.get('[data-testid="auth-available-credits"]')
     expect(credits.text()).toContain('5678.12 ✦')
     expect(credits.attributes('title')).toContain('5678.123456789 ✦')
-    expect(credits.attributes('href')).toBe(account.links.credit_details)
+    expect(credits.attributes('href')).toBeUndefined()
+    await credits.trigger('click')
+    expect(wrapper.get('#header-credits-popover a').attributes('href')).toBe(account.links.credit_details)
     expect(credits.classes()).not.toContain('hidden')
     await wrapper.get('button[aria-label="User Menu"]').trigger('click')
     await flushPromises()
@@ -381,7 +386,7 @@ describe('AppHeader', () => {
     getAccount.mockResolvedValue({ ...account, tenant_id: null })
     const wrapper = mountHeader()
     await flushPromises()
-    expect(wrapper.get('[data-testid="auth-available-credits"]').element.tagName).toBe('DIV')
+    expect(wrapper.get('[data-testid="auth-available-credits"]').element.tagName).toBe('BUTTON')
     await wrapper.get('button[aria-label="User Menu"]').trigger('click')
     await flushPromises()
     expect(wrapper.findAll('a[target="_blank"]').length).toBe(0)

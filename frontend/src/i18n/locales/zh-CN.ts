@@ -347,6 +347,9 @@ export default {
     "paymentPlans": "订阅套餐"
   },
   "oidcAccount": {
+    "checkInHistory": "签到记录",
+    "checkInFailed": "签到未完成，请刷新积分后重试。",
+
     "dailyCheckIn": "每日签到",
     "checkIn": "签到领积分",
     "checkedIn": "今日已签到 · +{points}",

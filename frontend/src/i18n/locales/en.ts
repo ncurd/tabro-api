@@ -367,6 +367,9 @@ export default {
   },
 
   oidcAccount: {
+    "checkInHistory": "Check-in history",
+    "checkInFailed": "Check-in failed. Refresh credits and try again.",
+
     "dailyCheckIn": "Daily check-in",
     "checkIn": "Check in for credits",
     "checkedIn": "Checked in today · +{points}",

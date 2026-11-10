@@ -5590,6 +5590,9 @@ export default {
     "rechargeRatePreview": "當前倍率：1 CNY = {usd} USD"
   },
   "oidcAccount": {
+    "checkInHistory": "簽到記錄",
+    "checkInFailed": "簽到未完成，請重新整理積分後重試。",
+
     "dailyCheckIn": "每日簽到",
     "checkIn": "簽到領積分",
     "checkedIn": "今日已簽到 · +{points}",
