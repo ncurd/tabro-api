@@ -25,6 +25,8 @@ Tabro 由 Sub2API 分叉而来，是一个 AI API 网关平台，用于分发和
 
 ## 用户登录与 LLM 网关 OIDC
 
+统一计费下，积分区域提供每日签到入口，显示奖励范围、有效期及今日领取状态。个人和企业奖励默认 30 天有效，规则由 Auth 分别配置。见[签到积分入口](docs/DAILY_CHECK_IN_CN.md)。
+
 Tabro 提供两种彼此独立的 OIDC 用途：
 
 - `oidc_connect` 用于网页和管理 API 登录。OIDC 回调后由 Tabro 签发的本地 `access_token` 只用于 Tabro 会话，不是 LLM 网关凭证。

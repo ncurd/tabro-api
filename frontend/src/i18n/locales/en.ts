@@ -367,6 +367,13 @@ export default {
   },
 
   oidcAccount: {
+    "dailyCheckIn": "Daily check-in",
+    "checkIn": "Check in for credits",
+    "checkedIn": "Checked in today · +{points}",
+    "rewardExpires": "Reward expires: {date}",
+    "comeBackTomorrow": "Come back tomorrow",
+    "checkInReward": "{min}–{max} credits · valid for {days} days",
+
     availableCredits: 'Available credits',
     creditDetails: 'View credit details in Auth',
     accountMenu: 'Account menu',

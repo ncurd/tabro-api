@@ -149,6 +149,41 @@ describe('AppHeader', () => {
     getIdentity.mockResolvedValue(identity)
   })
 
+  it('guides check-in for the matched user and refreshes into the claimed state on return', async () => {
+    appStore.oidcBillingEnabled = true
+    const daily = { status: 'available', day: '2026-11-10', minimum_points: 5, maximum_points: 50,
+      validity_days: 30, claimed_points: null, expires_at: null }
+    getIdentity.mockResolvedValue({ ...identity, links: { ...identity.links, daily_check_in: `${account.issuer}/Identity/Account/Manage/DailyCheckIn` } })
+    getAccount.mockResolvedValue({ ...account, daily_check_in: daily })
+    const wrapper = mountHeader()
+    await flushPromises()
+    const link = wrapper.get('[data-testid="auth-check-in"]')
+    const target = new URL(link.attributes('href'))
+    expect(target.searchParams.get('TenantId')).toBe(account.tenant_id)
+    expect(target.searchParams.get('ExpectedSubject')).toBe(account.subject)
+    await wrapper.get('button[aria-label="User Menu"]').trigger('click')
+    expect(wrapper.find('[data-testid="auth-check-in-card"]').exists()).toBe(true)
+    let finishOldRequest!: (value: unknown) => void
+    getAccount.mockImplementationOnce(() => new Promise(resolve => { finishOldRequest = resolve }))
+    window.dispatchEvent(new Event('focus'))
+    await flushPromises()
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true })
+    click.preventDefault()
+    link.element.dispatchEvent(click)
+    getAccount.mockResolvedValue({ ...account, available_credits: '5695.123456789', daily_check_in: {
+      ...daily, status: 'claimed', claimed_points: 17, expires_at: '2026-12-10T06:00:00Z'
+    } })
+    window.dispatchEvent(new Event('focus'))
+    await flushPromises()
+    finishOldRequest(account)
+    await flushPromises()
+    expect(wrapper.find('[data-testid="auth-check-in"]').exists()).toBe(false)
+    await wrapper.get('button[aria-label="User Menu"]').trigger('click')
+    expect(wrapper.get('[data-testid="auth-check-in-card"]').text()).toContain('oidcAccount.checkedIn')
+    expect(wrapper.get('[data-testid="auth-available-credits"]').text()).toContain('5695.12')
+    wrapper.unmount()
+  })
+
   it('does not render GitHub or restart-tour actions in the user dropdown', async () => {
     const wrapper = mount(AppHeader, {
       global: {

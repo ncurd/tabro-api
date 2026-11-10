@@ -62,6 +62,13 @@
           <span class="min-w-0 break-all text-sm font-semibold tabular-nums" aria-live="polite">{{ authCreditsText }}</span>
         </component>
 
+        <a v-if="authCheckIn?.status === 'available' && authCheckInURL" :href="authCheckInURL"
+          target="_blank" rel="noopener noreferrer" :title="authCheckInDetails" :aria-label="t('oidcAccount.checkIn')"
+          @click="beginCheckIn"
+          data-testid="auth-check-in" class="flex h-9 items-center gap-1.5 rounded-xl bg-emerald-50 px-2.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-900/20 dark:text-emerald-300">
+          <Icon name="gift" size="sm" /><span class="hidden sm:inline">{{ t('oidcAccount.checkIn') }}</span>
+        </a>
+
         <!-- Balance Display -->
         <div
           v-if="user && !appStore.oidcBillingEnabled"
@@ -135,13 +142,20 @@
                 <div class="px-4 py-2 text-xs font-medium text-gray-500 dark:text-dark-400">
                   {{ t('oidcAccount.accountMenu') }}
                 </div>
+                <a v-if="authCheckIn && authCheckIn.status !== 'disabled' && authCheckInURL" :href="authCheckInURL"
+                  target="_blank" rel="noopener noreferrer" @click="beginCheckIn" data-testid="auth-check-in-card"
+                  class="mx-2 mb-1 flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2.5 text-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-200">
+                  <Icon :name="authCheckIn.status === 'claimed' ? 'checkCircle' : 'gift'" size="sm" />
+                  <span class="min-w-0"><strong class="block text-sm font-medium">{{ authCheckIn.status === 'claimed' ? t('oidcAccount.checkedIn', { points: authCheckIn.claimed_points }) : t('oidcAccount.checkIn') }}</strong>
+                    <span class="mt-0.5 block text-xs opacity-80">{{ authCheckInDetails }}</span></span>
+                </a>
                 <a
                   v-for="item in authAccountMenu"
                   :key="item.id"
                   :href="item.url"
                   target="_blank"
                   rel="noopener noreferrer"
-                  @click="closeDropdown"
+                  @click="item.id === 'daily_check_in' ? beginCheckIn() : closeDropdown()"
                   class="dropdown-item"
                 >
                   <Icon :name="item.icon" size="sm" />
@@ -235,6 +249,8 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import { readDailyCheckIn } from '@/utils/dailyCheckIn'
+import type { DailyCheckInSummary } from '@/api/oidcAccount'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAppStore, useAuthStore } from '@/stores'
@@ -264,6 +280,7 @@ interface AccountMenuLinks extends OIDCAccountLinks {
   account_and_bills?: string
 }
 interface HeaderAccount {
+  daily_check_in?: DailyCheckInSummary | null
   status: 'available' | 'unavailable' | 'unlinked' | 'disabled' | 'identity_mismatch'
   issuer: string | null
   available_credits: string | null
@@ -273,6 +290,7 @@ const oidcAccount = ref<HeaderAccount | null>(null)
 const oidcAccountLoading = ref(false)
 let accountRequest: AbortController | null = null
 let accountGeneration = 0
+let checkInPending = false
 let accountRefreshTimer: ReturnType<typeof setInterval> | undefined
 let accountRequestTimeout: ReturnType<typeof setTimeout> | undefined
 
@@ -290,6 +308,15 @@ function safeAuthLink(value: string | undefined, issuer = oidcAccount.value?.iss
 }
 
 const authCreditDetailsURL = computed(() => safeAuthLink(oidcAccount.value?.links.credit_details))
+const authCheckInURL = computed(() => safeAuthLink(oidcAccount.value?.links.daily_check_in))
+const authCheckIn = computed(() => oidcAccount.value?.daily_check_in)
+const authCheckInDetails = computed(() => {
+  const checkIn = authCheckIn.value
+  if (!checkIn) return ''
+  if (checkIn.status === 'claimed') return checkIn.expires_at
+    ? t('oidcAccount.rewardExpires', { date: new Date(checkIn.expires_at).toLocaleDateString() }) : t('oidcAccount.comeBackTomorrow')
+  return t('oidcAccount.checkInReward', { min: checkIn.minimum_points, max: checkIn.maximum_points, days: checkIn.validity_days })
+})
 const authCreditsText = computed(() => formatExactCredits(oidcAccount.value?.available_credits, { fractionDigits: 2 }))
 const authAccountNotice = computed(() => {
   if (oidcAccountLoading.value) return t('oidcAccount.loading')
@@ -302,6 +329,7 @@ const authCreditsTitle = computed(() => authAccountNotice.value ||
   `${t('oidcAccount.creditDetails')}: ${formatExactCredits(oidcAccount.value?.available_credits)}`)
 
 const authMenuItems = [
+  { id: 'daily_check_in', label: 'oidcAccount.dailyCheckIn', icon: 'calendar' },
   { id: 'top_ups_and_plans', label: 'oidcAccount.topUpsAndPlans', icon: 'creditCard' },
   { id: 'orders_and_invoices', label: 'oidcAccount.ordersAndInvoices', icon: 'document' },
   { id: 'account_and_bills', label: 'oidcAccount.accountAndBills', icon: 'clipboard' },
@@ -309,6 +337,7 @@ const authMenuItems = [
   { id: 'security_settings', label: 'oidcAccount.securitySettings', icon: 'shield' }
 ] as const
 const authAccountMenu = computed(() => authMenuItems.flatMap(item => {
+  if (item.id === 'daily_check_in' && !authCheckIn.value) return []
   const url = safeAuthLink(oidcAccount.value?.links[item.id])
   return url ? [{ ...item, url }] : []
 }))
@@ -378,7 +407,17 @@ async function refreshOIDCAccount() {
       formatExactCredits(summary.available_credits) !== '—' ? summary.available_credits : null
     oidcAccount.value = {
       status: amount === null ? 'unavailable' : 'available', issuer, available_credits: amount,
-      links: { ...safeLinks, ...(tenant ? tenantAccountLinks(issuer!, tenant) : {}) }
+      links: { ...safeLinks, ...(tenant ? tenantAccountLinks(issuer!, tenant) : {}) },
+      daily_check_in: amount === null || !tenant ? null : readDailyCheckIn(summary.daily_check_in)
+    }
+    const dailyLink = safeAuthLink(safeLinks.daily_check_in, issuer)
+    if (dailyLink && tenant) {
+      const url = new URL(dailyLink)
+      if (url.pathname === new URL(`${issuer!.replace(/\/+$/, '')}/Identity/Account/Manage/DailyCheckIn`).pathname) {
+        url.searchParams.set('TenantId', tenant)
+        url.searchParams.set('ExpectedSubject', identity.subject)
+        oidcAccount.value.links.daily_check_in = url.href
+      } else delete oidcAccount.value.links.daily_check_in
     }
   } catch {
     if (generation === accountGeneration) {
@@ -397,6 +436,7 @@ async function refreshOIDCAccount() {
 
 watch(() => [appStore.oidcBillingEnabled, user.value?.id, user.value?.email, authStore.token], () => {
   accountGeneration++
+  checkInPending = false
   clearTimeout(accountRequestTimeout)
   accountRequestTimeout = undefined
   accountRequest?.abort()
@@ -407,7 +447,22 @@ watch(() => [appStore.oidcBillingEnabled, user.value?.id, user.value?.email, aut
 }, { immediate: true })
 
 function refreshVisibleOIDCAccount() {
-  if (document.visibilityState !== 'hidden') void refreshOIDCAccount()
+  if (document.visibilityState === 'hidden') return
+  if (checkInPending) {
+    checkInPending = false
+    accountGeneration++
+    clearTimeout(accountRequestTimeout)
+    accountRequestTimeout = undefined
+    accountRequest?.abort()
+    accountRequest = null
+    oidcAccountLoading.value = false
+  }
+  void refreshOIDCAccount()
+}
+
+function beginCheckIn() {
+  checkInPending = true
+  closeDropdown()
 }
 
 const userInitials = computed(() => {

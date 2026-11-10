@@ -5588,5 +5588,13 @@ export default {
     "paymentAmount": "支付金額",
     "creditedBalance": "到賬餘額",
     "rechargeRatePreview": "當前倍率：1 CNY = {usd} USD"
-  }
+  },
+  "oidcAccount": {
+    "dailyCheckIn": "每日簽到",
+    "checkIn": "簽到領積分",
+    "checkedIn": "今日已簽到 · +{points}",
+    "rewardExpires": "獎勵到期日：{date}",
+    "comeBackTomorrow": "明天再來領取",
+    "checkInReward": "{min}–{max} 積分 · 領取後 {days} 天內有效"
+}
 }

@@ -14,6 +14,7 @@ import (
 )
 
 type oidcAccountLinks struct {
+	DailyCheckIn     string `json:"daily_check_in,omitempty"`
 	CreditDetails    string `json:"credit_details,omitempty"`
 	Profile          string `json:"profile,omitempty"`
 	SecuritySettings string `json:"security_settings,omitempty"`
@@ -87,6 +88,7 @@ func (h *AuthHandler) GetOIDCAccount(c *gin.Context) {
 	result.Issuer, result.Subject = &configuration.Issuer, &key.OIDCSubject
 	result.ClientID, result.SummaryURL = &configuration.ClientID, &summaryURL
 	result.Links = oidcAccountLinks{
+		DailyCheckIn:     link("/Identity/Account/Manage/DailyCheckIn"),
 		CreditDetails:    link("/Identity/Account/Manage/CreditDetails"),
 		Profile:          link("/Identity/Account/Manage/Index"),
 		SecuritySettings: link("/Identity/Account/Manage/TwoFactorAuthentication"),

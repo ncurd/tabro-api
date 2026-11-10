@@ -173,6 +173,7 @@ func TestOIDCAccountReturnsOnlyVerifiedSessionIdentityAndTrustedLinks(t *testing
 	require.Equal(t, "/api/account/header-summary", summary.Path)
 	require.Equal(t, url.Values{"client_id": {"tabro-llm"}}, summary.Query())
 	require.Equal(t, "https://auth.tabro.cn/Identity/Account/Manage/CreditDetails", account.Links.CreditDetails)
+	require.Equal(t, "https://auth.tabro.cn/Identity/Account/Manage/DailyCheckIn", account.Links.DailyCheckIn)
 	require.Equal(t, "https://auth.tabro.cn/Identity/Account/Manage/Index", account.Links.Profile)
 	require.Equal(t, "https://auth.tabro.cn/Identity/Account/Manage/TwoFactorAuthentication", account.Links.SecuritySettings)
 	require.Equal(t, []int64{501}, f.keys.lookups)

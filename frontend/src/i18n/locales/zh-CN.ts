@@ -347,6 +347,13 @@ export default {
     "paymentPlans": "订阅套餐"
   },
   "oidcAccount": {
+    "dailyCheckIn": "每日签到",
+    "checkIn": "签到领积分",
+    "checkedIn": "今日已签到 · +{points}",
+    "rewardExpires": "奖励到期日：{date}",
+    "comeBackTomorrow": "明天再来领取",
+    "checkInReward": "{min}–{max} 积分 · 领取后 {days} 天内有效",
+
     "availableCredits": "可用积分",
     "creditDetails": "在 Auth 查看积分明细",
     "accountMenu": "账户菜单",
