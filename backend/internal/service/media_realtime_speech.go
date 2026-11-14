@@ -42,9 +42,14 @@ func (t speechRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 }
 
 func (s *MediaGenerationService) dialSpeech(ctx context.Context, account *Account, path, model string) (*ws.Conn, error) {
-	base, err := url.Parse(dashScopeBaseURL(account))
-	if err != nil || base.Host == "" || base.User != nil || base.RawQuery != "" || base.Fragment != "" || strings.Trim(base.Path, "/") != "" {
-		return nil, &InvalidMediaRequestError{Message: "DashScope speech base_url must be the region or workspace root URL"}
+	configuredBaseURL := strings.TrimSpace(account.GetCredential("base_url"))
+	if configuredBaseURL == "" {
+		configuredBaseURL = dashScopeBaseURL(account)
+	}
+	base, err := url.Parse(configuredBaseURL)
+	if err != nil || base.Host == "" || base.User != nil || base.RawQuery != "" || base.ForceQuery || strings.Contains(configuredBaseURL, "#") || !isDashScopeSpeechBasePath(base.EscapedPath()) {
+		return nil, newRealtimeSpeechError("speech_provider_endpoint_invalid", "prepare", http.StatusBadRequest,
+			&InvalidMediaRequestError{Message: "DashScope speech base_url must be the region or workspace root URL"})
 	}
 	switch base.Scheme {
 	case "https":
@@ -52,9 +57,11 @@ func (s *MediaGenerationService) dialSpeech(ctx context.Context, account *Accoun
 	case "http":
 		base.Scheme = "ws"
 	default:
-		return nil, &InvalidMediaRequestError{Message: "invalid DashScope speech endpoint"}
+		return nil, newRealtimeSpeechError("speech_provider_endpoint_invalid", "prepare", http.StatusBadRequest,
+			&InvalidMediaRequestError{Message: "invalid DashScope speech endpoint"})
 	}
 	base.Path = path
+	base.RawPath = ""
 	if model != "" {
 		q := base.Query()
 		q.Set("model", model)
@@ -64,13 +71,28 @@ func (s *MediaGenerationService) dialSpeech(ctx context.Context, account *Accoun
 	client := &http.Client{Transport: speechRoundTripper{s, account}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	conn, response, err := ws.Dial(ctx, base.String(), &ws.DialOptions{HTTPHeader: header, HTTPClient: client})
 	if err != nil {
+		status := 0
+		if response != nil {
+			status = response.StatusCode
+		}
 		if response != nil && response.Body != nil {
 			_ = response.Body.Close()
 		}
-		return nil, fmt.Errorf("speech upstream connection failed")
+		return nil, realtimeSpeechDialError(status, err)
 	}
 	conn.SetReadLimit(2 * 1024 * 1024)
 	return conn, nil
+}
+
+func isDashScopeSpeechBasePath(path string) bool {
+	// Accounts may share an HTTP endpoint with other model APIs. Only known
+	// DashScope prefixes can be replaced; never strip an arbitrary or encoded path.
+	switch path {
+	case "", "/", "/api/v1", "/api/v1/", "/compatible-mode/v1", "/compatible-mode/v1/":
+		return true
+	default:
+		return false
+	}
 }
 
 func validateNativeASRStart(start []byte, model string) (string, error) {
@@ -87,7 +109,10 @@ func validateNativeASRStart(start []byte, model string) (string, error) {
 // StreamAudioTranscription handles one bounded task. Audio and transcripts are never stored in the media job.
 func (s *MediaGenerationService) StreamAudioTranscription(ctx context.Context, meta MediaRequestMeta, account *Account, model string, start []byte, client SpeechSocket) (err error) {
 	if err = validateQwenAudioAccount(account, model); err != nil {
-		return err
+		if account == nil || account.Platform != PlatformDashScope || account.Type != AccountTypeAPIKey || account.GetCredential("api_key") == "" {
+			return newRealtimeSpeechError("speech_provider_authentication_failed", "prepare", http.StatusBadRequest, err)
+		}
+		return newRealtimeSpeechError("speech_invalid_request", "prepare", http.StatusBadRequest, err)
 	}
 	task, err := validateNativeASRStart(start, model)
 	if err != nil {
@@ -98,7 +123,8 @@ func (s *MediaGenerationService) StreamAudioTranscription(ctx context.Context, m
 		return err
 	}
 	if !IsNativeRealtimeASRModel(upstreamModel) {
-		return &InvalidMediaRequestError{Message: "this model is not supported by the native realtime ASR relay; select Paraformer realtime, Fun-ASR realtime, or Qwen-Audio 3.0 ASR streaming"}
+		return newRealtimeSpeechError("speech_model_unsupported", "prepare", http.StatusBadRequest,
+			&InvalidMediaRequestError{Message: "this model is not supported by the native realtime ASR relay; select Paraformer realtime, Fun-ASR realtime, or Qwen-Audio 3.0 ASR streaming"})
 	}
 	quoteBody, _ := json.Marshal(map[string]any{"model": model, "max_duration_seconds": RealtimeSpeechMaxSeconds})
 	meta.RequestJSON = quoteBody
@@ -110,7 +136,7 @@ func (s *MediaGenerationService) StreamAudioTranscription(ctx context.Context, m
 		operationID := HashUsageRequestPayload([]byte(fmt.Sprintf("speech\x00%d\x00%d\x00%s\x00%s", meta.UserID, meta.APIKeyID, meta.OperationID, task)))
 		execution, prepareErr := selected.PrepareMedia(ctx, "/audio/transcriptions/stream", operationID, quoteBody)
 		if prepareErr != nil {
-			return prepareErr
+			return realtimeSpeechBillingError(prepareErr)
 		}
 		ctx = bc.WithExecution(ctx, execution)
 		defer func() {
@@ -123,7 +149,7 @@ func (s *MediaGenerationService) StreamAudioTranscription(ctx context.Context, m
 	}
 	snapshot, err := s.prepareQwenAudioBilling(ctx, meta, account, model, upstreamModel, MediaJobKindAudioTranscription)
 	if err != nil {
-		return err
+		return realtimeSpeechBillingError(err)
 	}
 	job, err := s.beginQwenAudioJob(ctx, meta, account, model, MediaJobKindAudioTranscription, nil, snapshot, 0, "")
 	if err != nil {
@@ -151,12 +177,21 @@ func (s *MediaGenerationService) StreamAudioTranscription(ctx context.Context, m
 	if err != nil {
 		return err
 	}
+	// Paraformer v2 otherwise closes a task after prolonged silence even while
+	// PCM keeps arriving. Respect an explicit caller setting and avoid sending
+	// this model-specific option to other ASR protocols.
+	if upstreamModel == "paraformer-realtime-v2" && !gjson.GetBytes(start, "payload.parameters.heartbeat").Exists() {
+		start, err = sjson.SetBytes(start, "payload.parameters.heartbeat", true)
+		if err != nil {
+			return err
+		}
+	}
 	if err = bc.BeforeSupplierRequest(streamCtx); err != nil {
-		return err
+		return realtimeSpeechBillingError(err)
 	}
 	dispatched = true
 	if err = upstream.Write(streamCtx, ws.MessageText, start); err != nil {
-		return err
+		return newRealtimeSpeechError("speech_provider_connection_failed", "upstream_task", http.StatusBadGateway, err)
 	}
 	var ready atomic.Bool
 	clientErrors := make(chan error, 1)
@@ -202,7 +237,7 @@ func (s *MediaGenerationService) StreamAudioTranscription(ctx context.Context, m
 			}
 		}
 		if kind != ws.MessageText || !gjson.ValidBytes(data) || gjson.GetBytes(data, "header.task_id").String() != task {
-			return errors.New("invalid speech upstream event")
+			return newRealtimeSpeechError("speech_provider_protocol_failed", "protocol", http.StatusBadGateway, nil)
 		}
 		event := gjson.GetBytes(data, "header.event").String()
 		if duration := gjson.GetBytes(data, "payload.usage.duration").Float(); duration > seconds && validMediaPrice(duration) {
@@ -225,9 +260,9 @@ func (s *MediaGenerationService) StreamAudioTranscription(ctx context.Context, m
 			}
 			succeeded = true
 		case "task-failed":
-			return errors.New("speech upstream task failed")
+			return realtimeSpeechTaskError(gjson.GetBytes(data, "header.error_code").String())
 		default:
-			return errors.New("unexpected speech upstream event")
+			return newRealtimeSpeechError("speech_provider_protocol_failed", "protocol", http.StatusBadGateway, nil)
 		}
 		if err = client.Write(streamCtx, ws.MessageText, data); err != nil {
 			return err

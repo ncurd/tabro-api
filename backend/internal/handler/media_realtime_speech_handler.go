@@ -3,7 +3,6 @@ package handler
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -39,6 +38,9 @@ func (h *MediaGenerationHandler) AudioTranscriptionStream(c *gin.Context) {
 		return
 	}
 	defer release()
+	setOpsRequestContext(c, model, true, nil)
+	c.Set(opsAccountIDKey, account.ID)
+	setOpsEndpointContext(c, "", int16(service.RequestTypeWSV2))
 	conn, err := ws.Accept(c.Writer, c.Request, nil)
 	if err != nil {
 		return
@@ -57,12 +59,13 @@ func (h *MediaGenerationHandler) AudioTranscriptionStream(c *gin.Context) {
 		err = realtime.StreamAudioTranscription(c.Request.Context(), meta, account, model, start, conn)
 	}
 	if err != nil {
-		message := "Realtime speech recognition failed."
-		var invalid *service.InvalidMediaRequestError
-		if errors.As(err, &invalid) {
-			message = invalid.Message
-		}
-		body, _ := json.Marshal(map[string]any{"header": map[string]any{"event": "task-failed", "task_id": gjson.GetBytes(start, "header.task_id").String(), "error_code": "speech_failed", "error_message": message}, "payload": map[string]any{}})
+		failure := service.DescribeRealtimeSpeechFailure(err)
+		recordRealtimeSpeechFailure(c, key, account, model, failure)
+		body, _ := json.Marshal(map[string]any{"header": map[string]any{
+			"event": "task-failed", "task_id": gjson.GetBytes(start, "header.task_id").String(),
+			"error_code": failure.Code, "error_message": failure.Message, "error_stage": failure.Stage,
+			"upstream_status": failure.UpstreamStatusCode, "provider_code": failure.ProviderCode,
+		}, "payload": map[string]any{}})
 		writeCtx, cancel := context.WithTimeout(context.WithoutCancel(c.Request.Context()), 2*time.Second)
 		_ = conn.Write(writeCtx, ws.MessageText, body)
 		cancel()

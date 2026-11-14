@@ -1,0 +1,79 @@
+# Include this file from the existing nginx http {} context, for example via
+# /etc/nginx/conf.d/*.conf or sites-enabled/*. It must not be included inside
+# another server {} block. Define this map once only.
+map $http_upgrade $tabro_ws_connection {
+    default upgrade;
+    ''      "";
+}
+
+server {
+    server_name llm.tabro.cn;
+
+    proxy_buffer_size       64k;
+    proxy_buffers           32 32k;
+    proxy_busy_buffers_size 128k;
+
+    client_max_body_size        50m;
+    client_header_buffer_size   128k;
+    large_client_header_buffers 4 128k;
+
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto https;
+
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+
+    # AI API: SSE and WebSocket. These location-level headers do not inherit
+    # server-level proxy_set_header directives, so Connection must be explicit.
+    location ~ ^/(v1/|api/v1/(gateway/|antigravity/|gemini/|openai/|claude/)) {
+        proxy_pass http://127.0.0.1:15468;
+
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Upgrade           $http_upgrade;
+        proxy_set_header Connection        $tabro_ws_connection;
+
+        proxy_buffering         off;
+        proxy_request_buffering off;
+        chunked_transfer_encoding on;
+        gzip                    off;
+
+        proxy_connect_timeout 10s;
+        proxy_read_timeout    600s;
+        proxy_send_timeout    600s;
+        send_timeout          600s;
+    }
+
+    location ~ ^/(api/|setup) {
+        proxy_pass http://127.0.0.1:15468;
+    }
+
+    location ~* \.(js|css|woff2?|ttf|eot|otf|svg|png|jpe?g|gif|webp|avif|ico|map)$ {
+        root /opt/sub2api/dist;
+        try_files $uri @backend;
+
+        expires 1y;
+        add_header Cache-Control "public, immutable, max-age=31536000" always;
+        access_log off;
+        gzip_static on;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:15468;
+        add_header Cache-Control "no-cache, no-store, must-revalidate" always;
+    }
+
+    location @backend {
+        proxy_pass http://127.0.0.1:15468;
+    }
+
+    listen 443 ssl; # managed by Certbot
+    ssl_certificate /etc/letsencrypt/live/llm.tabro.cn/fullchain.pem; # managed by Certbot
+    ssl_certificate_key /etc/letsencrypt/live/llm.tabro.cn/privkey.pem; # managed by Certbot
+    include /etc/letsencrypt/options-ssl-nginx.conf; # managed by Certbot
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem; # managed by Certbot
+}

@@ -25,6 +25,20 @@ This directory contains files for deploying Tabro on Linux servers.
 | `DATAMANAGEMENTD_CN.md` | datamanagementd 部署与联动说明（中文） |
 | `config.example.yaml` | Example configuration file |
 | `Caddyfile` | Caddy reverse proxy example with a 256 MiB request body limit |
+| `nginx/llm.tabro.cn.conf.example` | Nginx site example with WebSocket upgrades and ordinary HTTP keepalive |
+
+---
+
+## WebSocket Speech Requests and 426 Errors
+
+`GET /v1/audio/transcriptions/stream` requires a WebSocket upgrade through every reverse proxy.
+If the gateway reports `Connection header "close" does not contain Upgrade`, configure HTTP/1.1
+and explicitly forward the `Upgrade` and `Connection` headers in the Nginx `location` that actually
+handles the request. Keep its existing `proxy_pass`, authentication and TLS settings.
+
+See [the speech proxy repair instructions](../docs/REALTIME_SPEECH_CN.md#nginx-返回-426connection-header-close-does-not-contain-upgrade)
+for the `http`-level mapping, location directives, validation and reload steps. An authenticated
+handshake must return 101; an unauthenticated 401 alone cannot verify WebSocket forwarding.
 
 ---
 

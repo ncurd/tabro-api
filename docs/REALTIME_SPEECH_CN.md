@@ -14,6 +14,12 @@ OAuth access token，阿里云凭据只保存在网关的 `dashscope` 账号中�
 接口也支持无 `/v1` 的路径。如果 Agent 模型提供商 Base URL 已包含 `/v1`，只追加
 `/audio/transcriptions/stream` 或 `/audio/speech`，不要再添加一层 `/v1`。
 
+生产部署建议将 Agent Base URL 配置为网关 API 根路径，例如 `https://llm.example.com/v1`。
+使用无 `/v1` 的别名时，内嵌前端与前置代理必须将 `/audio`、`/audio/...` 交给 API，
+不能回退为 SPA 首页。语音 WebSocket 的握手应返回 `101 Switching Protocols`；
+无凭据探测应得到 `401` JSON 鉴权错误，`200 text/html` 表示请求被前端路由接管。
+升级旧版网关后再使用无 `/v1` 的语音路径，或先使用带 `/v1` 的 Base URL。
+
 `/v1/models` 的 `speech_tasks` 字段说明本版网关实际实现的能力。实时输入为
 `transcription.streaming`，朗读为 `speech.synthesis`；未实现的模型显式返回 `[]`。
 公开别名按已授权账号及渠道的上游映射判断能力。仅模型名中含 `audio`、`realtime`
@@ -25,16 +31,93 @@ OAuth access token，阿里云凭据只保存在网关的 `dashscope` 账号中�
 
 ## 配置阿里云账号
 
-在 `dashscope` 平台配置同地域/业务空间的 `api_key` 与根 `base_url`，例如
-`https://<WorkspaceId>.cn-beijing.maas.aliyuncs.com`。不要包含 `/api/v1`、
-`/compatible-mode/v1` 或完整 WebSocket 路径。网关添加 `/api-ws/v1/inference`
-或 `/api-ws/v1/realtime?model=...` 并使用该账号凭据。
+在 `dashscope` 平台配置同地域、同业务空间且允许所选模型的 `api_key` 与 `base_url`。
+官方 DashScope 原生 HTTP Base URL 为 `https://<WorkspaceId>.cn-beijing.maas.aliyuncs.com/api/v1`；
+OpenAI 兼容 HTTP Base URL 使用同主机的 `/compatible-mode/v1`。这两种都是合法配置，
+不是 WebSocket 地址。新版实时适配器接受根地址以及
+`/api/v1` 或 `/compatible-mode/v1` 前缀（含末尾斜杠）：仅在建立语音 WebSocket 时去掉
+这两个明确的 HTTP 前缀，再使用同一个主机的 `/api-ws/v1/inference` 或
+`/api-ws/v1/realtime?model=...`。其他 HTTP 模型仍使用原配置，不会被修改。
+任意其他路径、编码路径、userinfo、query 或 fragment 会被拒绝，不接受完整 WebSocket 地址。
+
+旧版实时适配器只接受根地址，错误地拒绝了官方合法的 HTTP 前缀。若模型为
+`paraformer-realtime-v2`，账号配置以 `/api/v1` 结尾，而 Agent 提示
+`speech_provider_start_failed`，应更新网关使用上述兼容逻辑。仅需临时绕过旧版限制时，
+才考虑将该账号地址改为根地址，并确认同账号的其他 HTTP 用途。这里是 tabro-api 的
+DashScope 账号，不是 Agent 内置提供商的 `https://llm.tabro.cn/v1`；平台 Token 交换配置不变。
 
 将实际开通的型号加入账号白名单或设置公开别名。配置渠道媒体价格：ASR 使用每音频秒
 的价格，TTS 使用每计费字符的价格，或管理员明确配置的每次调用价格。缺价时请求拒绝，
 不会免计费转发。Qwen 实时 TTS 的报价上界按汉字 2 个字符、其他字符 1 个估算，
 实际结算使用供应商返回的用量；已有克隆音色和 Azure 使用各自原有口径。
 供应商账单币种与网关配置币种仍须按原有渠道价格规则处理。
+
+## Nginx 返回 426：Connection header "close" does not contain Upgrade
+
+如果运维错误记录的入站端点是 `/v1/audio/transcriptions/stream`，状态为 426，正文为
+`WebSocket protocol violation: Connection header "close" does not contain Upgrade`，
+表示网关收到的入站请求缺少 WebSocket 升级头。该错误发生在身份与账号选择之后、连接
+阿里云之前；保留现有平台 Token、模型和分组配置，先修复代理。
+
+在 Nginx 的 `http {}` 作用域添加一次以下映射；如果已有等效映射，复用它：
+
+```nginx
+map $http_upgrade $tabro_connection_upgrade {
+    default upgrade;
+    ''      "";
+}
+```
+
+空值让普通 HTTP 请求不发送 `Connection` 头，保留 HTTP/1.1 keepalive；WebSocket 请求则发送
+`Connection: upgrade`。这两种请求可以共用原有 SSE/API 代理位置。
+
+在 **实际匹配语音请求** 的现有 `location` 中添加或更新以下指令，保留原有 `proxy_pass`、
+认证头、Host 与 TLS 配置：
+
+```nginx
+proxy_http_version 1.1;
+proxy_set_header Upgrade $http_upgrade;
+proxy_set_header Connection $tabro_connection_upgrade;
+proxy_read_timeout 660s;
+proxy_send_timeout 660s;
+```
+
+若 `/v1/` 有单独的 `location`，修改那个位置；只修改 `location /` 可能不会生效。
+`proxy_set_header` 仅在当前层没有此类指令时才整体继承。即使 `server` 已配置
+`proxy_set_header Connection ""`，`location` 中只要自己设置了 Host、Upgrade 等头，就需要
+在同一位置显式配置 Connection；否则可能回到默认 `Connection: close`。重复的 Upgrade
+指令应合并为一行。基于该站点现有路由的完整配置见
+[Nginx 示例](../deploy/nginx/llm.tabro.cn.conf.example)，其中使用独立变量 `$tabro_ws_connection`。
+若有多级代理，每一级都需要支持升级，不能在下一跳重新写成 `Connection close`。
+不要将上述指令另建为一个缺少原有路由和认证配置的替代 `location`，也不要通过放宽
+网关的握手校验来处理此问题。参考 [Nginx WebSocket 代理说明](https://nginx.org/en/docs/http/websocket.html)。
+
+修改后在 Nginx 所在主机验证并平滑重载：
+
+```sh
+sudo nginx -t && sudo nginx -s reload
+```
+
+如果 Nginx 由容器或管理面板托管，使用对应实例的配置校验和重载操作。
+重试会话麦克风，网关握手应为 `101 Switching Protocols`，随后进入持续听写。
+未带凭据的公网探测只能得到鉴权错误，不能证明升级头已经正确透传；应以实际授权请求
+的握手结果验收。
+
+## WebSocket 已连接但识别任务启动失败
+
+HTTP 101 只代表 WebSocket 握手成功，之后还需要模型返回 `task-started`。缺少模型价格、
+中心计费授权失败、无效供应商地址、供应商鉴权或模型未开通，都会在这一阶段返回
+`task-failed`；它们不能通过 HTTP 状态大于等于 400 的过滤器完整捕获。
+
+新版网关将这类失败以 `websocket_task_error` 写入运维错误日志，保留实际握手状态 101、
+模型、账号 ID、请求 ID、失败阶段、受控错误码及确切的上游 HTTP 状态（如果有）。
+它不会标成“恢复成功”，也不会保存原始供应商错误正文、API Key、录音或转写。
+运维面板按失败时间查看错误记录时，不要仅筛选 HTTP 4xx/5xx。服务控制台同步输出
+`[Speech] realtime task failed`，便于按请求 ID 定位。
+
+Agent 同时识别网关的受控 `error_code`，会明确显示地址、缺价、计费、鉴权、权限、
+网络或限流问题；未知供应商文本仍不直接展示。部署时更新 tabro-api 和 Agent Control Plane
+才能完整使用新分类，更新 Agent Web 可获得中文提示。
 
 ## 实时转写协议
 
@@ -62,6 +145,11 @@ OAuth access token，阿里云凭据只保存在网关的 `dashscope` 账号中�
 收到 `header.event=task-started` 后，持续发送 16 kHz、单声道、16-bit little-endian
 PCM 二进制帧。每帧最多 256 KiB；每条连接只执行一个任务，音频总量最多 600 秒，
 连接处理也有时限。前置代理需要支持 WebSocket upgrade，并允许持续二进制帧和心跳。
+
+当实际上游模型为 `paraformer-realtime-v2` 且请求未指定 `parameters.heartbeat` 时，
+网关默认添加 `heartbeat=true`，避免持续上传静音期间被供应商超时断开。显式的 false
+仍被保留，Fun-ASR 和 Qwen 不会收到这个 Paraformer 专用参数。这不是免上传音频的保活：
+任务仍须持续发送音频，并受原有时长限制。心跳结果不进入用户草稿。
 
 `result-generated` 事件中的 `payload.output.sentence.text` 是当前句子的完整识别结果，
 中间结果应替换而非简单拼接；`sentence_end=true` 表示句子确定。Qwen Streaming 有
@@ -98,7 +186,8 @@ PCM 二进制帧。每帧最多 256 KiB；每条连接只执行一个任务，�
 ```
 
 `voice` 默认 `Cherry`；当前支持 `wav`（默认）和 `pcm`，均为 24 kHz、单声道、
-PCM16。`speed` 省略或设为 1。单次输入限制 1–4000 个 Unicode 字符。
+PCM16。`speed` 省略或设为 1。网关本地将单次输入限制为 1–4000 个 Unicode 字符；
+这是本接口的产品限额，不是对阿里云模型最大输入长度的声明。
 网关通过供应商实时 TTS 协议收集真实 PCM 音频，合成完成后返回二进制；WAV 返回
 `audio/wav`，裸 PCM 返回 `audio/pcm`。本 HTTP 接口不会将 JSON URL 响应伪装成音频。
 
@@ -110,8 +199,18 @@ TTS 实际结算累计各个 `response.done.response.usage.characters`，按 res
 
 ## 上游协议参考
 
+- [官方 Base URL 总览](https://docs.bailian.console.aliyun.com/zh/model-studio/base-url)
+- [获取与配置 API Key](https://docs.bailian.console.aliyun.com/zh/model-studio/get-api-key)
+- [API Key 完整帮助页（地域、业务空间和模型权限）](https://help.aliyun.com/zh/model-studio/get-api-key)
+- [Paraformer 客户端事件与静音心跳](https://docs.bailian.console.aliyun.com/zh/model-studio/paraformer-client-events)
 - [阿里云 Paraformer WebSocket 协议](https://help.aliyun.com/en/model-studio/websocket-for-paraformer-real-time-service)
 - [Paraformer 服务端事件与用量口径](https://help.aliyun.com/en/model-studio/paraformer-server-events)
 - [Qwen TTS 实时合成流程](https://help.aliyun.com/en/model-studio/interactive-process-of-qwen-tts-realtime-synthesis)
 - [Qwen TTS 客户端事件](https://help.aliyun.com/en/model-studio/qwen-tts-realtime-client-events)
 - [Qwen TTS 服务端事件与计费用量](https://help.aliyun.com/en/model-studio/qwen-tts-realtime-server-events)
+
+以上协议于 2026-11-14 按官方页面核对。当前 Paraformer 的 UUID 任务身份、单声道
+16 kHz PCM、run-task/finish-task 空 input、累计 duration，以及 Qwen3 TTS 的 commit 模式、
+24 kHz PCM、response.done 中的 response.usage.characters 均与文档一致。阿里云 API Key 保留在网关；
+Agent 现有平台 Token 仅负责 Agent 到网关的授权。真实业务空间域名、模型开通和 Key 权限
+仍需部署后实测；模拟测试不构成供应商连通性验证。

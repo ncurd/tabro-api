@@ -22,10 +22,11 @@ import (
 )
 
 const (
-	opsModelKey       = "ops_model"
-	opsStreamKey      = "ops_stream"
-	opsRequestBodyKey = "ops_request_body"
-	opsAccountIDKey   = "ops_account_id"
+	opsModelKey            = "ops_model"
+	opsStreamKey           = "ops_stream"
+	opsRequestBodyKey      = "ops_request_body"
+	opsAccountIDKey        = "ops_account_id"
+	opsWebSocketFailureKey = "ops_websocket_failure"
 
 	opsUpstreamModelKey = "ops_upstream_model"
 	opsRequestTypeKey   = "ops_request_type"
@@ -477,6 +478,16 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 		}
 		if !ops.IsMonitoringEnabled(c.Request.Context()) {
 			return
+		}
+
+		// A WebSocket task can fail after a successful HTTP 101 handshake. Its
+		// terminal failure is neither an HTTP failure nor a recovered retry.
+		if value, ok := c.Get(opsWebSocketFailureKey); ok {
+			if entry, valid := value.(*service.OpsInsertErrorLogInput); valid && entry != nil {
+				applyOpsLatencyFieldsFromContext(c, entry)
+				enqueueOpsErrorLog(ops, entry)
+				return
+			}
 		}
 
 		status := c.Writer.Status()

@@ -663,6 +663,68 @@ func TestServeEmbeddedFrontend(t *testing.T) {
 	})
 }
 
+func TestEmbeddedFrontendPreservesSpeechAPIRoutes(t *testing.T) {
+	for _, mode := range []string{"legacy", "settings"} {
+		t.Run(mode, func(t *testing.T) {
+			frontend := ServeEmbeddedFrontend()
+			if mode == "settings" {
+				server, err := NewFrontendServer(&mockSettingsProvider{settings: map[string]string{"site_name": "Test"}})
+				require.NoError(t, err)
+				frontend = server.Middleware()
+			}
+			router := gin.New()
+			router.Use(frontend)
+			router.GET("/audio/transcriptions/stream", func(c *gin.Context) {
+				assert.Equal(t, "websocket", c.GetHeader("Upgrade"))
+				assert.Equal(t, "paraformer-realtime-v2", c.Query("model"))
+				c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "API_KEY_REQUIRED"}})
+			})
+			audio := []byte{'R', 'I', 'F', 'F', 0, 1, 2, 255}
+			router.POST("/audio/speech", func(c *gin.Context) {
+				c.Data(http.StatusOK, "audio/wav", audio)
+			})
+			router.GET("/audio", func(c *gin.Context) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "audio endpoint required"})
+			})
+
+			t.Run("transcription_upgrade_reaches_authentication", func(t *testing.T) {
+				request := httptest.NewRequest(http.MethodGet, "/audio/transcriptions/stream?model=paraformer-realtime-v2", nil)
+				request.Header.Set("Connection", "Upgrade")
+				request.Header.Set("Upgrade", "websocket")
+				response := httptest.NewRecorder()
+				router.ServeHTTP(response, request)
+				assert.Equal(t, http.StatusUnauthorized, response.Code)
+				assert.Contains(t, response.Header().Get("Content-Type"), "application/json")
+				assert.JSONEq(t, `{"error":{"code":"API_KEY_REQUIRED"}}`, response.Body.String())
+			})
+			t.Run("speech_synthesis_preserves_binary_audio", func(t *testing.T) {
+				request := httptest.NewRequest(http.MethodPost, "/audio/speech", strings.NewReader(`{"model":"qwen3-tts-flash-realtime","input":"hello"}`))
+				request.Header.Set("Content-Type", "application/json")
+				response := httptest.NewRecorder()
+				router.ServeHTTP(response, request)
+				assert.Equal(t, http.StatusOK, response.Code)
+				assert.Equal(t, "audio/wav", response.Header().Get("Content-Type"))
+				assert.Equal(t, audio, response.Body.Bytes())
+			})
+			t.Run("audio_root_reaches_api_handler", func(t *testing.T) {
+				response := httptest.NewRecorder()
+				router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/audio", nil))
+				assert.Equal(t, http.StatusNotFound, response.Code)
+				assert.Contains(t, response.Header().Get("Content-Type"), "application/json")
+			})
+			for _, path := range []string{"/dashboard", "/audiobook", "/audio-tools"} {
+				t.Run("spa"+path, func(t *testing.T) {
+					response := httptest.NewRecorder()
+					router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+					assert.Equal(t, http.StatusOK, response.Code)
+					assert.Contains(t, response.Header().Get("Content-Type"), "text/html")
+					assert.Contains(t, strings.ToLower(response.Body.String()), "<!doctype html>")
+				})
+			}
+		})
+	}
+}
+
 // Tests for HTMLCache
 func TestHTMLCache(t *testing.T) {
 	t.Run("new_cache_returns_nil", func(t *testing.T) {
