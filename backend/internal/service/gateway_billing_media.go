@@ -16,7 +16,7 @@ func mediaBillingQuoteRequest(path, operationID string, body []byte) (bc.QuoteRe
 	path = strings.TrimPrefix(path, "/v1")
 	q := bc.QuoteRequest{OperationID: operationID, ServiceTier: "default", RequestPayloadHash: HashUsageRequestPayload(append([]byte(path+"\x00"), body...))}
 	switch path {
-	case "/videos/generations", "/audio/transcriptions", "/audio/voices", "/audio/speech", "/audio/speech/jobs":
+	case "/videos/generations", "/audio/transcriptions", "/audio/transcriptions/stream", "/audio/voices", "/audio/speech", "/audio/speech/jobs":
 	default:
 		return q, false, nil
 	}
@@ -58,6 +58,9 @@ func mediaBillingQuoteRequest(path, operationID string, body []byte) (bc.QuoteRe
 			return q, true, fmt.Errorf("audio model has no verified duration bound")
 		}
 		q.MaximumUsage["audio_seconds"] = "300"
+	case "/audio/transcriptions/stream":
+		// The relay enforces this limit on both wall time and raw PCM samples.
+		q.MaximumUsage["audio_seconds"] = "600"
 	case "/audio/voices":
 		q.ProductKey = "ai:" + QwenVoiceEnrollmentModel
 	case "/audio/speech", "/audio/speech/jobs":
@@ -65,7 +68,11 @@ func mediaBillingQuoteRequest(path, operationID string, body []byte) (bc.QuoteRe
 		if len([]rune(input)) == 0 {
 			return q, true, fmt.Errorf("speech input is required")
 		}
-		q.MaximumUsage["audio_characters"] = bc.Decimal(strconv.Itoa(len([]rune(input))))
+		characters := len([]rune(input))
+		if IsQwenRealtimeTTSModel(model) || model != "azure-tts" && !strings.HasPrefix(model, "qwen3-tts-vc") && !strings.HasPrefix(gjson.GetBytes(body, "voice").String(), "voice_") {
+			characters = AliyunSpeechCharacters(input)
+		}
+		q.MaximumUsage["audio_characters"] = bc.Decimal(strconv.Itoa(characters))
 	}
 	return q, true, nil
 }

@@ -862,6 +862,14 @@ func (b *trackedBody) Close() error {
 	return err
 }
 
+// Preserve the upgraded response's duplex body for WebSocket clients.
+type trackedDuplexBody struct {
+	*trackedBody
+	writer io.Writer
+}
+
+func (b *trackedDuplexBody) Write(p []byte) (int, error) { return b.writer.Write(p) }
+
 // wrapTrackedBody 包装响应体以跟踪关闭事件
 // 用于在响应体关闭时更新 inFlight 计数
 //
@@ -875,7 +883,11 @@ func wrapTrackedBody(body io.ReadCloser, onClose func()) io.ReadCloser {
 	if body == nil {
 		return body
 	}
-	return &trackedBody{ReadCloser: body, onClose: onClose}
+	tracked := &trackedBody{ReadCloser: body, onClose: onClose}
+	if writer, ok := body.(io.Writer); ok {
+		return &trackedDuplexBody{trackedBody: tracked, writer: writer}
+	}
+	return tracked
 }
 
 // decompressResponseBody 根据 Content-Encoding 解压响应体。

@@ -209,6 +209,24 @@ curl https://<host>/v1/audio/speech/jobs/audjob_xxx \
 
 ## 语音转写与克隆
 
+### 实时听写与系统音色朗读
+
+`GET /v1/audio/transcriptions/stream?model=...` 提供真正持续上传 PCM、同时返回中间和最终
+转写的 WebSocket。支持 Paraformer realtime、Fun-ASR realtime 和 Qwen-Audio 3.0 ASR
+streaming，采用 `run-task` → 二进制音频 → `finish-task` 协议。先等 `task-started` 再发音频；
+当前音频格式为 16 kHz 单声道 PCM16，一条连接一个任务，最多 600 秒。
+
+`POST /v1/audio/speech` 也支持 `qwen3-tts-flash-realtime` 的系统音色，参数为
+`{model,input,voice,response_format:"wav"}`，默认音色 Cherry，返回真实 WAV 二进制。
+还支持 `response_format:"pcm"`；单次文本 1–4000 字符，输出为 24 kHz 单声道 PCM16。
+合成完成后返回音频，不是 JSON URL。`/v1/models` 的 `speech_tasks` 标记网关实际支持的
+`transcription.streaming`、`speech.synthesis` 能力，公开模型别名也支持。
+
+鉴权沿用网关 Bearer Key/OAuth 和已授权分组。新型号需要配置对应渠道媒体价格；缺价时
+拒绝执行。详细 wire、计费与支持范围见仓库 `docs/REALTIME_SPEECH_CN.md`。
+
+### 完整录音转写与克隆音色
+
 使用 `dashscope` 平台的 API Key 账号，分组和账号平台保持一致。转写模型为 `qwen3-asr-flash`，克隆音色的目标合成模型为 `qwen3-tts-vc-2026-01-22`。账号 `base_url` 和 API Key 必须属于开通这些模型的同一地域/业务空间；Wan 3.0 与 Qwen 音频的可用端点不同，需要时分别建立账号并用模型白名单区分。
 
 | 方法 | 路径 | 说明 |
@@ -611,7 +629,7 @@ Qwen 音频需要配置相应模型价格：
 | Wan OSS 临时素材、EventBridge／网关完成回调 | 未接入；使用公网素材并轮询本地任务 ID |
 | Wan 智能时长、过期任务处理 | `duration=-1` 仅非中心计费可用；`unknown` 暂未自动转为后台轮询终态 |
 | `/v1/files` | 不提供上传服务；由调用方准备 URL/base64 |
-| `/v1/audio/translations`、实时语音/流式 ASR | 未实现；已接入 JSON 转写、克隆及克隆语音合成 |
+| `/v1/audio/translations`、其他实时语音协议 | 未实现；持续转写使用本文 `audio/transcriptions/stream`，朗读使用支持型号的 `audio/speech` |
 | `/v1/embeddings`、`/v1/moderations` | 未实现；旧文档中的 Embeddings 可用声明已移除 |
 | `GET/DELETE /v1/responses/:id` | 未实现 Responses 对象存取；现有入口主要用于生成请求 |
 

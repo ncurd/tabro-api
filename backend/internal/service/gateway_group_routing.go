@@ -285,10 +285,10 @@ func gatewayPreferredPlatforms(request GatewayGroupRequest) []string {
 		return []string{PlatformDashScope}
 	}
 	if strings.Contains(path, "/audio/speech") {
-		if !strings.HasSuffix(path, "/jobs") && (strings.HasPrefix(request.Voice, "voice_") || strings.HasPrefix(request.Model, "qwen3-tts-vc")) {
+		if !strings.HasSuffix(path, "/jobs") && (strings.HasPrefix(request.Voice, "voice_") || strings.HasPrefix(request.Model, "qwen3-tts-vc") || IsQwenRealtimeTTSModel(request.Model)) {
 			return []string{PlatformDashScope}
 		}
-		return []string{PlatformAzureSpeech}
+		return []string{PlatformAzureSpeech, PlatformDashScope}
 	}
 	if strings.Contains(path, "/videos/") {
 		model := strings.ToLower(request.Model)

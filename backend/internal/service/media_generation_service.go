@@ -36,6 +36,7 @@ type MediaGenerationService struct {
 }
 
 type MediaRequestMeta struct {
+	OperationID         string
 	UserID              int64
 	APIKeyID            int64
 	GroupID             *int64
@@ -516,6 +517,9 @@ func (s *MediaGenerationService) recordMediaUsage(ctx context.Context, job *Medi
 	}
 	if job.UsageRecordedAt != nil {
 		return nil
+	}
+	if job.Status == MediaJobStatusUnknown {
+		return s.mediaBilling.ReconcileFailure(ctx, job)
 	}
 	if job.Status == MediaJobStatusFailed || (job.Status == MediaJobStatusCanceled && !(job.Kind == MediaJobKindVoiceClone && job.AudioVoice != "")) {
 		return s.mediaBilling.ReconcileFailure(ctx, job)

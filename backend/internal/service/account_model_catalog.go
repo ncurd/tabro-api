@@ -70,7 +70,7 @@ func (a *Account) AvailableOpenAIModels() []openai.Model {
 func DefaultMediaModels(platform string) []string {
 	switch platform {
 	case PlatformDashScope:
-		return []string{"wan3.0-video", "wan3.0-video-prime", "happyhorse-1.0-r2v", "qwen3-asr-flash", "qwen3-tts-vc-2026-01-22"}
+		return []string{"wan3.0-video", "wan3.0-video-prime", "happyhorse-1.0-r2v", "qwen3-asr-flash", "qwen3-tts-vc-2026-01-22", "paraformer-realtime-v2", "fun-asr-realtime", "qwen-audio-3.0-asr-flash-streaming", "qwen3-tts-flash-realtime"}
 	case PlatformVolcengineArk:
 		return []string{"doubao-seedance-2-0-260128", "doubao-seedance-2-5-260628"}
 	case PlatformAzureSpeech:

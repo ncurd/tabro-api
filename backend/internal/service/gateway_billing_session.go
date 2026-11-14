@@ -14,6 +14,7 @@ type gatewayBillingSessionKey struct{}
 type GatewayBillingSession struct {
 	Mode          string
 	Prepare       func(context.Context, string, []byte) (*bc.Execution, []byte, error)
+	PrepareMedia  func(context.Context, string, string, []byte) (*bc.Execution, error)
 	Finish        func(context.Context, *bc.Execution) error
 	ValidateModel func(*bc.Execution, string) error
 	withKey       func(*APIKey) *GatewayBillingSession
@@ -40,7 +41,9 @@ func (s *GatewayBillingCoordinator) Session(route GatewayBillingRoute, principal
 	if route.runtime != nil && route.runtime != s {
 		return route.runtime.Session(route, principal, proof, binding, key)
 	}
-	return &GatewayBillingSession{Mode: route.Mode, Finish: s.Finish, ValidateModel: s.ValidateBillingModelCaps, withKey: func(selected *APIKey) *GatewayBillingSession {
+	return &GatewayBillingSession{Mode: route.Mode, Finish: s.Finish, ValidateModel: s.ValidateBillingModelCaps, PrepareMedia: func(ctx context.Context, path, id string, body []byte) (*bc.Execution, error) {
+		return s.PrepareForKey(ctx, route, principal, proof, path, id, body, key, binding)
+	}, withKey: func(selected *APIKey) *GatewayBillingSession {
 		return s.Session(route, principal, proof, binding, selected)
 	}, Prepare: func(ctx context.Context, id string, body []byte) (*bc.Execution, []byte, error) {
 		bounded := body

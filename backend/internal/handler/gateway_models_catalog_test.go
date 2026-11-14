@@ -126,6 +126,30 @@ func TestGatewayModelsCatalog_RetiredWhitelistRemainsEmptyAfterCacheHit(t *testi
 	require.Equal(t, 1, repo.listCalls)
 }
 
+func TestGatewayModelsCatalogSpeechTasksFollowMappingAndDoNotAdvertiseUnsupportedProtocols(t *testing.T) {
+	repo := &gatewayModelsCatalogRepoStub{accounts: []service.Account{{ID: 5, Platform: service.PlatformDashScope, Type: service.AccountTypeAPIKey, Credentials: map[string]any{"model_mapping": map[string]any{"listen": "paraformer-realtime-v2", "speak": "qwen3-tts-flash-realtime", "qwen3-asr-flash-realtime": "qwen3-asr-flash-realtime", "new-token-asr": "qwen-audio-3.1-asr-flash-streaming"}}}}}
+	router := gatewayModelsCatalogRouter(repo, service.PlatformDashScope)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/models", nil))
+	require.Equal(t, http.StatusOK, w.Code)
+	var response struct {
+		Data []struct {
+			ID          string   `json:"id"`
+			SpeechTasks []string `json:"speech_tasks"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+	tasks := map[string][]string{}
+	for _, model := range response.Data {
+		tasks[model.ID] = model.SpeechTasks
+	}
+	require.Equal(t, []string{"transcription.streaming"}, tasks["listen"])
+	require.Equal(t, []string{"speech.synthesis"}, tasks["speak"])
+	require.NotNil(t, tasks["qwen3-asr-flash-realtime"])
+	require.Empty(t, tasks["qwen3-asr-flash-realtime"])
+	require.Empty(t, tasks["new-token-asr"])
+}
+
 func TestGatewayModelsCatalog_ClaudeDefaultsKeepDisplayMetadata(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := &gatewayModelsCatalogRepoStub{accounts: []service.Account{{ID: 1, Platform: service.PlatformAnthropic, Type: service.AccountTypeAPIKey}}}

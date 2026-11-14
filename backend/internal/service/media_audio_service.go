@@ -391,7 +391,7 @@ func (s *MediaGenerationService) prepareQwenAudioBilling(ctx context.Context, me
 	return s.mediaBilling.Prepare(ctx, meta, account, model, upstreamModel, kind, "")
 }
 
-func (s *MediaGenerationService) beginQwenAudioJob(ctx context.Context, meta MediaRequestMeta, account *Account, model, kind string, metadata []byte, snapshot *MediaBillingSnapshot, characters int, voice string) (*MediaGenerationJob, error) {
+func (s *MediaGenerationService) beginQwenAudioJob(ctx context.Context, meta MediaRequestMeta, account *Account, model, kind string, metadata []byte, snapshot *MediaBillingSnapshot, characters int, voice string, formats ...string) (*MediaGenerationJob, error) {
 	job := s.newJob(meta, account, model, kind, MediaProviderDashScope, PlatformDashScope)
 	job.PublicID = newMediaPublicID("audjob")
 	if kind == MediaJobKindVoiceClone {
@@ -407,6 +407,9 @@ func (s *MediaGenerationService) beginQwenAudioJob(ctx context.Context, meta Med
 	job.AudioVoice = voice
 	if kind == MediaJobKindAudioSpeech {
 		job.AudioFormat = "url"
+		if len(formats) > 0 {
+			job.AudioFormat = formats[0]
+		}
 	}
 	if snapshot != nil {
 		job.BillingSnapshotJSON = snapshot.JSON()

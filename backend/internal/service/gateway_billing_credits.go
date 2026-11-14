@@ -170,7 +170,7 @@ func finiteNonnegativeCredit(value float64) bool {
 
 func isGatewayCreditMediaPath(path string) bool {
 	switch strings.TrimPrefix(path, "/v1") {
-	case "/videos/generations", "/audio/transcriptions", "/audio/voices", "/audio/speech", "/audio/speech/jobs":
+	case "/videos/generations", "/audio/transcriptions", "/audio/transcriptions/stream", "/audio/voices", "/audio/speech", "/audio/speech/jobs":
 		return true
 	default:
 		return false
@@ -182,7 +182,7 @@ func (s *GatewayService) maximumMediaCredit(ctx context.Context, path string, qu
 	switch strings.TrimPrefix(path, "/v1") {
 	case "/videos/generations":
 		kind, meter = MediaJobKindVideoGeneration, "video_seconds"
-	case "/audio/transcriptions":
+	case "/audio/transcriptions", "/audio/transcriptions/stream":
 		kind, meter = MediaJobKindAudioTranscription, "audio_seconds"
 	case "/audio/voices":
 		kind, meter = MediaJobKindVoiceClone, "request_count"

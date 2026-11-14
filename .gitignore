@@ -129,6 +129,7 @@ deploy/docker-compose.override.yml
 .gocache/
 vite.config.js
 docs/*
+!docs/REALTIME_SPEECH_CN.md
 !docs/CLIENT_CUSTOM_MODELS_CN.md
 !docs/MODEL_AVAILABILITY_CN.md
 !docs/OIDC_RESOURCE_SERVER_CN.md

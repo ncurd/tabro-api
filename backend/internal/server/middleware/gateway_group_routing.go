@@ -27,6 +27,12 @@ func resolveRequestGatewayGroup(c *gin.Context, keys *service.APIKeyService, key
 		c.Request = c.Request.WithContext(service.WithGatewayRoutingKey(c.Request.Context(), key))
 	}
 	request := service.GatewayGroupRequest{Path: c.Request.URL.Path}
+	if c.Request.Method == http.MethodGet && strings.HasSuffix(request.Path, "/audio/transcriptions/stream") {
+		request.Model = strings.TrimSpace(c.Query("model"))
+		if request.Model == "" {
+			return nil, errGatewayRoutingBody
+		}
+	}
 	request.ForcePlatform, _ = c.Request.Context().Value(ctxkey.ForcePlatform).(string)
 	request.Catalog = c.Request.Method == http.MethodGet && gatewayModelCatalogPath(request.Path)
 	request.MetadataOnly = (c.Request.Method == http.MethodGet && !request.Catalog && !strings.EqualFold(c.GetHeader("Upgrade"), "websocket")) || c.Request.Method == http.MethodDelete

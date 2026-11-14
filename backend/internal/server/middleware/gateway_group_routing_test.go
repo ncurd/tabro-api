@@ -64,6 +64,16 @@ func TestRequestGroupResolutionReadsGeminiModelFromPath(t *testing.T) {
 	require.Equal(t, service.PlatformGemini, resolved.Group.Platform)
 }
 
+func TestRequestGroupResolutionReadsRealtimeSpeechModelBeforeUpgrade(t *testing.T) {
+	keys, key := requestRoutingFixture()
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/audio/transcriptions/stream?model=paraformer-realtime-v2", nil)
+	c.Request.Header.Set("Upgrade", "websocket")
+	resolved, err := resolveRequestGatewayGroup(c, keys, key)
+	require.NoError(t, err)
+	require.Equal(t, service.PlatformDashScope, resolved.Group.Platform)
+}
+
 func TestRequestGroupResolutionPreservesMultipartUploads(t *testing.T) {
 	keys, key := requestRoutingFixture()
 	var body bytes.Buffer

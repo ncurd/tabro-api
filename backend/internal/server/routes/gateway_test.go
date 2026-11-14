@@ -101,11 +101,13 @@ func TestGatewayRoutesMediaGenerationPathsAreRegistered(t *testing.T) {
 		body   string
 	}{
 		{method: http.MethodPost, path: "/v1/audio/transcriptions", body: `{}`},
+		{method: http.MethodGet, path: "/v1/audio/transcriptions/stream?model=paraformer-realtime-v2"},
 		{method: http.MethodPost, path: "/v1/audio/voices", body: `{}`},
 		{method: http.MethodGet, path: "/v1/audio/voices"},
 		{method: http.MethodGet, path: "/v1/audio/voices/voice_test"},
 		{method: http.MethodDelete, path: "/v1/audio/voices/voice_test"},
 		{method: http.MethodPost, path: "/audio/transcriptions", body: `{}`},
+		{method: http.MethodGet, path: "/audio/transcriptions/stream?model=paraformer-realtime-v2"},
 		{method: http.MethodPost, path: "/audio/voices", body: `{}`},
 		{method: http.MethodGet, path: "/audio/voices"},
 		{method: http.MethodGet, path: "/audio/voices/voice_test"},

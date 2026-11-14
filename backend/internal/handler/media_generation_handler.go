@@ -53,6 +53,26 @@ func (h *MediaGenerationHandler) AudioSpeech(c *gin.Context) {
 		h.clonedAudioSpeech(c, body, apiKey, subject)
 		return
 	}
+	if service.IsQwenRealtimeTTSModel(req.Model) || (apiKey.Group != nil && apiKey.Group.Platform == service.PlatformDashScope) {
+		realtime, configured := h.audioService.(mediaRealtimeSpeechAPI)
+		if !configured {
+			mediaError(c, http.StatusServiceUnavailable, "api_error", "Realtime speech is not configured")
+			return
+		}
+		account, release, selected := h.selectAccount(c, apiKey, subject, req.Model, service.PlatformDashScope)
+		if !selected {
+			return
+		}
+		defer release()
+		result, audio, _, err := realtime.ForwardQwenRealtimeSpeech(c.Request.Context(), mediaMeta(c, apiKey, subject, body), account, req)
+		if err != nil {
+			h.writeMediaServiceError(c, err)
+			return
+		}
+		c.Header("Cache-Control", "no-store")
+		c.Data(http.StatusOK, result.ContentType, audio)
+		return
+	}
 	account, release, ok := h.selectAccount(c, apiKey, subject, req.Model, service.PlatformAzureSpeech)
 	if !ok {
 		return

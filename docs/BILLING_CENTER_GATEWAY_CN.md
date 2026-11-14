@@ -109,6 +109,16 @@ HTTP 文本、Gemini 原生、WebSocket Responses、图片生成/编辑（JSON/m
 
 WebSocket 每次 `response.create` 都有独立 operation。执行许可在每次实际 frame write 前检查，包括内部恢复尝试。后续轮次被拒绝时，已经发出的轮次仍继续读取到结束或对账超时，以保存能获得的实际用量。
 
+实时 ASR 的 `/audio/transcriptions/stream` 每条连接只允许一个 native `run-task`，在向供应商
+发送该任务前取得独立媒体 operation 的执行许可，PCM 帧属于同一已许可任务。任务按 600 秒
+时长/样本数双重上界报价，并按上游累计 `usage.duration` 结算，不按中间事件次数累加。
+Qwen3 实时 TTS 通过 `/audio/speech` 返回 WAV/PCM，沿用媒体的 `audio_characters` meter，
+报价时汉字按 2 个字符计算，实际累计各 response 的供应商 `response.usage.characters`。
+已确认用量实时保存；异常结束或缺少完整 usage 的作业保留 `unknown` 与未完成证据，
+进入核对流程，不用本地估算替代最终账单。模型/渠道映射、冻结价格、用量账本和中心 outbox 与其他媒体共用。
+缺价、无许可、未知协议或 token 计费尚未适配的语音型号均拒绝执行。协议详见
+[实时语音接入](REALTIME_SPEECH_CN.md)。
+
 异步媒体在提交前保存任务身份、冻结报价和责任快照。视频任务/批量语音由数据库租约轮询；Azure 的上游任务 ID 在 PUT 前保存，响应丢失后仍可查原任务。任务完成后 `usage_recorded_at` 表示本地用量/事件已提交，中心资金状态另见 `billing_center_operations`，不能把它等同为中心已扣款。
 
 上游调用后崩溃、缺 usage、失败但可能产生费用等状态保留为待核对，不盲目重发供应商，也不根据 HTTP 失败自动释放资金。尚未 Dispatch 的请求才可自动排队 Release。
