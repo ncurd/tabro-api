@@ -120,6 +120,12 @@
                   <div v-if="model.source" class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{{ model.source }}</div>
                 </td>
                 <td v-if="isUnitBilling(model)" :colspan="hasTokenModels(group) ? (hasImageInputPrices(group) ? 10 : 8) : 1" class="px-4 py-3 text-gray-700 dark:text-gray-200">
+                  <div v-if="model.billing_mode === 'duration'" class="flex flex-wrap gap-x-5 gap-y-2 tabular-nums">
+                    <span v-for="direction in durationDirections" :key="direction.field">
+                      {{ t(`modelManagement.${direction.label}`) }}：{{ model[direction.field] == null ? t('modelManagement.unpriced') : formatUnitPrice(model, model[direction.field]!) }}
+                    </span>
+                  </div>
+                  <template v-else>
                   <div class="flex flex-wrap gap-x-5 gap-y-2 tabular-nums">
                     <span v-if="model.unit_price != null">默认：{{ formatUnitPrice(model, model.unit_price) }}</span>
                     <span v-for="(tier, index) in model.tiers ?? []" :key="`${tier.label}-${index}`">
@@ -128,6 +134,7 @@
                     <span v-if="!model.pricing_available">未配置价格 · {{ unitLabel(model) }}</span>
                   </div>
                   <p v-if="model.unit_price == null && model.pricing_available" class="mt-1 text-xs text-gray-500 dark:text-gray-400">仅已配置档位可用</p>
+                  </template>
                 </td>
                 <template v-else>
                 <td class="whitespace-nowrap px-4 py-3 text-gray-500 dark:text-gray-400">✦ / 1M tokens</td>
@@ -155,6 +162,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import { modelPricingAPI, type AvailableModelPricingGroup, type AvailableModelPricingModel } from '@/api/modelPricing'
 import AppLayout from '@/components/layout/AppLayout.vue'
@@ -163,6 +171,12 @@ import { extractApiErrorMessage } from '@/utils/apiError'
 import { formatCredits } from '@/utils/credits'
 import { formatMultiplier } from '@/utils/formatters'
 
+const { t } = useI18n()
+const durationDirections = [
+  { field: 'input_audio_price_per_second', label: 'durationInputAudio' },
+  { field: 'output_audio_price_per_second', label: 'durationOutputAudio' },
+  { field: 'output_video_price_per_second', label: 'durationOutputVideo' }
+] as const
 const groups = ref<AvailableModelPricingGroup[]>([])
 const loading = ref(false)
 const error = ref('')
@@ -206,6 +220,7 @@ function hasImageInputPrices(group: AvailableModelPricingGroup): boolean {
 }
 
 function unitLabel(model: AvailableModelPricingModel): string {
+  if (model.billing_mode === 'duration') return t('modelManagement.units.second')
   const labels: Record<string, string> = {
     second: '秒', character: '字符', image: '张', request: '次', audio_unit: '音频单位'
   }

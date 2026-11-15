@@ -626,6 +626,9 @@ func validatePricingBillingMode(pricing []ChannelModelPricing) error {
 }
 
 func checkBillingModeRequirements(p ChannelModelPricing) error {
+	if p.BillingMode == BillingModeDuration || p.InputAudioPricePerSecond != nil || p.OutputAudioPricePerSecond != nil || p.OutputVideoPricePerSecond != nil {
+		return infraerrors.BadRequest("DURATION_PRICING_ADMIN_ONLY", "configure duration prices in administrator model management; channel duration pricing is not supported")
+	}
 	if p.BillingMode == BillingModePerRequest || p.BillingMode == BillingModeImage || p.BillingMode == BillingModeVideo || p.BillingMode == BillingModeAudio {
 		if p.PerRequestPrice == nil && len(p.Intervals) == 0 {
 			return infraerrors.BadRequest(

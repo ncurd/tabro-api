@@ -32,6 +32,7 @@ const messages: Record<string, string> = {
   'usage.baseCost': 'Base cost',
   'usage.original': 'Original',
   'usage.billed': 'Billed',
+  'usage.unitPrice': 'Unit price',
   'usage.allApiKeys': 'All API Keys',
   'usage.apiKeyFilter': 'API Key',
   'usage.model': 'Model',
@@ -318,5 +319,31 @@ describe('user UsageView tooltip', () => {
     expect(wrapper.text()).toContain('0.120000 ✦')
     expect(wrapper.text()).toContain('0.180000 ✦')
     expect(wrapper.text()).toContain('Base cost')
+  })
+
+  it('shows duration charges without fabricating token prices or a per-second unit price', async () => {
+    query.mockResolvedValue({ items: [], total: 0, pages: 0 })
+    list.mockResolvedValue({ items: [] })
+    getStatsByDateRange.mockResolvedValue({ total_actual_cost: 0.06, total_cost: 0.02 })
+    const wrapper = mount(UsageView, {
+      global: { stubs: {
+        AppLayout: AppLayoutStub, TablePageLayout: TablePageLayoutStub, Pagination: true,
+        EmptyState: true, Select: true, DateRangePicker: true, Icon: true, Teleport: true,
+      } },
+    })
+    await flushPromises()
+    const setupState = (wrapper.vm as any).$?.setupState
+    setupState.tooltipData = {
+      billing_source: 'central', billing_mode: 'duration', rate_multiplier: 3,
+      input_cost: 0, output_cost: 0.02, total_cost: 0.02, actual_cost: 0.06,
+      input_tokens: 1000, output_tokens: 500, duration_ms: 200,
+    }
+    setupState.tooltipVisible = true
+    await nextTick()
+    expect(wrapper.text()).toContain('Unit price-')
+    expect(wrapper.text()).not.toContain('/ 1M tokens')
+    expect(wrapper.text()).toContain('0.060000 ✦')
+    expect(wrapper.text()).toContain('3.00x')
+    wrapper.unmount()
   })
 })

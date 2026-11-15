@@ -57,6 +57,7 @@ type ModelPricing struct {
 	LongContextInputThreshold          int     // 超过阈值后按整次会话提升输入价格
 	LongContextInputMultiplier         float64 // 长上下文整次会话输入倍率
 	LongContextOutputMultiplier        float64 // 长上下文整次会话输出倍率
+	FlatTokenPrices                    bool    // administrator rates apply without automatic service-tier or long-context adjustments
 	ImageInputPricePerToken            float64 // 图片输入 token 价格 (USD)
 	CacheReadImagePricePerToken        float64 // 图片缓存读取 token 价格 (USD)
 	HasImageInputPricing               bool    // distinguishes a configured free image-input rate from no rate
@@ -676,6 +677,9 @@ func (s *BillingService) CalculateCostUnified(input CostInput) (*CostBreakdown, 
 		})
 	}
 
+	if resolved != nil && resolved.Error != nil {
+		return nil, fmt.Errorf("resolve model pricing: %w", resolved.Error)
+	}
 	if input.RateMultiplier <= 0 {
 		input.RateMultiplier = 1.0
 	}
@@ -683,6 +687,8 @@ func (s *BillingService) CalculateCostUnified(input CostInput) (*CostBreakdown, 
 	var breakdown *CostBreakdown
 	var err error
 	switch resolved.Mode {
+	case BillingModeDuration:
+		return nil, fmt.Errorf("duration pricing requires measured media duration")
 	case BillingModePerRequest, BillingModeImage:
 		breakdown, err = s.calculatePerRequestCost(resolved, input)
 	default: // BillingModeToken
@@ -731,7 +737,7 @@ func (s *BillingService) computeTokenBreakdown(
 	cacheCreationPrice := pricing.CacheCreationPricePerToken
 	tierMultiplier := 1.0
 
-	if usePriorityServiceTierPricing(serviceTier, pricing) {
+	if !pricing.FlatTokenPrices && usePriorityServiceTierPricing(serviceTier, pricing) {
 		if pricing.InputPricePerTokenPriority > 0 {
 			inputPrice = pricing.InputPricePerTokenPriority
 		}
@@ -744,11 +750,11 @@ func (s *BillingService) computeTokenBreakdown(
 		if pricing.CacheCreationPricePerTokenPriority > 0 {
 			cacheCreationPrice = pricing.CacheCreationPricePerTokenPriority
 		}
-	} else {
+	} else if !pricing.FlatTokenPrices {
 		tierMultiplier = serviceTierCostMultiplier(serviceTier)
 	}
 
-	if applyLongCtx && s.shouldApplySessionLongContextPricing(tokens, pricing) {
+	if applyLongCtx && !pricing.FlatTokenPrices && s.shouldApplySessionLongContextPricing(tokens, pricing) {
 		inputPrice *= pricing.LongContextInputMultiplier
 		outputPrice *= pricing.LongContextOutputMultiplier
 		cacheCreationPrice *= pricing.LongContextInputMultiplier
@@ -875,8 +881,8 @@ func (s *BillingService) calculateCostInternal(model string, tokens UsageTokens,
 }
 
 func (s *BillingService) applyModelSpecificPricingPolicy(model string, pricing *ModelPricing) *ModelPricing {
-	if pricing == nil {
-		return nil
+	if pricing == nil || pricing.FlatTokenPrices {
+		return pricing
 	}
 	if !isOpenAIGPTLongContextModel(model) {
 		return pricing

@@ -22,8 +22,9 @@ import (
 
 // The coordinator is attached once during dependency construction, before any
 // requests. Both Anthropic/OpenAI and Google authentication use the same route.
-func ProvideGatewayAuthMiddleware(keys *service.APIKeyService, subscriptions *service.SubscriptionService, auth *service.AuthService, cfg *config.Config, billing *service.GatewayBillingCoordinator) APIKeyAuthMiddleware {
+func ProvideGatewayAuthMiddleware(keys *service.APIKeyService, subscriptions *service.SubscriptionService, auth *service.AuthService, cfg *config.Config, billing *service.GatewayBillingCoordinator, models *service.AdminModelPolicyService) APIKeyAuthMiddleware {
 	keys.GatewayBilling = billing
+	keys.ModelPolicies = models
 	return NewGatewayAuthMiddleware(keys, subscriptions, auth, cfg)
 }
 

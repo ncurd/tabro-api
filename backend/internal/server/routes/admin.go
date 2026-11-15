@@ -88,6 +88,13 @@ func RegisterAdminRoutes(
 
 		// 渠道管理
 		registerChannelRoutes(admin, h)
+		if h.Admin.ModelPolicy != nil {
+			models := admin.Group("/models")
+			models.GET("", h.Admin.ModelPolicy.List)
+			models.GET("/detail", h.Admin.ModelPolicy.Detail)
+			models.PUT("", h.Admin.ModelPolicy.Update)
+			models.POST("/reset-price", h.Admin.ModelPolicy.ResetPrice)
+		}
 	}
 }
 

@@ -2,9 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 
 import ModelPricingView from '../ModelPricingView.vue'
+import messages from '@/i18n/locales/zh-CN'
 
 const { getAvailable } = vi.hoisted(() => ({ getAvailable: vi.fn() }))
 vi.mock('@/api/modelPricing', () => ({ modelPricingAPI: { getAvailable } }))
+vi.mock('vue-i18n', async (importOriginal) => ({ ...await importOriginal<typeof import('vue-i18n')>(), useI18n: () => ({ t: (key: string) => {
+  const value = key.split('.').reduce<unknown>((current, part) => current && typeof current === 'object' ? (current as Record<string, unknown>)[part] : undefined, messages)
+  return typeof value === 'string' ? value : key
+} }) }))
 
 function mountPricing() {
   return mount(ModelPricingView, {
@@ -183,5 +188,54 @@ describe('ModelPricingView media prices', () => {
     expect(wrapper.text()).toContain('有效倍率 0.001x')
     expect(wrapper.text()).toContain('0.0000032 ✦')
     expect(wrapper.text()).not.toContain('0.00x')
+  })
+
+  it('shows each converted duration direction per second, preserving free, small, and missing prices without applying multipliers again', async () => {
+    getAvailable.mockResolvedValue({ groups: [{
+      id: 7, name: '多模态时长', platform: 'dashscope', rate_multiplier: 2, effective_rate_multiplier: 6,
+      models: [
+        { id: 'audio-video', pricing_available: true, billing_mode: 'duration', price_unit: 'second',
+          input_audio_price_per_second: 0.0123, output_audio_price_per_second: 0, output_video_price_per_second: 0.000000002 },
+        { id: 'input-only', pricing_available: true, billing_mode: 'duration', price_unit: 'second', input_audio_price_per_second: 0.2 },
+        { id: 'missing-duration', pricing_available: false, billing_mode: 'duration', price_unit: 'second' }
+      ]
+    }] })
+    const wrapper = mountPricing()
+    await flushPromises()
+    const rows = wrapper.findAll('tbody tr')
+    expect(rows[0].text()).toContain('音频输入：0.0123 ✦ / 秒')
+    expect(rows[0].text()).toContain('音频输出：0 ✦ / 秒')
+    expect(rows[0].text()).toContain('视频输出：0.000000002 ✦ / 秒')
+    expect(rows[1].text()).toContain('音频输入：0.2 ✦ / 秒')
+    expect(rows[1].text()).toContain('音频输出：未配置价格')
+    expect(rows[1].text()).toContain('视频输出：未配置价格')
+    expect(rows[2].text().match(/未配置价格/g)).toHaveLength(3)
+    expect(wrapper.text()).not.toContain('仅已配置档位可用')
+    expect(wrapper.text()).not.toContain('1M tokens')
+    expect(wrapper.text()).not.toContain('1.2 ✦ / 秒')
+    expect(wrapper.findAll('th')).toHaveLength(2)
+  })
+
+  it('keeps duration rows aligned with mixed token/image columns and legacy audio, video, and character prices', async () => {
+    getAvailable.mockResolvedValue({ groups: [{
+      id: 8, name: '兼容价格', platform: 'all', rate_multiplier: 1, effective_rate_multiplier: 1,
+      models: [
+        { id: 'text-image', pricing_available: true, billing_mode: 'token', input_price_per_million: 2, image_input_price_per_million: 3 },
+        { id: 'duration', pricing_available: true, billing_mode: 'duration', price_unit: 'second', output_video_price_per_second: 0 },
+        { id: 'legacy-asr', pricing_available: true, billing_mode: 'audio', price_unit: 'second', unit_price: 0.003 },
+        { id: 'legacy-tts', pricing_available: true, billing_mode: 'audio', price_unit: 'character', unit_price: 0.0000032 },
+        { id: 'legacy-video', pricing_available: true, billing_mode: 'video', price_unit: 'second', unit_price: 0.1 }
+      ]
+    }] })
+    const wrapper = mountPricing()
+    await flushPromises()
+    const rows = wrapper.findAll('tbody tr')
+    expect(rows[1].findAll('td')).toHaveLength(2)
+    expect(rows[1].findAll('td')[1].attributes('colspan')).toBe('10')
+    expect(rows[1].text()).toContain('视频输出：0 ✦ / 秒')
+    expect(rows[2].text()).toContain('默认：0.003 ✦ / 秒')
+    expect(rows[3].text()).toContain('默认：0.0000032 ✦ / 字符')
+    expect(rows[4].text()).toContain('默认：0.1 ✦ / 秒')
+    expect(rows[0].text()).toContain('3.0000 ✦')
   })
 })

@@ -111,6 +111,11 @@ func gatewayAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, sub
 			return
 		}
 
+		if err := enforceGatewayModelPolicy(c, apiKeyService); err != nil {
+			status, _, message := modelPolicyError(err)
+			abortWithGoogleError(c, status, message)
+			return
+		}
 		apiKey, err = resolveRequestGatewayGroup(c, apiKeyService, apiKey)
 		if err != nil {
 			status, _, message := gatewayGroupRoutingError(err)

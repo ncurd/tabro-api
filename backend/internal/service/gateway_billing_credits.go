@@ -27,17 +27,19 @@ type gatewayCreditPricer interface {
 type gatewayCreditPriceCalculator struct{ gateway *GatewayService }
 
 type gatewayCreditPriceSnapshot struct {
-	EffectiveGroupID  int64               `json:"effective_group_id,omitempty"`
-	EffectivePlatform string              `json:"effective_platform,omitempty"`
-	BillingModel      string              `json:"billing_model"`
-	ServiceTier       string              `json:"service_tier"`
-	RateMultiplier    float64             `json:"rate_multiplier"`
-	Resolved          *ResolvedPricing    `json:"resolved"`
-	MediaKind         string              `json:"media_kind,omitempty"`
-	MediaTier         string              `json:"media_tier,omitempty"`
-	MediaPrice        *MediaPriceSnapshot `json:"media_price,omitempty"`
-	ImageUnitPrice    *float64            `json:"image_unit_price,omitempty"`
-	ImageUnitPrices   map[string]float64  `json:"image_unit_prices,omitempty"`
+	EffectiveGroupID        int64               `json:"effective_group_id,omitempty"`
+	EffectivePlatform       string              `json:"effective_platform,omitempty"`
+	BillingModel            string              `json:"billing_model"`
+	ServiceTier             string              `json:"service_tier"`
+	RateMultiplier          float64             `json:"rate_multiplier"`
+	Resolved                *ResolvedPricing    `json:"resolved"`
+	MediaKind               string              `json:"media_kind,omitempty"`
+	MediaTier               string              `json:"media_tier,omitempty"`
+	MediaPrice              *MediaPriceSnapshot `json:"media_price,omitempty"`
+	MediaOutputSecondsLimit int                 `json:"media_output_seconds_limit,omitempty"`
+	ImageUnitPrice          *float64            `json:"image_unit_price,omitempty"`
+	ImageUnitPrices         map[string]float64  `json:"image_unit_prices,omitempty"`
+	ImageBillingMode        BillingMode         `json:"image_billing_mode,omitempty"`
 }
 
 func (p *gatewayCreditPriceCalculator) MaximumCredit(ctx context.Context, key *APIKey, path string, quote bc.QuoteRequest) (bc.Decimal, json.RawMessage, error) {
@@ -123,7 +125,10 @@ func (p *gatewayCreditPriceCalculator) maximumCredit(ctx context.Context, key *A
 		return s.maximumImageCredit(ctx, quote, billingModel, key, rate)
 	}
 	resolved := s.resolver.Resolve(ctx, PricingInput{Model: billingModel, GroupID: key.GroupID})
-	if resolved == nil || resolved.Source != PricingSourceChannel && resolved.BasePricing == nil {
+	if resolved != nil && resolved.Error != nil {
+		return "", nil, fmt.Errorf("%w: model pricing policy is unavailable: %w", bc.ErrState, resolved.Error)
+	}
+	if resolved == nil || resolved.Source != PricingSourceChannel && resolved.Source != PricingSourceManual && resolved.BasePricing == nil {
 		return "", nil, fmt.Errorf("%w: model price is unavailable", bc.ErrState)
 	}
 	boundRate := rate
@@ -191,15 +196,31 @@ func (s *GatewayService) maximumMediaCredit(ctx context.Context, path string, qu
 	default:
 		return "", nil, bc.ErrState
 	}
-	price, err := snapshotMediaPrice(s.channelService.GetChannelModelPricing(ctx, groupID, model), kind)
+	price, err := resolveMediaModelPrice(ctx, s.channelService.GetChannelModelPricing(ctx, groupID, model), s.mediaModelPolicies, model, kind)
 	if err != nil {
-		return "", nil, fmt.Errorf("%w: media price unavailable: %v", bc.ErrState, err)
+		// Preserve the pricing cause as well as the failed credit admission.
+		// Realtime speech must report a missing/invalid price rather than making
+		// operators troubleshoot an unrelated Auth authorization outage.
+		return "", nil, fmt.Errorf("%w: media price unavailable: %w", bc.ErrState, err)
 	}
 	unit, err := price.UnitPrice(quote.ServiceTier)
 	if err != nil {
 		return "", nil, err
 	}
-	qty, err := strconv.ParseFloat(string(quote.MaximumUsage[meter]), 64)
+	outputLimit := 0
+	if price.Unit == mediaUnitOutputAudioSecond {
+		// Only synchronous adapters with an enforced audio byte/duration cap
+		// support duration billing. Async URL/batch speech has no such bound.
+		if strings.TrimPrefix(path, "/v1") != "/audio/speech" {
+			return "", nil, fmt.Errorf("%w: asynchronous speech has no enforced output duration bound", ErrMediaPricingNotConfigured)
+		}
+		meter, outputLimit = "audio_seconds", MediaSpeechOutputSecondsMaximum
+	}
+	quantity := string(quote.MaximumUsage[meter])
+	if outputLimit > 0 {
+		quantity = strconv.Itoa(outputLimit)
+	}
+	qty, err := strconv.ParseFloat(quantity, 64)
 	if err != nil || !finiteNonnegativeCredit(qty) || qty <= 0 {
 		return "", nil, bc.ErrConflict
 	}
@@ -211,7 +232,7 @@ func (s *GatewayService) maximumMediaCredit(ctx context.Context, path string, qu
 		return "", nil, err
 	}
 	snapshot, err := json.Marshal(gatewayCreditPriceSnapshot{BillingModel: model, RateMultiplier: rate,
-		MediaKind: kind, MediaTier: normalizeMediaBillingTier(quote.ServiceTier), MediaPrice: price})
+		MediaKind: kind, MediaTier: normalizeMediaBillingTier(quote.ServiceTier), MediaPrice: price, MediaOutputSecondsLimit: outputLimit})
 	if err != nil {
 		return "", nil, err
 	}
@@ -225,10 +246,30 @@ func (s *GatewayService) maximumImageCredit(ctx context.Context, quote bc.QuoteR
 	}
 	snap := gatewayCreditPriceSnapshot{BillingModel: model, RateMultiplier: rate, ServiceTier: quote.ServiceTier}
 	maxUnit := 0.0
+	quantity := float64(count)
 	resolved := s.resolver.Resolve(ctx, PricingInput{Model: model, GroupID: key.GroupID})
-	if resolved != nil && resolved.Source == PricingSourceChannel && (resolved.Mode == BillingModeImage || resolved.Mode == BillingModePerRequest) {
+	if resolved != nil && resolved.Error != nil {
+		return "", nil, fmt.Errorf("%w: image pricing policy is unavailable: %w", bc.ErrState, resolved.Error)
+	}
+	if resolved != nil && resolved.Source == PricingSourceManual && resolved.Mode != BillingModeImage && resolved.Mode != BillingModePerRequest {
+		return "", nil, fmt.Errorf("%w: administrator pricing mode cannot price generated images", bc.ErrState)
+	}
+	if resolved != nil && (resolved.Source == PricingSourceChannel || resolved.Source == PricingSourceManual) && (resolved.Mode == BillingModeImage || resolved.Mode == BillingModePerRequest) {
+		if resolved.Source == PricingSourceManual {
+			snap.ImageBillingMode = resolved.Mode
+			if resolved.Mode == BillingModePerRequest {
+				requests, requestErr := strconv.Atoi(string(quote.MaximumUsage["request_count"]))
+				if requestErr != nil || requests != 1 {
+					return "", nil, bc.ErrConflict
+				}
+				quantity = 1
+			}
+		}
 		selected := resolved.DefaultPerRequestPrice
 		configured := resolved.DefaultPriceConfigured
+		if configured && !finiteNonnegativeCredit(selected) {
+			return "", nil, bc.ErrState
+		}
 		for _, tier := range resolved.RequestTiers {
 			if tier.PerRequestPrice == nil {
 				continue
@@ -262,7 +303,7 @@ func (s *GatewayService) maximumImageCredit(ctx context.Context, quote bc.QuoteR
 			}
 		}
 	}
-	maximum, err := gatewayCreditDecimal(maxUnit*float64(count)*rate, true)
+	maximum, err := gatewayCreditDecimal(maxUnit*quantity*rate, true)
 	if err != nil {
 		return "", nil, err
 	}
@@ -328,6 +369,9 @@ func maximumGatewayTokenCost(billing *BillingService, resolved *ResolvedPricing,
 	if billing == nil || resolved == nil || usage == nil || !finiteNonnegativeCredit(multiplier) {
 		return 0, fmt.Errorf("%w: incomplete gateway price", bc.ErrState)
 	}
+	if resolved.Error != nil {
+		return 0, fmt.Errorf("%w: model pricing policy is unavailable: %w", bc.ErrState, resolved.Error)
+	}
 	read := func(name string) (int, error) {
 		raw, ok := usage[name]
 		if !ok {
@@ -379,11 +423,13 @@ func maximumGatewayTokenCost(billing *BillingService, resolved *ResolvedPricing,
 			return 0, bc.ErrConflict
 		}
 		price := resolved.DefaultPerRequestPrice
-		if !resolved.DefaultPriceConfigured && len(resolved.RequestTiers) == 0 {
-			return 0, fmt.Errorf("%w: per-request model price is unavailable", bc.ErrState)
+		configured := resolved.DefaultPriceConfigured
+		if configured && !finiteNonnegativeCredit(price) {
+			return 0, bc.ErrState
 		}
 		for _, tier := range resolved.RequestTiers {
 			if tier.PerRequestPrice != nil {
+				configured = true
 				if !finiteNonnegativeCredit(*tier.PerRequestPrice) {
 					return 0, bc.ErrState
 				}
@@ -391,6 +437,9 @@ func maximumGatewayTokenCost(billing *BillingService, resolved *ResolvedPricing,
 					price = *tier.PerRequestPrice
 				}
 			}
+		}
+		if !configured {
+			return 0, fmt.Errorf("%w: per-request model price is unavailable", bc.ErrState)
 		}
 		if !finiteNonnegativeCredit(price) {
 			return 0, bc.ErrState
@@ -469,6 +518,14 @@ func (s *GatewayService) frozenGatewayCreditCost(ctx context.Context, e *bc.Exec
 		if result.ImageCount < 1 {
 			return nil, "", 0, bc.ErrState
 		}
+		// New administrator prices distinguish USD/request from USD/image.
+		// An absent mode keeps historical channel snapshots' per-image behavior.
+		quantity, mode := result.ImageCount, BillingModeImage
+		if snap.ImageBillingMode == BillingModePerRequest {
+			quantity, mode = 1, BillingModePerRequest
+		} else if snap.ImageBillingMode != "" && snap.ImageBillingMode != BillingModeImage {
+			return nil, "", 0, bc.ErrState
+		}
 		unit := 0.0
 		if snap.ImageUnitPrice != nil {
 			unit = *snap.ImageUnitPrice
@@ -484,8 +541,8 @@ func (s *GatewayService) frozenGatewayCreditCost(ctx context.Context, e *bc.Exec
 		if !finiteNonnegativeCredit(unit) {
 			return nil, "", 0, bc.ErrState
 		}
-		total := unit * float64(result.ImageCount)
-		return &CostBreakdown{ActualCost: total * snap.RateMultiplier, TotalCost: total, BillingMode: string(BillingModeImage)}, snap.BillingModel, snap.RateMultiplier, nil
+		total := unit * float64(quantity)
+		return &CostBreakdown{ActualCost: total * snap.RateMultiplier, TotalCost: total, BillingMode: string(mode)}, snap.BillingModel, snap.RateMultiplier, nil
 	}
 	if snap.Resolved == nil || result.ImageCount > 0 {
 		return nil, "", 0, fmt.Errorf("%w: image output requires a bounded product", bc.ErrState)
@@ -509,7 +566,7 @@ func (s *GatewayService) frozenGatewayCreditCost(ctx context.Context, e *bc.Exec
 			Tokens: tokenUsage, RequestCount: 1, RateMultiplier: rate, ServiceTier: actualTier,
 			Resolver: s.resolver, Resolved: snap.Resolved})
 	}
-	if opts.LongContextThreshold <= 0 || opts.LongContextMultiplier <= 1 || snap.Resolved.Source == PricingSourceChannel ||
+	if opts.LongContextThreshold <= 0 || opts.LongContextMultiplier <= 1 || snap.Resolved.Source == PricingSourceChannel || snap.Resolved.Source == PricingSourceManual ||
 		tokens.CacheReadTokens+tokens.InputTokens <= opts.LongContextThreshold || snap.Resolved.Mode != BillingModeToken {
 		cost, err := calculate(tokens, snap.RateMultiplier)
 		return cost, snap.BillingModel, snap.RateMultiplier, err

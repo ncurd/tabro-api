@@ -46,7 +46,7 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		for _, id := range ids {
 			models = append(models, gemini.FallbackModel(id))
 		}
-		c.JSON(http.StatusOK, gemini.ModelsListResponse{Models: models})
+		writeModelPolicyCatalog(c, gemini.ModelsListResponse{Models: models}, true)
 		return
 	}
 	// 检查平台：优先使用强制平台（/antigravity 路由），否则要求 gemini 分组
@@ -58,7 +58,7 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 
 	// 强制 antigravity 模式：返回 antigravity 支持的模型列表
 	if forcePlatform == service.PlatformAntigravity {
-		c.JSON(http.StatusOK, antigravity.FallbackGeminiModelsList())
+		writeModelPolicyCatalog(c, antigravity.FallbackGeminiModelsList(), true)
 		return
 	}
 
@@ -68,7 +68,7 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		hasAntigravity, _ := h.geminiCompatService.HasAntigravityAccounts(c.Request.Context(), apiKey.GroupID)
 		if hasAntigravity {
 			// antigravity 账户使用静态模型列表
-			c.JSON(http.StatusOK, gemini.FallbackModelsList())
+			writeModelPolicyCatalog(c, gemini.FallbackModelsList(), true)
 			return
 		}
 		googleError(c, http.StatusServiceUnavailable, "No available Gemini accounts: "+err.Error())
@@ -81,10 +81,10 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		return
 	}
 	if shouldFallbackGeminiModels(res) {
-		c.JSON(http.StatusOK, gemini.FallbackModelsList())
+		writeModelPolicyCatalog(c, gemini.FallbackModelsList(), true)
 		return
 	}
-	writeUpstreamResponse(c, res)
+	writeModelPolicyUpstreamCatalog(c, res)
 }
 
 // GeminiV1BetaGetModel proxies:

@@ -885,7 +885,7 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 				}
 				models = append(models, model)
 			}
-			c.JSON(http.StatusOK, gin.H{"object": "list", "data": h.openAIModelCatalog(models, c.Request.Context())})
+			writeModelPolicyCatalog(c, gin.H{"object": "list", "data": h.openAIModelCatalog(models, c.Request.Context())}, false)
 			return
 		}
 		// Build model list from whitelist
@@ -906,31 +906,31 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 				CreatedAt:   "2024-01-01T00:00:00Z",
 			})
 		}
-		c.JSON(http.StatusOK, gin.H{
+		writeModelPolicyCatalog(c, gin.H{
 			"object": "list",
 			"data":   h.claudeModelCatalog(models, c.Request.Context()),
-		})
+		}, false)
 		return
 	}
 
 	if service.DefaultMediaModels(platform) != nil {
-		c.JSON(http.StatusOK, gin.H{"object": "list", "data": h.openAIModelCatalog((&service.Account{Platform: platform}).AvailableMediaModels(), c.Request.Context())})
+		writeModelPolicyCatalog(c, gin.H{"object": "list", "data": h.openAIModelCatalog((&service.Account{Platform: platform}).AvailableMediaModels(), c.Request.Context())}, false)
 		return
 	}
 
 	// Fallback to default models
 	if platform == "openai" {
-		c.JSON(http.StatusOK, gin.H{
+		writeModelPolicyCatalog(c, gin.H{
 			"object": "list",
 			"data":   h.openAIModelCatalog(openai.DefaultModels, c.Request.Context()),
-		})
+		}, false)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	writeModelPolicyCatalog(c, gin.H{
 		"object": "list",
 		"data":   h.claudeModelCatalog(claude.DefaultModels, c.Request.Context()),
-	})
+	}, false)
 }
 
 // AntigravityModels 返回 Antigravity 支持的全部模型
@@ -942,13 +942,13 @@ func (h *GatewayHandler) AntigravityModels(c *gin.Context) {
 		for _, model := range models {
 			catalogue = append(catalogue, openai.Model{ID: model, Object: "model", Type: "model", OwnedBy: "system", DisplayName: model})
 		}
-		c.JSON(http.StatusOK, gin.H{"object": "list", "data": catalogue})
+		writeModelPolicyCatalog(c, gin.H{"object": "list", "data": catalogue}, false)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
+	writeModelPolicyCatalog(c, gin.H{
 		"object": "list",
 		"data":   antigravity.DefaultModels(),
-	})
+	}, false)
 }
 
 func cloneAPIKeyWithGroup(apiKey *service.APIKey, group *service.Group) *service.APIKey {

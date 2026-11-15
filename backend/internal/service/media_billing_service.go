@@ -24,13 +24,14 @@ type mediaPricingSource interface {
 }
 
 type MediaBillingService struct {
-	pricing mediaPricingSource
-	ledger  UsageBillingRepository
-	usage   UsageLogRepository
-	cache   *BillingCacheService
-	rates   UserGroupRateRepository
-	apiKeys *APIKeyService
-	cfg     *config.Config
+	pricing       mediaPricingSource
+	ledger        UsageBillingRepository
+	usage         UsageLogRepository
+	cache         *BillingCacheService
+	rates         UserGroupRateRepository
+	apiKeys       *APIKeyService
+	cfg           *config.Config
+	modelPolicies mediaModelPolicyPricing
 }
 
 func NewMediaBillingService(pricing *ChannelService, ledger UsageBillingRepository, usage UsageLogRepository, cache *BillingCacheService, rates UserGroupRateRepository, apiKeys *APIKeyService, cfg *config.Config) *MediaBillingService {
@@ -39,6 +40,7 @@ func NewMediaBillingService(pricing *ChannelService, ledger UsageBillingReposito
 
 type MediaPriceSnapshot struct {
 	Mode    BillingMode        `json:"mode"`
+	Unit    string             `json:"unit,omitempty"`
 	Default *float64           `json:"default,omitempty"`
 	Tiers   map[string]float64 `json:"tiers,omitempty"`
 }
@@ -104,9 +106,9 @@ func (s *MediaBillingService) Prepare(ctx context.Context, meta MediaRequestMeta
 		creditSnapshot = &frozen
 		price = frozen.MediaPrice
 	} else {
-		price, err = snapshotMediaPrice(s.pricing.GetChannelModelPricing(ctx, *key.GroupID, billingModel), kind)
+		price, err = resolveMediaModelPrice(ctx, s.pricing.GetChannelModelPricing(ctx, *key.GroupID, billingModel), s.modelPolicies, billingModel, kind)
 		if err != nil {
-			return nil, fmt.Errorf("%w for model %s: %v", ErrMediaPricingNotConfigured, billingModel, err)
+			return nil, fmt.Errorf("media pricing for model %s: %w", billingModel, err)
 		}
 	}
 	pricedTier := tier
@@ -115,6 +117,13 @@ func (s *MediaBillingService) Prepare(ctx context.Context, meta MediaRequestMeta
 	}
 	if _, err = price.UnitPrice(pricedTier); err != nil {
 		return nil, fmt.Errorf("%w for model %s resolution %s", ErrMediaPricingNotConfigured, billingModel, tier)
+	}
+	if price.Unit == mediaUnitOutputAudioSecond {
+		if execution := bc.ExecutionFromContext(ctx); execution != nil && execution.Mode == "central" {
+			if execution.Quote.Request.MaximumUsage[gatewayCreditMeter] == "" || execution.OriginalMaximumUsage["audio_seconds"] == "" {
+				return nil, fmt.Errorf("%w: output audio seconds require a frozen gateway duration bound", ErrMediaBillingUnavailable)
+			}
+		}
 	}
 	multiplier := key.Group.RateMultiplier
 	if s.rates != nil {
@@ -183,14 +192,31 @@ func snapshotMediaPrice(pricing *ChannelModelPricing, kind string) (*MediaPriceS
 	if pricing == nil {
 		return nil, ErrMediaPricingNotConfigured
 	}
+	if pricing.BillingMode == BillingModeDuration {
+		var price *float64
+		unit := ""
+		switch kind {
+		case MediaJobKindAudioTranscription:
+			price, unit = pricing.InputAudioPricePerSecond, mediaUnitInputAudioSecond
+		case MediaJobKindAudioSpeech:
+			price, unit = pricing.OutputAudioPricePerSecond, mediaUnitOutputAudioSecond
+		case MediaJobKindVideoGeneration:
+			price, unit = pricing.OutputVideoPricePerSecond, mediaUnitOutputVideoSecond
+		}
+		if price == nil || !validMediaPrice(*price) || pricing.PriceUnit != "second" {
+			return nil, fmt.Errorf("%w: %s has no per-second price for its media direction", ErrMediaPricingNotConfigured, kind)
+		}
+		frozen := *price
+		return &MediaPriceSnapshot{Mode: BillingModeDuration, Unit: unit, Default: &frozen}, nil
+	}
 	validMode := pricing.BillingMode == BillingModePerRequest || (kind == MediaJobKindVideoGeneration && pricing.BillingMode == BillingModeVideo) || ((kind == MediaJobKindAudioSpeech || kind == "audio_transcription") && pricing.BillingMode == BillingModeAudio)
 	if !validMode {
-		return nil, fmt.Errorf("billing mode %s cannot price %s", pricing.BillingMode, kind)
+		return nil, fmt.Errorf("%w: billing mode %s cannot price %s", ErrMediaPricingNotConfigured, pricing.BillingMode, kind)
 	}
 	p := &MediaPriceSnapshot{Mode: pricing.BillingMode, Tiers: map[string]float64{}}
 	if pricing.PerRequestPrice != nil {
 		if !validMediaPrice(*pricing.PerRequestPrice) {
-			return nil, fmt.Errorf("price must be finite and nonnegative")
+			return nil, fmt.Errorf("%w: price must be finite and nonnegative", ErrMediaPricingNotConfigured)
 		}
 		v := *pricing.PerRequestPrice
 		p.Default = &v
@@ -201,10 +227,10 @@ func snapshotMediaPrice(pricing *ChannelModelPricing, kind string) (*MediaPriceS
 		}
 		label := normalizeMediaBillingTier(iv.TierLabel)
 		if label == "" || !validMediaPrice(*iv.PerRequestPrice) {
-			return nil, fmt.Errorf("media tiers require a label and finite nonnegative price")
+			return nil, fmt.Errorf("%w: media tiers require a label and finite nonnegative price", ErrMediaPricingNotConfigured)
 		}
 		if _, exists := p.Tiers[label]; exists {
-			return nil, fmt.Errorf("duplicate media pricing tier %s", label)
+			return nil, fmt.Errorf("%w: duplicate media pricing tier %s", ErrMediaPricingNotConfigured, label)
 		}
 		p.Tiers[label] = *iv.PerRequestPrice
 	}
@@ -257,8 +283,8 @@ func (s *MediaBillingService) Settle(ctx context.Context, job *MediaGenerationJo
 		}
 		ctx = bc.WithExecution(ctx, execution)
 	}
-	units, tier, err := mediaBillableUnits(job, snap.Kind)
-	if err != nil && snap.Price.Mode == BillingModePerRequest && (snap.AccountPrice == nil || snap.AccountPrice.Mode == BillingModePerRequest) {
+	units, tier, err := mediaBillableUnitsForPrice(job, snap.Kind, snap.Price)
+	if err != nil && snap.Price.Mode == BillingModePerRequest {
 		units = 1
 		err = nil
 	}
@@ -277,7 +303,10 @@ func (s *MediaBillingService) Settle(ctx context.Context, job *MediaGenerationJo
 			quotedTier = frozen.MediaTier
 		}
 	}
-	if snap.Center != nil && snap.Kind == MediaJobKindVideoGeneration && quotedTier != tier {
+	flatVideoDuration := snap.Price.Mode == BillingModeDuration && snap.Price.Unit == mediaUnitOutputVideoSecond &&
+		snap.Price.Default != nil && len(snap.Price.Tiers) == 0 &&
+		(snap.AccountPrice == nil || snap.AccountPrice.Default != nil && len(snap.AccountPrice.Tiers) == 0)
+	if snap.Center != nil && snap.Kind == MediaJobKindVideoGeneration && quotedTier != tier && !flatVideoDuration {
 		if snap.Center.Mode == "shadow" {
 			shadowIncomplete = true
 		} else {
@@ -295,13 +324,20 @@ func (s *MediaBillingService) Settle(ctx context.Context, job *MediaGenerationJo
 	actual := total * snap.RateMultiplier
 	accountCost := total * snap.AccountRateMultiplier
 	if snap.AccountPrice != nil {
+		accountUnits, accountTier, usageErr := mediaBillableUnitsForPrice(job, snap.Kind, *snap.AccountPrice)
+		if usageErr != nil && snap.AccountPrice.Mode != BillingModePerRequest {
+			return usageErr
+		}
+		if accountTier != "" {
+			tier = accountTier
+		}
 		rate, err := snap.AccountPrice.UnitPrice(tier)
 		if err != nil {
 			return fmt.Errorf("%w: account result tier", ErrMediaUsageIncomplete)
 		}
 		accountCost = rate
 		if snap.AccountPrice.Mode != BillingModePerRequest {
-			accountCost *= units
+			accountCost *= accountUnits
 		}
 	}
 	if !validMediaPrice(total) || !validMediaPrice(actual) || !validMediaPrice(accountCost) {
@@ -313,11 +349,15 @@ func (s *MediaBillingService) Settle(ctx context.Context, job *MediaGenerationJo
 		billingType = BillingTypeSubscription
 	}
 	durationMs := int(math.Ceil(units * 1000))
-	if snap.Kind == MediaJobKindAudioSpeech || snap.Kind == "voice_clone" {
+	if (snap.Kind == MediaJobKindAudioSpeech && snap.Price.Unit != mediaUnitOutputAudioSecond) || snap.Kind == "voice_clone" {
 		durationMs = 0
 	}
 	log := &UsageLog{UserID: snap.UserID, APIKeyID: snap.APIKeyID, AccountID: snap.AccountID, RequestID: job.PublicID, GroupID: snap.GroupID, SubscriptionID: snap.SubscriptionID, Model: snap.Model, RequestedModel: snap.RequestedModel, UpstreamModel: optionalNonEqualStringPtr(snap.UpstreamModel, snap.RequestedModel), ChannelID: optionalInt64Ptr(snap.ChannelID), BillingMode: &mode, BillingTier: optionalTrimmedStringPtr(tier), BillingType: billingType, RequestType: RequestTypeSync, DurationMs: &durationMs, ImageCount: job.VideoCount, MediaType: optionalTrimmedStringPtr(tier), OutputCost: total, TotalCost: total, ActualCost: actual, RateMultiplier: snap.RateMultiplier, AccountRateMultiplier: &snap.AccountRateMultiplier, AccountStatsCost: &accountCost, OIDCIssuer: snap.OIDCIssuer, OIDCSubject: snap.OIDCSubject, OIDCTenant: snap.OIDCTenant, TabroRunID: snap.TabroRunID, TabroProjectID: snap.TabroProjectID, CreatedAt: job.CreatedAt}
 	cmd := &UsageBillingCommand{RequestID: job.PublicID, UpstreamRequestID: job.UpstreamRequestID, RequestPayloadHash: snap.PayloadHash, UserID: snap.UserID, APIKeyID: snap.APIKeyID, AccountID: snap.AccountID, AccountType: snap.AccountType, SubscriptionID: snap.SubscriptionID, Model: snap.Model, RequestedModel: snap.RequestedModel, UpstreamModel: log.UpstreamModel, BillingType: billingType, BillingMode: mode, ImageCount: job.VideoCount, MediaType: tier, OutputCost: total, TotalCost: total, ActualCost: actual, RateMultiplier: snap.RateMultiplier, AccountRateMultiplier: &snap.AccountRateMultiplier, OIDCIssuer: snap.OIDCIssuer, OIDCSubject: snap.OIDCSubject, OIDCTenant: snap.OIDCTenant, TabroRunID: snap.TabroRunID, TabroProjectID: snap.TabroProjectID}
+	if snap.Price.Unit == mediaUnitInputAudioSecond {
+		log.InputCost, log.OutputCost = total, 0
+		cmd.InputCost, cmd.OutputCost = total, 0
+	}
 	if snap.SubscriptionID != nil {
 		cmd.SubscriptionCost = total
 	} else {

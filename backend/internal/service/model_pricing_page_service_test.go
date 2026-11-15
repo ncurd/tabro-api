@@ -25,6 +25,9 @@ func TestModelPricingPageUsesMediaUnitsAndKeepsFreeDistinctFromMissing(t *testin
 		{"tier_only", "wan3.0-video", &ResolvedPricing{Mode: BillingModeVideo, RequestTiers: []PricingInterval{{TierLabel: "720P", PerRequestPrice: &zero}}}, "second", true, nil},
 		{"tts", "qwen3-tts-flash", &ResolvedPricing{Mode: BillingModeAudio, DefaultPriceConfigured: true}, "character", true, &zero},
 		{"asr", "qwen3-asr-flash", &ResolvedPricing{Mode: BillingModeAudio, DefaultPriceConfigured: true}, "second", true, &zero},
+		{"paraformer", "paraformer-realtime-v2", &ResolvedPricing{Mode: BillingModeAudio, DefaultPriceConfigured: true}, "second", true, &zero},
+		{"manual asr alias", "dictation", &ResolvedPricing{Mode: BillingModeAudio, Source: PricingSourceManual, PriceUnit: "second", DefaultPriceConfigured: true}, "second", true, &zero},
+		{"manual tts alias", "read-aloud", &ResolvedPricing{Mode: BillingModeAudio, Source: PricingSourceManual, PriceUnit: "character", DefaultPriceConfigured: true}, "character", true, &zero},
 		{"request", "qwen-voice-enrollment", &ResolvedPricing{Mode: BillingModePerRequest, DefaultPriceConfigured: true}, "request", true, &zero},
 		{"image", "gpt-image-2", &ResolvedPricing{Mode: BillingModeImage, DefaultPriceConfigured: true}, "image", true, &zero},
 	} {

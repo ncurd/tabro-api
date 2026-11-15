@@ -126,6 +126,15 @@ func mediaBillingMeters(job *MediaGenerationJob) (map[string]bc.Decimal, error) 
 		}
 		usage["video_seconds"] = bc.Decimal(value.String())
 	case MediaJobKindAudioSpeech:
+		var snapshot MediaBillingSnapshot
+		if len(job.BillingSnapshotJSON) > 0 && json.Unmarshal(job.BillingSnapshotJSON, &snapshot) == nil && snapshot.Price.Mode == BillingModeDuration && snapshot.Price.Unit == mediaUnitOutputAudioSecond && !shadowSpeechUsesCharacterQuote(snapshot.Center) {
+			value, err := exactPositiveMediaQuantity(gjson.GetBytes(body, "usage.audio_seconds"))
+			if err != nil {
+				return nil, err
+			}
+			usage["audio_seconds"] = bc.Decimal(value.String())
+			break
+		}
 		value, err := exactPositiveMediaQuantity(gjson.GetBytes(body, "usage.characters"))
 		if err != nil && job.AudioCharacterCount > 0 {
 			value = decimal.NewFromInt(int64(job.AudioCharacterCount))

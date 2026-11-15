@@ -35,4 +35,16 @@ describe('historical billing prices', () => {
     expect(formatUsageRate({ ...usage, actual_cost: 0 })).toBe('0.0x')
     expect(formatUsageRate({ billing_source: 'central', rate_multiplier: NaN })).toBe('—')
   })
+
+  it('keeps duration billing separate from token/image prices and does not infer a unit price from total cost', () => {
+    const usage = { billing_source: 'central', billing_mode: 'duration', rate_multiplier: 3,
+      total_cost: 0.02, actual_cost: 0.06, input_tokens: 1000, output_tokens: 500, image_count: 2 }
+    expect(isCentralUsage(usage)).toBe(true)
+    expect(isTokenPricedUsage(usage)).toBe(false)
+    expect(isImagePricedUsage(usage)).toBe(false)
+    expect(usageDisplayCost(0.02, usage)).toBe(0.06)
+    expect(usageDisplayUnitCost(0.02, usage)).toBeNull()
+    expect(usageDisplayUnitCost(0, { ...usage, actual_cost: 0 })).toBeNull()
+    expect(usageDisplayUnitCost(0.02, { ...usage, billing_source: 'local' })).toBeNull()
+  })
 })

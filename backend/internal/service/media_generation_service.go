@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -76,25 +75,43 @@ func NewMediaGenerationService(
 	return svc
 }
 
-func (s *MediaGenerationService) ForwardAzureSpeech(ctx context.Context, account *Account, req AzureSpeechRequest, metas ...MediaRequestMeta) (*MediaSyncAudioResult, []byte, http.Header, error) {
+func (s *MediaGenerationService) ForwardAzureSpeech(ctx context.Context, account *Account, req AzureSpeechRequest, metas ...MediaRequestMeta) (result *MediaSyncAudioResult, audio []byte, headers http.Header, err error) {
 	if account == nil {
 		return nil, nil, nil, fmt.Errorf("azure speech account is required")
 	}
 	var billingJob *MediaGenerationJob
-	if len(metas) > 0 && bc.ExecutionFromContext(ctx) != nil {
+	durationPriced := false
+	if len(metas) > 0 && (s.cfg == nil || s.cfg.RunMode != config.RunModeSimple || bc.ExecutionFromContext(ctx) != nil) {
 		meta := metas[0]
 		snapshot, err := s.prepareQwenAudioBilling(ctx, meta, account, req.Model, req.Model, MediaJobKindAudioSpeech)
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		billingJob = s.newJob(meta, account, req.Model, MediaJobKindAudioSpeech, MediaProviderAzureSpeech, PlatformAzureSpeech)
-		billingJob.Status = MediaJobStatusRunning
-		billingJob.AudioCharacterCount = len([]rune(req.Input))
-		billingJob.BillingSnapshotJSON = snapshot.JSON()
-		if err := s.jobRepo.Create(ctx, billingJob); err != nil {
-			return nil, nil, nil, err
+		durationPriced = mediaSpeechDurationRequired(snapshot)
+		format := strings.ToLower(strings.TrimSpace(req.ResponseFormat))
+		if durationPriced && format != "wav" && format != "pcm" {
+			return nil, nil, nil, mediaUnsupportedSpeechDuration("Azure synchronous speech requires response_format wav or pcm for measured playback seconds")
+		}
+		if snapshot != nil {
+			billingJob = s.newJob(meta, account, req.Model, MediaJobKindAudioSpeech, MediaProviderAzureSpeech, PlatformAzureSpeech)
+			billingJob.Status = MediaJobStatusRunning
+			billingJob.AudioCharacterCount = len([]rune(req.Input))
+			billingJob.BillingSnapshotJSON = snapshot.JSON()
+			if err := s.jobRepo.Create(ctx, billingJob); err != nil {
+				return nil, nil, nil, err
+			}
 		}
 	}
+	dispatched, succeeded := false, false
+	defer func() {
+		if billingJob != nil && !succeeded {
+			if dispatched {
+				err = errors.Join(err, s.retainUncertainSpeechUsage(ctx, billingJob, speechTTSUsageEvidence("", 0, 0, false)))
+			} else {
+				s.failQwenAudioJob(ctx, billingJob)
+			}
+		}
+	}()
 	upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, azureSpeechTTSEndpoint(account), strings.NewReader(buildAzureSpeechSSML(req)))
 	if err != nil {
 		return nil, nil, nil, err
@@ -103,26 +120,38 @@ func (s *MediaGenerationService) ForwardAzureSpeech(ctx context.Context, account
 	upstreamReq.Header.Set("Ocp-Apim-Subscription-Key", account.GetCredential("subscription_key"))
 	upstreamReq.Header.Set("X-Microsoft-OutputFormat", mapAzureSpeechOutputFormat(req.ResponseFormat))
 
+	dispatched = true
 	resp, err := s.doUpstream(upstreamReq, account)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	defer resp.Body.Close()
 
-	body, readErr := io.ReadAll(resp.Body)
+	var reader io.Reader = resp.Body
+	if durationPriced {
+		// Bound audio plus RIFF metadata. The sample count below remains the
+		// authority; Content-Length and network elapsed time are not durations.
+		reader = io.LimitReader(resp.Body, MediaSpeechOutputSecondsMaximum*mediaSpeechPCMBytesPerSecond+(1<<20)+1)
+	}
+	body, readErr := io.ReadAll(reader)
 	if readErr != nil {
 		return nil, nil, nil, readErr
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, nil, resp.Header, &UpstreamFailoverError{StatusCode: resp.StatusCode, ResponseBody: body, ResponseHeaders: resp.Header}
 	}
+	pcmBytes, durationErr := mediaSpeechWAVPCMBytes(body)
+	if durationPriced && (durationErr != nil || pcmBytes > MediaSpeechOutputSecondsMaximum*mediaSpeechPCMBytesPerSecond || len(body) > MediaSpeechOutputSecondsMaximum*mediaSpeechPCMBytesPerSecond+(1<<20)) {
+		return nil, nil, resp.Header, fmt.Errorf("%w: Azure audio must be complete PCM WAV within the frozen 600-second output bound", ErrMediaUsageIncomplete)
+	}
 
 	if billingJob != nil {
-		metadata, _ := json.Marshal(map[string]any{"request_id": firstNonEmpty(resp.Header.Get("x-requestid"), resp.Header.Get("x-ms-requestid")), "usage": map[string]int{"characters": billingJob.AudioCharacterCount}})
+		metadata := speechTTSUsageEvidence(firstNonEmpty(resp.Header.Get("x-requestid"), resp.Header.Get("x-ms-requestid")), int64(billingJob.AudioCharacterCount), pcmBytes, true)
 		if err := s.persistAndSettleQwenAudio(ctx, billingJob, metadata); err != nil {
 			return nil, nil, resp.Header, err
 		}
 	}
+	succeeded = true
 	contentType := resp.Header.Get("Content-Type")
 	return &MediaSyncAudioResult{
 		RequestID:   firstNonEmpty(resp.Header.Get("x-requestid"), resp.Header.Get("x-ms-requestid"), resp.Header.Get("x-request-id")),
@@ -134,12 +163,17 @@ func (s *MediaGenerationService) CreateAudioSpeechJob(ctx context.Context, meta 
 	if s.jobRepo == nil || account == nil {
 		return nil, ErrMediaBillingUnavailable
 	}
-	if bc.ExecutionFromContext(ctx) != nil {
+	if s.cfg == nil || s.cfg.RunMode != config.RunModeSimple || bc.ExecutionFromContext(ctx) != nil {
 		snapshot, err := s.prepareQwenAudioBilling(ctx, meta, account, req.Model, req.Model, MediaJobKindAudioSpeech)
 		if err != nil {
 			return nil, err
 		}
-		meta.billingSnapshotJSON = snapshot.JSON()
+		if mediaSpeechDurationRequired(snapshot) {
+			return nil, mediaUnsupportedSpeechDuration("Azure batch synthesis has no enforced audio output bound")
+		}
+		if snapshot != nil {
+			meta.billingSnapshotJSON = snapshot.JSON()
+		}
 	}
 	job := s.newJob(meta, account, req.Model, MediaJobKindAudioSpeech, MediaProviderAzureSpeech, PlatformAzureSpeech)
 	job.UpstreamTaskID = newMediaPublicID("azbatch")

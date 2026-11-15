@@ -127,6 +127,11 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 			return
 		}
 
+		if err := enforceGatewayModelPolicy(c, apiKeyService); err != nil {
+			status, code, message := modelPolicyError(err)
+			AbortWithError(c, status, code, message)
+			return
+		}
 		apiKey, err = resolveRequestGatewayGroup(c, apiKeyService, apiKey)
 		if err != nil {
 			status, code, message := gatewayGroupRoutingError(err)

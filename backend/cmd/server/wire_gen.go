@@ -100,8 +100,9 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 		return nil, err
 	}
 	billingService := service.NewBillingService(configConfig, pricingService)
-	modelPricingResolver := service.NewModelPricingResolver(channelService, billingService)
-	modelPricingPageService := service.ProvideModelPricingPageService(apiKeyService, accountRepository, modelPricingResolver, settingService)
+	adminModelPolicyService := service.ProvideAdminModelPolicyService(settingRepository, pricingService, billingService, accountRepository, channelRepository, apiKeyService)
+	modelPricingResolver := service.ProvideModelPricingResolverWithModelPolicies(channelService, billingService, adminModelPolicyService)
+	modelPricingPageService := service.ProvideModelPricingPageService(apiKeyService, accountRepository, modelPricingResolver, settingService, adminModelPolicyService)
 	modelPricingHandler := handler.ProvideModelPricingHandler(modelPricingPageService)
 	dashboardAggregationRepository := repository.NewDashboardAggregationRepository(db)
 	dashboardStatsCache := repository.NewDashboardCache(redisClient, configConfig)
@@ -224,8 +225,9 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	scheduledTestService := service.ProvideScheduledTestService(scheduledTestPlanRepository, scheduledTestResultRepository)
 	scheduledTestHandler := admin.NewScheduledTestHandler(scheduledTestService)
 	channelHandler := admin.NewChannelHandler(channelService, billingService)
+	modelPolicyHandler := admin.NewModelPolicyHandler(adminModelPolicyService)
 	paymentHandler := admin.NewPaymentHandler(paymentService, paymentConfigService)
-	adminHandlers := handler.ProvideAdminHandlers(dashboardHandler, adminUserHandler, groupHandler, accountHandler, adminAnnouncementHandler, dataManagementHandler, backupHandler, oAuthHandler, openAIOAuthHandler, geminiOAuthHandler, antigravityOAuthHandler, proxyHandler, adminRedeemHandler, promoHandler, settingHandler, opsHandler, systemHandler, adminSubscriptionHandler, adminUsageHandler, userAttributeHandler, errorPassthroughHandler, tlsFingerprintProfileHandler, adminAPIKeyHandler, scheduledTestHandler, channelHandler, paymentHandler)
+	adminHandlers := handler.ProvideAdminHandlers(dashboardHandler, adminUserHandler, groupHandler, accountHandler, adminAnnouncementHandler, dataManagementHandler, backupHandler, oAuthHandler, openAIOAuthHandler, geminiOAuthHandler, antigravityOAuthHandler, proxyHandler, adminRedeemHandler, promoHandler, settingHandler, opsHandler, systemHandler, adminSubscriptionHandler, adminUsageHandler, userAttributeHandler, errorPassthroughHandler, tlsFingerprintProfileHandler, adminAPIKeyHandler, scheduledTestHandler, channelHandler, modelPolicyHandler, paymentHandler)
 	usageRecordWorkerPool := service.NewUsageRecordWorkerPool(configConfig)
 	userMsgQueueCache := repository.NewUserMsgQueueCache(redisClient)
 	userMessageQueueService := service.ProvideUserMessageQueueService(userMsgQueueCache, rpmCache, configConfig)
@@ -234,7 +236,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	gatewayBillingUsageHandler := handler.NewGatewayBillingUsageHandler(gatewayBillingUsageRepository, configConfig, apiKeyService, settingService)
 	openAIGatewayHandler := handler.NewOpenAIGatewayHandler(openAIGatewayService, concurrencyService, billingCacheService, apiKeyService, usageRecordWorkerPool, errorPassthroughService, configConfig)
 	mediaGenerationJobRepository := repository.NewMediaGenerationJobRepository(client)
-	mediaBillingService := service.NewMediaBillingService(channelService, usageBillingRepository, usageLogRepository, billingCacheService, userGroupRateRepository, apiKeyService, configConfig)
+	mediaBillingService := service.ProvideMediaBillingServiceWithModelPolicies(channelService, usageBillingRepository, usageLogRepository, billingCacheService, userGroupRateRepository, apiKeyService, configConfig, adminModelPolicyService)
 	mediaGenerationService := service.ProvideMediaGenerationService(accountRepository, mediaGenerationJobRepository, usageLogRepository, httpUpstream, configConfig, mediaBillingService)
 	mediaGenerationHandler := handler.NewMediaGenerationHandler(mediaGenerationService, gatewayService, billingCacheService, concurrencyService)
 	handlerSettingHandler := handler.ProvideSettingHandler(settingService, buildInfo)
@@ -247,11 +249,11 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	jwtAuthMiddleware := middleware.NewJWTAuthMiddleware(authService, userService, settingService)
 	adminAuthMiddleware := middleware.NewAdminAuthMiddleware(authService, userService, settingService)
 	gatewayBillingRepository := repository.ProvideGatewayBillingRepository(db, configConfig)
-	gatewayBillingCoordinator, err := service.ProvideGatewayBillingCoordinator(configConfig, gatewayBillingRepository, pricingService, gatewayService, settingService)
+	gatewayBillingCoordinator, err := service.ProvideGatewayBillingCoordinatorWithModelPolicies(configConfig, gatewayBillingRepository, pricingService, gatewayService, settingService, adminModelPolicyService)
 	if err != nil {
 		return nil, err
 	}
-	apiKeyAuthMiddleware := middleware.ProvideGatewayAuthMiddleware(apiKeyService, subscriptionService, authService, configConfig, gatewayBillingCoordinator)
+	apiKeyAuthMiddleware := middleware.ProvideGatewayAuthMiddleware(apiKeyService, subscriptionService, authService, configConfig, gatewayBillingCoordinator, adminModelPolicyService)
 	engine := server.ProvideRouter(configConfig, handlers, jwtAuthMiddleware, adminAuthMiddleware, apiKeyAuthMiddleware, authService, apiKeyService, subscriptionService, opsService, settingService, redisClient)
 	httpServer := server.ProvideHTTPServer(configConfig, engine)
 	opsMetricsCollector := service.ProvideOpsMetricsCollector(opsRepository, settingRepository, accountRepository, concurrencyService, db, redisClient, configConfig)

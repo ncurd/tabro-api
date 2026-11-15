@@ -642,6 +642,7 @@ type GatewayService struct {
 	debugGatewayBodyFile  atomic.Pointer[os.File] // non-nil when SUB2API_DEBUG_GATEWAY_BODY is set
 	tlsFPProfileService   *TLSFingerprintProfileService
 	balanceNotifyService  *BalanceNotifyService
+	mediaModelPolicies    mediaModelPolicyPricing
 }
 
 // NewGatewayService creates a new GatewayService
@@ -8003,7 +8004,9 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	} else {
 		cost = s.calculateRecordUsageCost(ctx, result, apiKey, billingModel, multiplier, opts)
 	}
-	if bc.IsCentral(ctx) && (cost == nil || cost.PricingFailed) {
+	if cost == nil || cost.PricingFailed {
+		logger.LegacyPrintf("service.gateway", "Usage pricing failed; reconciliation required (request=%q model=%q user=%d account=%d input_tokens=%d output_tokens=%d)",
+			result.RequestID, billingModel, user.ID, account.ID, result.Usage.InputTokens, result.Usage.OutputTokens)
 		return fmt.Errorf("%w: gateway price calculation failed", bc.ErrState)
 	}
 
@@ -8083,15 +8086,15 @@ func (s *GatewayService) calculateRecordUsageCost(
 	return s.calculateTokenCost(ctx, result, apiKey, billingModel, multiplier, opts)
 }
 
-// resolveChannelPricing 检查指定模型是否存在渠道级别定价。
-// 返回非 nil 的 ResolvedPricing 表示有渠道定价，nil 表示走默认定价路径。
+// resolveChannelPricing selects channel or administrator overrides. A failed
+// policy read must reach the cost calculator instead of falling back silently.
 func (s *GatewayService) resolveChannelPricing(ctx context.Context, billingModel string, apiKey *APIKey) *ResolvedPricing {
 	if s.resolver == nil || apiKey.Group == nil {
 		return nil
 	}
 	gid := apiKey.Group.ID
 	resolved := s.resolver.Resolve(ctx, PricingInput{Model: billingModel, GroupID: &gid})
-	if resolved.Source == PricingSourceChannel {
+	if resolved.Error != nil || resolved.Source == PricingSourceChannel || resolved.Source == PricingSourceManual {
 		return resolved
 	}
 	return nil
@@ -8106,6 +8109,10 @@ func (s *GatewayService) calculateImageCost(
 	multiplier float64,
 ) *CostBreakdown {
 	if resolved := s.resolveChannelPricing(ctx, billingModel, apiKey); resolved != nil {
+		requestCount := 1
+		if resolved.Mode == BillingModeImage {
+			requestCount = result.ImageCount
+		}
 		tokens := UsageTokens{
 			InputTokens:       result.Usage.InputTokens,
 			OutputTokens:      result.Usage.OutputTokens,
@@ -8117,7 +8124,7 @@ func (s *GatewayService) calculateImageCost(
 			Model:          billingModel,
 			GroupID:        &gid,
 			Tokens:         tokens,
-			RequestCount:   1,
+			RequestCount:   requestCount,
 			RateMultiplier: multiplier,
 			Resolver:       s.resolver,
 			Resolved:       resolved,

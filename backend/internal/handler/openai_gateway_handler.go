@@ -1403,6 +1403,14 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, closeReason)
 		return
 	}
+	modelPolicy := service.ModelAvailabilityPolicyFromContext(ctx)
+	if modelPolicy == nil && h.apiKeyService != nil {
+		modelPolicy = h.apiKeyService.ModelPolicies
+	}
+	if err := requireOpenAIWSTurnModelsEnabled(ctx, modelPolicy, reqModel, firstMessage); err != nil {
+		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "model is disabled or its availability cannot be verified")
+		return
+	}
 	previousResponseIDKind := service.ClassifyOpenAIPreviousResponseIDKind(previousResponseID)
 	// The upgrade has no model. Choose the effective permitted pool from the
 	// first turn, before acquiring an upstream account or reserving Auth credit.
@@ -1650,6 +1658,10 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					err,
 				)
 			}
+			if err := requireOpenAIWSTurnModelsEnabled(ctx, modelPolicy, requestModel, payload); err != nil {
+				return nil, service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation,
+					"model is disabled or its availability cannot be verified", err)
+			}
 			channelMapping, upstreamModel, err := h.gatewayService.ResolveAuthorizedWebSocketTurnModel(
 				ctx,
 				apiKey.GroupID,
@@ -1847,6 +1859,25 @@ func openAIWSOIDCExpiration(ctx context.Context) (time.Time, bool) {
 	}
 	expiresAt, ok := ctx.Value(ctxkey.OIDCExpiresAt).(time.Time)
 	return expiresAt, ok && !expiresAt.IsZero()
+}
+
+func requireOpenAIWSTurnModelsEnabled(ctx context.Context, policy service.ModelAvailabilityPolicy, model string, payload []byte) error {
+	if err := service.RequireModelEnabled(ctx, policy, model); err != nil {
+		return err
+	}
+	if policy == nil {
+		return nil
+	}
+	imageModels, err := service.GatewayNativeResponseImageModels(payload)
+	if err != nil {
+		return err
+	}
+	for _, imageModel := range imageModels {
+		if err := service.RequireModelEnabled(ctx, policy, imageModel); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func parseOpenAIWSResponseCreateTurn(payload []byte) (string, string, error) {

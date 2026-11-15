@@ -10,14 +10,21 @@ const (
 	PricingSourceChannel  = "channel"
 	PricingSourceLiteLLM  = "litellm"
 	PricingSourceFallback = "fallback"
+	PricingSourceManual   = "manual"
 )
 
 // ResolvedPricing 统一定价解析结果
 type ResolvedPricing struct {
+	Error error `json:"-"`
+	// Explicit administrator units also apply to public model aliases.
+	PriceUnit                 string   `json:"price_unit,omitempty"`
+	InputAudioPricePerSecond  *float64 `json:"input_audio_price_per_second,omitempty"`
+	OutputAudioPricePerSecond *float64 `json:"output_audio_price_per_second,omitempty"`
+	OutputVideoPricePerSecond *float64 `json:"output_video_price_per_second,omitempty"`
 	// Mode 计费模式
 	Mode BillingMode
 
-	// Token 模式：基础定价（来自 LiteLLM 或 fallback）
+	// Token 模式：基础定价（管理员覆盖、LiteLLM 或 fallback）
 	BasePricing *ModelPricing
 
 	// Token 模式：区间定价列表（如有，覆盖 BasePricing 中的对应字段）
@@ -32,17 +39,22 @@ type ResolvedPricing struct {
 	DefaultPriceConfigured bool
 
 	// 来源标识
-	Source string // "channel", "litellm", "fallback"
+	Source string // "channel", "manual", "litellm", "fallback"
 
 	// 是否支持缓存细分
 	SupportsCacheBreakdown bool
 }
 
 // ModelPricingResolver 统一模型定价解析器。
-// 解析链：Channel → LiteLLM → Fallback。
+// 解析链：Channel → Administrator → LiteLLM → Fallback。
 type ModelPricingResolver struct {
 	channelService *ChannelService
 	billingService *BillingService
+	modelPolicies  *AdminModelPolicyService
+}
+
+func (r *ModelPricingResolver) SetAdminModelPolicies(policies *AdminModelPolicyService) {
+	r.modelPolicies = policies
 }
 
 // NewModelPricingResolver 创建定价解析器实例
@@ -61,7 +73,8 @@ type PricingInput struct {
 
 // Resolve 解析模型定价。
 // 1. 获取基础定价（LiteLLM → Fallback）
-// 2. 如果指定了 GroupID，查找渠道定价并覆盖
+// 2. 应用管理员基础价
+// 3. 如果指定了 GroupID，查找渠道定价并覆盖
 func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) *ResolvedPricing {
 	// 1. 获取基础定价
 	basePricing, source := r.resolveBasePricing(input.Model)
@@ -72,6 +85,24 @@ func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) 
 		Source:                 source,
 		SupportsCacheBreakdown: basePricing != nil && basePricing.SupportsCacheBreakdown,
 	}
+	if r.modelPolicies != nil {
+		price, err := r.modelPolicies.GetPricing(ctx, input.Model)
+		if err != nil {
+			resolved.Error = err
+			return resolved
+		}
+		if price != nil {
+			resolved.Source, resolved.Mode = PricingSourceManual, price.BillingMode
+			resolved.PriceUnit = price.PriceUnit
+			if price.BillingMode == BillingModeDuration {
+				r.applyDurationOverrides(price, resolved)
+			} else if price.BillingMode == BillingModeToken {
+				r.applyManualTokenOverrides(price, resolved)
+			} else {
+				r.applyRequestTierOverrides(price, resolved)
+			}
+		}
+	}
 
 	// 2. 如果有 GroupID，尝试渠道覆盖
 	if input.GroupID != nil {
@@ -79,6 +110,36 @@ func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) 
 	}
 
 	return resolved
+}
+
+func (r *ModelPricingResolver) applyDurationOverrides(price *ChannelModelPricing, resolved *ResolvedPricing) {
+	resolved.PriceUnit = "second"
+	resolved.DefaultPerRequestPrice, resolved.DefaultPriceConfigured = 0, false
+	resolved.RequestTiers, resolved.Intervals = nil, nil
+	resolved.InputAudioPricePerSecond = copyDurationPrice(price.InputAudioPricePerSecond)
+	resolved.OutputAudioPricePerSecond = copyDurationPrice(price.OutputAudioPricePerSecond)
+	resolved.OutputVideoPricePerSecond = copyDurationPrice(price.OutputVideoPricePerSecond)
+}
+
+func copyDurationPrice(price *float64) *float64 {
+	if price == nil {
+		return nil
+	}
+	value := *price
+	return &value
+}
+
+// Administrator token prices are flat rates, independent of automatic model
+// tiers. Keep optional cache defaults and dormant catalogue metadata so a
+// higher-priority channel rule can retain its existing tier semantics.
+func (r *ModelPricingResolver) applyManualTokenOverrides(price *ChannelModelPricing, resolved *ResolvedPricing) {
+	r.applyTokenOverrides(price, resolved)
+	base := resolved.BasePricing
+	base.FlatTokenPrices = true
+	if base.HasImageOutputPricing || base.ImageOutputPricePerToken != 0 {
+		base.ImageOutputPricePerToken = base.OutputPricePerToken
+		base.HasImageOutputPricing = true
+	}
 }
 
 // resolveBasePricing 从 LiteLLM 或 Fallback 获取基础定价
@@ -101,14 +162,28 @@ func (r *ModelPricingResolver) applyChannelOverrides(ctx context.Context, groupI
 
 	resolved.Source = PricingSourceChannel
 	resolved.Mode = chPricing.BillingMode
+	resolved.PriceUnit = chPricing.PriceUnit
+	resolved.InputAudioPricePerSecond, resolved.OutputAudioPricePerSecond, resolved.OutputVideoPricePerSecond = nil, nil, nil
 	if resolved.Mode == "" {
 		resolved.Mode = BillingModeToken
 	}
 
 	switch resolved.Mode {
+	case BillingModeDuration:
+		r.applyDurationOverrides(chPricing, resolved)
 	case BillingModeToken:
+		// Channel rules keep their existing service-tier and long-context
+		// behavior. Do not let a lower-priority administrator flat-price flag
+		// change that behavior, including when intervals return early below.
+		if resolved.BasePricing != nil {
+			resolved.BasePricing = cloneModelPricing(resolved.BasePricing)
+			resolved.BasePricing.FlatTokenPrices = false
+		}
 		r.applyTokenOverrides(chPricing, resolved)
 	case BillingModePerRequest, BillingModeImage, BillingModeVideo, BillingModeAudio:
+		// A channel unit-price rule is authoritative even if it is incomplete;
+		// do not accidentally publish an administrator fallback as its price.
+		resolved.DefaultPerRequestPrice, resolved.DefaultPriceConfigured = 0, false
 		r.applyRequestTierOverrides(chPricing, resolved)
 	}
 }

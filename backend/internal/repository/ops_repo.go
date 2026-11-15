@@ -1274,16 +1274,18 @@ func buildOpsErrorLogsWhere(filter *service.OpsErrorLogFilter) (string, []any) {
 	if filter != nil {
 		phaseFilter = strings.TrimSpace(strings.ToLower(filter.Phase))
 	}
-	// ops_error_logs stores client-visible error requests (status>=400),
-	// but we also persist "recovered" upstream errors (status<400) for upstream health visibility.
+	// ops_error_logs stores client-visible HTTP errors and terminal WebSocket
+	// task failures after a successful 101 handshake. Other status<400 entries
+	// represent recovered upstream attempts and remain opt-in.
 	// If Resolved is not specified, do not filter by resolved state (backward-compatible).
 	resolvedFilter := (*bool)(nil)
 	if filter != nil {
 		resolvedFilter = filter.Resolved
 	}
-	// Keep list endpoints scoped to client errors unless explicitly filtering upstream phase.
+	// A terminal WebSocket task failure is a real client error even though its
+	// HTTP handshake succeeded. Do not hide it with recovered upstream attempts.
 	if phaseFilter != "upstream" {
-		clauses = append(clauses, "COALESCE(e.status_code, 0) >= 400")
+		clauses = append(clauses, "(COALESCE(e.status_code, 0) >= 400 OR e.error_type = 'websocket_task_error')")
 	}
 
 	if filter.StartTime != nil && !filter.StartTime.IsZero() {

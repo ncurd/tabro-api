@@ -217,6 +217,7 @@ type APIKeyService struct {
 	// GatewayBilling is configured once at bootstrap and never mutated at runtime.
 	GatewayBilling        *GatewayBillingCoordinator
 	GatewayMediaResources MediaGenerationJobRepository
+	ModelPolicies         ModelAvailabilityPolicy
 	apiKeyRepo            APIKeyRepository
 	userRepo              UserRepository
 	groupRepo             GroupRepository

@@ -158,6 +158,7 @@ describe('admin UsageTable tooltip', () => {
     ['per_request', 2, 0, '0.080000 ✦', false],
     ['image', 2, 4, '0.020000 ✦', false],
     ['central', 2, 0, '0.080000 ✦', false],
+    ['duration', 2, 0, 'Unit price-', false],
     ['token', 0, 0, '0.0000 ✦ / 1M tokens', true],
   ])('uses the stored central rate for %s prices without multiplying charged or account costs', async (mode, multiplier, images, expectedPrice, tokenPrice) => {
     const row = {

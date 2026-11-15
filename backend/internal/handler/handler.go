@@ -31,6 +31,7 @@ type AdminHandlers struct {
 	APIKey                *admin.AdminAPIKeyHandler
 	ScheduledTest         *admin.ScheduledTestHandler
 	Channel               *admin.ChannelHandler
+	ModelPolicy           *admin.ModelPolicyHandler
 	Payment               *admin.PaymentHandler
 }
 

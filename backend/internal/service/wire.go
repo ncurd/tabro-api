@@ -383,7 +383,7 @@ func ProvideSettingService(settingRepo SettingRepository, groupRepo GroupReposit
 
 // ProviderSet is the Wire provider set for all services
 var ProviderSet = wire.NewSet(
-	ProvideGatewayBillingCoordinator,
+	ProvideGatewayBillingCoordinatorWithModelPolicies,
 	// Core services
 	NewAuthService,
 	NewUserService,
@@ -403,7 +403,7 @@ var ProviderSet = wire.NewSet(
 	NewAdminService,
 	NewGatewayService,
 	NewOpenAIGatewayService,
-	NewMediaBillingService,
+	ProvideMediaBillingServiceWithModelPolicies,
 	ProvideMediaGenerationService,
 	NewOAuthService,
 	NewOpenAIOAuthService,
@@ -465,13 +465,37 @@ var ProviderSet = wire.NewSet(
 	ProvideScheduledTestRunnerService,
 	NewGroupCapacityService,
 	NewChannelService,
-	NewModelPricingResolver,
+	ProvideAdminModelPolicyService,
+	ProvideModelPricingResolverWithModelPolicies,
 	ProvideModelPricingPageService,
 	ProvidePaymentConfigService,
 	NewPaymentService,
 	ProvidePaymentOrderExpiryService,
 	ProvideBalanceNotifyService,
 )
+
+func ProvideAdminModelPolicyService(settings SettingRepository, pricing *PricingService, billing *BillingService, accounts AccountRepository, channels ChannelRepository, keys *APIKeyService) *AdminModelPolicyService {
+	policies := NewAdminModelPolicyService(settings, pricing, billing, accounts, channels)
+	keys.ModelPolicies = policies
+	return policies
+}
+
+func ProvideModelPricingResolverWithModelPolicies(channels *ChannelService, billing *BillingService, policies *AdminModelPolicyService) *ModelPricingResolver {
+	resolver := NewModelPricingResolver(channels, billing)
+	resolver.SetAdminModelPolicies(policies)
+	return resolver
+}
+
+func ProvideGatewayBillingCoordinatorWithModelPolicies(cfg *config.Config, repo GatewayBillingRepository, pricing *PricingService, gateway *GatewayService, settings *SettingService, policies *AdminModelPolicyService) (*GatewayBillingCoordinator, error) {
+	gateway.SetAdminModelPolicies(policies)
+	return ProvideGatewayBillingCoordinator(cfg, repo, pricing, gateway, settings)
+}
+
+func ProvideMediaBillingServiceWithModelPolicies(channels *ChannelService, ledger UsageBillingRepository, usage UsageLogRepository, cache *BillingCacheService, rates UserGroupRateRepository, keys *APIKeyService, cfg *config.Config, policies *AdminModelPolicyService) *MediaBillingService {
+	billing := NewMediaBillingService(channels, ledger, usage, cache, rates, keys, cfg)
+	billing.SetAdminModelPolicies(policies)
+	return billing
+}
 
 // ProvidePaymentConfigService wraps NewPaymentConfigService to accept the named
 // payment.EncryptionKey type instead of raw []byte, avoiding Wire ambiguity.
@@ -502,6 +526,8 @@ func ProvideOAuthRefreshAPI(accountRepo AccountRepository, tokenCache GeminiToke
 	return NewOAuthRefreshAPI(accountRepo, tokenCache)
 }
 
-func ProvideModelPricingPageService(apiKeyService *APIKeyService, accountRepo AccountRepository, resolver *ModelPricingResolver, settings *SettingService) *ModelPricingPageService {
-	return NewModelPricingPageService(apiKeyService, accountRepo, resolver, settings)
+func ProvideModelPricingPageService(apiKeyService *APIKeyService, accountRepo AccountRepository, resolver *ModelPricingResolver, settings *SettingService, policies *AdminModelPolicyService) *ModelPricingPageService {
+	page := NewModelPricingPageService(apiKeyService, accountRepo, resolver, settings)
+	page.SetAdminModelPolicies(policies)
+	return page
 }

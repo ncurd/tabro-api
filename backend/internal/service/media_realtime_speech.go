@@ -96,7 +96,13 @@ func isDashScopeSpeechBasePath(path string) bool {
 }
 
 func validateNativeASRStart(start []byte, model string) (string, error) {
-	if len(start) > 64*1024 || !gjson.ValidBytes(start) || gjson.GetBytes(start, "header.action").String() != "run-task" || gjson.GetBytes(start, "header.streaming").String() != "duplex" || gjson.GetBytes(start, "payload.model").String() != model || gjson.GetBytes(start, "payload.task_group").String() != "audio" || gjson.GetBytes(start, "payload.task").String() != "asr" || gjson.GetBytes(start, "payload.function").String() != "recognition" || gjson.GetBytes(start, "payload.parameters.format").String() != "pcm" || gjson.GetBytes(start, "payload.parameters.sample_rate").Int() != 16000 {
+	// Different JSON readers disagree on repeated fields (first/last wins or
+	// case-insensitive struct matching). Reject ambiguity before authorization,
+	// pricing, model rewriting, or supplier dispatch can observe different IDs.
+	if len(start) > 64*1024 || !gjson.ValidBytes(start) || !nativeASRJSONKeysUnique(gjson.ParseBytes(start), 0) {
+		return "", &InvalidMediaRequestError{Message: "run-task must contain valid JSON with unique field names"}
+	}
+	if gjson.GetBytes(start, "header.action").String() != "run-task" || gjson.GetBytes(start, "header.streaming").String() != "duplex" || gjson.GetBytes(start, "payload.model").String() != model || gjson.GetBytes(start, "payload.task_group").String() != "audio" || gjson.GetBytes(start, "payload.task").String() != "asr" || gjson.GetBytes(start, "payload.function").String() != "recognition" || gjson.GetBytes(start, "payload.parameters.format").String() != "pcm" || gjson.GetBytes(start, "payload.parameters.sample_rate").Int() != 16000 {
 		return "", &InvalidMediaRequestError{Message: "expected run-task for the selected model with mono PCM16 audio at 16000 Hz"}
 	}
 	task := gjson.GetBytes(start, "header.task_id").String()
@@ -298,6 +304,14 @@ func (s *MediaGenerationService) ForwardQwenRealtimeSpeech(ctx context.Context, 
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	audioLimit := 32 * 1024 * 1024
+	if mediaSpeechDurationRequired(snapshot) {
+		limit, supported := MediaSpeechOutputSecondsLimit(upstreamModel)
+		if !supported {
+			return nil, nil, nil, mediaUnsupportedSpeechDuration("the mapped model has no enforced audio output bound")
+		}
+		audioLimit = limit * mediaSpeechPCMBytesPerSecond
+	}
 	format := req.ResponseFormat
 	if format == "" {
 		format = "wav"
@@ -309,10 +323,11 @@ func (s *MediaGenerationService) ForwardQwenRealtimeSpeech(ctx context.Context, 
 	succeeded, dispatched := false, false
 	requestID := ""
 	var characters int64
+	var pcm bytes.Buffer
 	defer func() {
 		if !succeeded {
 			if dispatched {
-				err = errors.Join(err, s.retainUncertainSpeechUsage(ctx, job, speechUsageEvidence(requestID, "characters", characters, false)))
+				err = errors.Join(err, s.retainUncertainSpeechUsage(ctx, job, speechTTSUsageEvidence(requestID, characters, int64(pcm.Len()), false)))
 			} else {
 				s.failQwenAudioJob(ctx, job)
 			}
@@ -339,7 +354,6 @@ func (s *MediaGenerationService) ForwardQwenRealtimeSpeech(ctx context.Context, 
 	if err = write(map[string]any{"event_id": uuid.NewString(), "type": "session.update", "session": map[string]any{"mode": "commit", "voice": voice, "response_format": "pcm", "sample_rate": 24000}}); err != nil {
 		return nil, nil, nil, err
 	}
-	var pcm bytes.Buffer
 	submitted := false
 	responses := map[string]bool{}
 	responseUsage := map[string]int64{}
@@ -357,6 +371,12 @@ func (s *MediaGenerationService) ForwardQwenRealtimeSpeech(ctx context.Context, 
 		case "session.updated":
 			if submitted {
 				return nil, nil, nil, errors.New("duplicate realtime speech session update")
+			}
+			if rate := gjson.GetBytes(data, "session.sample_rate"); rate.Exists() && rate.Int() != 24000 {
+				return nil, nil, nil, fmt.Errorf("%w: synthesized audio sample rate differs from requested PCM", ErrMediaUsageIncomplete)
+			}
+			if format := gjson.GetBytes(data, "session.response_format"); format.Exists() && format.String() != "pcm" {
+				return nil, nil, nil, fmt.Errorf("%w: synthesized audio format differs from requested PCM", ErrMediaUsageIncomplete)
 			}
 			if err = bc.BeforeSupplierRequest(streamCtx); err != nil {
 				return nil, nil, nil, err
@@ -381,7 +401,7 @@ func (s *MediaGenerationService) ForwardQwenRealtimeSpeech(ctx context.Context, 
 				responses[id] = true
 			}
 			decoded, e := base64.StdEncoding.DecodeString(gjson.GetBytes(data, "delta").String())
-			if e != nil || pcm.Len()+len(decoded) > 32*1024*1024 {
+			if e != nil || len(decoded) > audioLimit-pcm.Len() {
 				return nil, nil, nil, errors.New("invalid or excessive synthesized audio")
 			}
 			_, _ = pcm.Write(decoded)
@@ -408,7 +428,7 @@ func (s *MediaGenerationService) ForwardQwenRealtimeSpeech(ctx context.Context, 
 			}
 			responses[id], responseUsage[id] = true, count
 			characters += count
-			if err = s.checkpointSpeechUsage(ctx, job, speechUsageEvidence(requestID, "characters", characters, false), MediaJobStatusRunning); err != nil {
+			if err = s.checkpointSpeechUsage(ctx, job, speechTTSUsageEvidence(requestID, characters, int64(pcm.Len()), false), MediaJobStatusRunning); err != nil {
 				return nil, nil, nil, err
 			}
 		case "session.finished":
@@ -418,7 +438,7 @@ func (s *MediaGenerationService) ForwardQwenRealtimeSpeech(ctx context.Context, 
 			if characters <= 0 || len(responseUsage) != len(responses) {
 				return nil, nil, nil, ErrMediaUsageIncomplete
 			}
-			usage := speechUsageEvidence(requestID, "characters", characters, true)
+			usage := speechTTSUsageEvidence(requestID, characters, int64(pcm.Len()), true)
 			if err = s.persistAndSettleQwenAudio(ctx, job, usage); err != nil {
 				return nil, nil, nil, err
 			}

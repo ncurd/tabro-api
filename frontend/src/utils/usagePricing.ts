@@ -1,5 +1,5 @@
 import { formatCreditNumber, formatCredits } from './credits'
-import { BILLING_MODE_CENTRAL, BILLING_MODE_IMAGE, BILLING_MODE_TOKEN } from './billingMode'
+import { BILLING_MODE_CENTRAL, BILLING_MODE_DURATION, BILLING_MODE_IMAGE, BILLING_MODE_TOKEN } from './billingMode'
 import { formatMultiplier } from './formatters'
 
 export const TOKENS_PER_MILLION = 1_000_000
@@ -52,6 +52,9 @@ export function usageDisplayCost(cost: number | null | undefined, usage: UsagePr
 }
 
 export function usageDisplayUnitCost(cost: number | null | undefined, usage: UsagePricingRecord | null): number | null {
+  // The shared duration_ms field has different meanings across endpoints.
+  // This view lacks frozen directional prices and cannot treat a total as a unit price.
+  if (usage?.billing_mode === BILLING_MODE_DURATION) return null
   const displayedCost = usageDisplayCost(cost, usage)
   if (displayedCost == null) return null
   return isCentralUsage(usage) && isImagePricedUsage(usage)

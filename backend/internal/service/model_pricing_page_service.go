@@ -37,6 +37,11 @@ type ModelPricingPageService struct {
 	accountProvider ModelPricingAccountProvider
 	resolver        ModelPricingResolverProvider
 	billingPolicy   ModelPricingBillingPolicyProvider
+	modelPolicies   *AdminModelPolicyService
+}
+
+func (s *ModelPricingPageService) SetAdminModelPolicies(policies *AdminModelPolicyService) {
+	s.modelPolicies = policies
 }
 
 func NewModelPricingPageService(
@@ -69,11 +74,15 @@ type AvailableModelPricingGroup struct {
 }
 
 type AvailableModelPricingModel struct {
+	Error                            error                       `json:"-"`
 	ID                               string                      `json:"id"`
 	PricingAvailable                 bool                        `json:"pricing_available"`
 	BillingMode                      BillingMode                 `json:"billing_mode"`
 	UnitPrice                        *float64                    `json:"unit_price,omitempty"`
 	PriceUnit                        string                      `json:"price_unit"`
+	InputAudioPricePerSecond         *float64                    `json:"input_audio_price_per_second,omitempty"`
+	OutputAudioPricePerSecond        *float64                    `json:"output_audio_price_per_second,omitempty"`
+	OutputVideoPricePerSecond        *float64                    `json:"output_video_price_per_second,omitempty"`
 	Tiers                            []AvailableModelPricingTier `json:"tiers,omitempty"`
 	InputPricePerMillion             float64                     `json:"input_price_per_million,omitempty"`
 	OutputPricePerMillion            float64                     `json:"output_price_per_million,omitempty"`
@@ -155,6 +164,12 @@ func (s *ModelPricingPageService) ListAvailablePricing(ctx context.Context, user
 		} else {
 			modelIDs = s.availableModelIDsForGroup(ctx, group)
 		}
+		if s.modelPolicies != nil {
+			modelIDs, err = s.modelPolicies.FilterEnabledModels(ctx, modelIDs)
+			if err != nil {
+				return nil, fmt.Errorf("get available model policies: %w", err)
+			}
+		}
 		models := make([]AvailableModelPricingModel, 0, len(modelIDs))
 		for _, modelID := range modelIDs {
 			priceCtx, priceModel := ctx, modelID
@@ -184,6 +199,9 @@ func (s *ModelPricingPageService) ListAvailablePricing(ctx context.Context, user
 				}
 			}
 			model := s.resolveModelPricing(priceCtx, group.ID, priceModel, effectiveRate)
+			if model.Error != nil {
+				return nil, fmt.Errorf("resolve model price: %w", model.Error)
+			}
 			model.ID = modelID
 			if policy.Enabled && !finiteConvertedModelPricing(model) {
 				return nil, fmt.Errorf("invalid converted model price for group %d model %q", group.ID, modelID)
@@ -222,6 +240,11 @@ func finiteConvertedModelPricing(model AvailableModelPricingModel) bool {
 	}
 	if model.UnitPrice != nil {
 		prices = append(prices, *model.UnitPrice)
+	}
+	for _, price := range []*float64{model.InputAudioPricePerSecond, model.OutputAudioPricePerSecond, model.OutputVideoPricePerSecond} {
+		if price != nil {
+			prices = append(prices, *price)
+		}
 	}
 	for _, tier := range model.Tiers {
 		prices = append(prices, tier.UnitPrice)
@@ -388,12 +411,34 @@ func (s *ModelPricingPageService) resolveModelPricing(ctx context.Context, group
 	if resolved == nil {
 		return result
 	}
+	if resolved.Error != nil {
+		result.Error = resolved.Error
+		return result
+	}
 	result.Source = resolved.Source
 	if resolved.Mode != "" {
 		result.BillingMode = resolved.Mode
 	}
+	if result.BillingMode == BillingModeDuration {
+		result.PriceUnit = "second"
+		convert := func(price *float64) *float64 {
+			if price == nil {
+				return nil
+			}
+			value := *price * effectiveRate
+			return &value
+		}
+		result.InputAudioPricePerSecond = convert(resolved.InputAudioPricePerSecond)
+		result.OutputAudioPricePerSecond = convert(resolved.OutputAudioPricePerSecond)
+		result.OutputVideoPricePerSecond = convert(resolved.OutputVideoPricePerSecond)
+		result.PricingAvailable = result.InputAudioPricePerSecond != nil || result.OutputAudioPricePerSecond != nil || result.OutputVideoPricePerSecond != nil
+		return result
+	}
 	if result.BillingMode != BillingModeToken {
 		result.PriceUnit = modelPricingUnit(result.BillingMode, modelID)
+		if resolved.PriceUnit != "" {
+			result.PriceUnit = resolved.PriceUnit
+		}
 		if resolved.DefaultPriceConfigured {
 			price := resolved.DefaultPerRequestPrice * effectiveRate
 			result.UnitPrice = &price
@@ -442,7 +487,7 @@ func (s *ModelPricingPageService) resolveModelPricing(ctx context.Context, group
 
 func modelPricingUnit(mode BillingMode, modelID string) string {
 	switch mode {
-	case BillingModeVideo:
+	case BillingModeVideo, BillingModeDuration:
 		return "second"
 	case BillingModeImage:
 		return "image"
@@ -450,7 +495,7 @@ func modelPricingUnit(mode BillingMode, modelID string) string {
 		return "request"
 	case BillingModeAudio:
 		model := strings.ToLower(modelID)
-		if strings.Contains(model, "asr") || strings.Contains(model, "transcri") {
+		if IsNativeRealtimeASRModel(model) || strings.Contains(model, "asr") || strings.Contains(model, "transcri") {
 			return "second"
 		}
 		if strings.Contains(model, "tts") || strings.Contains(model, "speech") {

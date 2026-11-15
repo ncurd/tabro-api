@@ -17,12 +17,13 @@ const (
 	BillingModeImage      BillingMode = "image"       // 图片计费（当前按次，预留 token 计费）
 	BillingModeAudio      BillingMode = "audio"       // 音频用量计费（TTS 字符 / ASR 秒）
 	BillingModeVideo      BillingMode = "video"       // 视频按生成秒计费
+	BillingModeDuration   BillingMode = "duration"    // 管理员基础价：按输入音频、输出音频或输出视频秒计费
 )
 
 // IsValid 检查 BillingMode 是否为合法值
 func (m BillingMode) IsValid() bool {
 	switch m {
-	case BillingModeToken, BillingModePerRequest, BillingModeImage, BillingModeAudio, BillingModeVideo, "":
+	case BillingModeToken, BillingModePerRequest, BillingModeImage, BillingModeAudio, BillingModeVideo, BillingModeDuration, "":
 		return true
 	}
 	return false
@@ -76,20 +77,26 @@ type AccountStatsPricingRule struct {
 
 // ChannelModelPricing 渠道模型定价条目
 type ChannelModelPricing struct {
-	ID               int64
-	ChannelID        int64
-	Platform         string            // 所属平台（anthropic/openai/gemini/...）
-	Models           []string          // 绑定的模型列表
-	BillingMode      BillingMode       // 计费模式
-	InputPrice       *float64          // 每 token 输入价格（USD）— 向后兼容 flat 定价
-	OutputPrice      *float64          // 每 token 输出价格（USD）
-	CacheWritePrice  *float64          // 缓存写入价格
-	CacheReadPrice   *float64          // 缓存读取价格
-	ImageOutputPrice *float64          // 图片输出价格（向后兼容）
-	PerRequestPrice  *float64          // 默认按次计费价格（USD）
-	Intervals        []PricingInterval // 区间定价列表
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	ID          int64
+	ChannelID   int64
+	Platform    string      // 所属平台（anthropic/openai/gemini/...）
+	Models      []string    // 绑定的模型列表
+	BillingMode BillingMode // 计费模式
+	PriceUnit   string      // Explicit unit for global administrator base prices.
+	// Duration prices are runtime administrator base prices. Channel persistence
+	// does not support them; channel validation rejects this mode explicitly.
+	InputAudioPricePerSecond  *float64
+	OutputAudioPricePerSecond *float64
+	OutputVideoPricePerSecond *float64
+	InputPrice                *float64          // 每 token 输入价格（USD）— 向后兼容 flat 定价
+	OutputPrice               *float64          // 每 token 输出价格（USD）
+	CacheWritePrice           *float64          // 缓存写入价格
+	CacheReadPrice            *float64          // 缓存读取价格
+	ImageOutputPrice          *float64          // 图片输出价格（向后兼容）
+	PerRequestPrice           *float64          // 默认按次计费价格（USD）
+	Intervals                 []PricingInterval // 区间定价列表
+	CreatedAt                 time.Time
+	UpdatedAt                 time.Time
 }
 
 // PricingInterval 定价区间（token 区间 / 按次分层 / 图片分辨率分层）

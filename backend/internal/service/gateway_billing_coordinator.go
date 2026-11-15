@@ -396,6 +396,11 @@ func (s *GatewayBillingCoordinator) prepareWithQuote(ctx context.Context, route 
 			// cap's speculative price. Auth debits the measured usage at settlement.
 			maximum = "0"
 		}
+		// Restore the same output-sample cap on retries as on first admission.
+		// It is a business meter only; Auth still receives gateway:credits.
+		if err := applyFrozenMediaDurationBound(businessBounds, pricingSnapshot); err != nil {
+			return nil, err
+		}
 		if quote.Request.OperationID != "" {
 			reserved, parseErr := decimal.NewFromString(string(quote.Request.MaximumUsage[gatewayCreditMeter]))
 			needed, neededErr := decimal.NewFromString(string(maximum))

@@ -269,6 +269,9 @@ func (s *MediaGenerationService) SynthesizeClonedVoice(ctx context.Context, meta
 	if err != nil {
 		return nil, err
 	}
+	if mediaSpeechDurationRequired(snapshot) {
+		return nil, mediaUnsupportedSpeechDuration("URL-only cloned speech has no verified audio duration or enforced output bound")
+	}
 	usageJob, err := s.beginQwenAudioJob(ctx, meta, account, req.Model, MediaJobKindAudioSpeech, nil, snapshot, len([]rune(req.Input)), req.Voice)
 	if err != nil {
 		return nil, err
