@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { reactive } from 'vue'
 import ModelsView from '../ModelsView.vue'
+import Pagination from '@/components/common/Pagination.vue'
 import messages from '@/i18n/locales/zh-CN'
 import type { AdminModelPolicy, UpdateAdminModelRequest } from '@/api/admin/models'
 
@@ -36,13 +37,18 @@ beforeEach(() => {
   vi.clearAllMocks()
   auth = reactive({ isAdmin: true })
   useAuthStore.mockReturnValue(auth)
-  serverModels = [{ model: 'gpt-test', platforms: ['openai'], enabled: true, source: 'automatic', pricing: null,
+  serverModels = [{ model: 'gpt-test', platforms: ['openai'], has_provider: true, enabled: true, source: 'automatic', pricing: null,
     default_pricing: { billing_mode: 'token', price_unit: 'million_tokens', input_price_per_million: 2.5, output_price_per_million: 10 }, channel_override: true },
-  { model: 'paraformer-realtime-v2', platforms: ['dashscope'], enabled: false, source: 'manual',
-    pricing: { billing_mode: 'audio', price_unit: 'second', unit_price: 0.000001 }, default_pricing: null, channel_override: false }]
+  { model: 'paraformer-realtime-v2', platforms: ['dashscope'], has_provider: true, enabled: false, source: 'manual',
+    pricing: { billing_mode: 'audio', price_unit: 'second', unit_price: 0.000001 }, default_pricing: null, channel_override: false },
+  { model: 'gpt-unprovided', platforms: ['openai'], has_provider: false, enabled: false, source: 'unpriced',
+    pricing: null, default_pricing: null, channel_override: false }]
   list.mockImplementation(async (params) => {
-    const items = serverModels.filter(model => (!params.search || model.model.includes(params.search)) && (params.enabled == null || model.enabled === params.enabled))
-    return { items: wireCopy(items), total: items.length, page: params.page, page_size: params.page_size }
+    const items = serverModels.filter(model => (!params.search || model.model.includes(params.search))
+      && (params.enabled == null || model.enabled === params.enabled)
+      && (params.has_provider == null || model.has_provider === params.has_provider))
+    const offset = (params.page - 1) * params.page_size
+    return { items: wireCopy(items.slice(offset, offset + params.page_size)), total: items.length, page: params.page, page_size: params.page_size }
   })
   update.mockImplementation(async (request: UpdateAdminModelRequest) => {
     const current = serverModels.find(model => model.model === request.model)!
@@ -76,6 +82,47 @@ describe('administrator model management', () => {
     expect(row(wrapper, 'paraformer-realtime-v2').text()).toContain('0.000001 USD / 秒')
     expect(wrapper.text()).toContain('渠道价 → 手动基础价 → 自动价')
     expect(wrapper.text()).toContain('调价不重算历史账单')
+  })
+
+  it('defaults to models with providers even when catalog-only models have a platform', async () => {
+    const wrapper = render()
+    await flushPromises()
+    expect((wrapper.get('select[aria-label="是否有提供方"]').element as HTMLSelectElement).value).toBe('true')
+    expect(list.mock.calls[0]?.[0]).toMatchObject({ page: 1, page_size: 20, has_provider: true })
+    expect(wrapper.findAll('tr[data-model]').map(model => model.attributes('data-model'))).toEqual(['gpt-test', 'paraformer-realtime-v2'])
+  })
+
+  it('can include all models or show only models without providers', async () => {
+    const wrapper = render()
+    await flushPromises()
+    const filter = wrapper.get('select[aria-label="是否有提供方"]')
+    await filter.setValue('')
+    await flushPromises()
+    expect(list.mock.calls.at(-1)?.[0].has_provider).toBeUndefined()
+    expect(wrapper.findAll('tr[data-model]')).toHaveLength(3)
+    await filter.setValue('false')
+    await flushPromises()
+    expect(list.mock.calls.at(-1)?.[0]).toMatchObject({ page: 1, has_provider: false })
+    expect(wrapper.findAll('tr[data-model]').map(model => model.attributes('data-model'))).toEqual(['gpt-unprovided'])
+  })
+
+  it('resets pagination when provider filtering changes and combines it with status and search', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const wrapper = render()
+    await flushPromises()
+    await wrapper.get('select[aria-label="模型状态"]').setValue('false')
+    await flushPromises()
+    wrapper.getComponent(Pagination).vm.$emit('update:page', 2)
+    await flushPromises()
+    expect(list.mock.calls.at(-1)?.[0]).toMatchObject({ page: 2, enabled: false, has_provider: true })
+    await wrapper.get('select[aria-label="是否有提供方"]').setValue('false')
+    await flushPromises()
+    expect(list.mock.calls.at(-1)?.[0]).toMatchObject({ page: 1, page_size: 20, enabled: false, has_provider: false })
+    await wrapper.get('input[type="search"]').setValue('gpt')
+    await vi.advanceTimersByTimeAsync(250)
+    await flushPromises()
+    expect(list.mock.calls.at(-1)?.[0]).toMatchObject({ page: 1, search: 'gpt', enabled: false, has_provider: false })
+    expect(wrapper.findAll('tr[data-model]').map(model => model.attributes('data-model'))).toEqual(['gpt-unprovided'])
   })
 
   it('keeps the old enabled state while saving and after a failed toggle', async () => {

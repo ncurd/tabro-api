@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { buildModelPrice, createModelPriceForm, unitsForMode } from '../adminModelPricing'
 import type { AdminModelPolicy } from '@/api/admin/models'
 
-const model: AdminModelPolicy = { model: 'test', platforms: ['openai'], enabled: true, source: 'automatic',
+const model: AdminModelPolicy = { model: 'test', platforms: ['openai'], has_provider: true, enabled: true, source: 'automatic',
   pricing: null, default_pricing: { billing_mode: 'token', price_unit: 'million_tokens', input_price_per_million: 2.5, output_price_per_million: 10 }, channel_override: false }
 
 describe('administrator model price form', () => {

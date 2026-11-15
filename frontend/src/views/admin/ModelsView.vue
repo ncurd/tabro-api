@@ -25,6 +25,11 @@
 
       <div class="flex flex-wrap gap-3">
         <input v-model="search" class="input max-w-sm" :placeholder="text('search')" :aria-label="text('search')" type="search" @input="searchChanged" />
+        <select v-model="providerFilter" class="input w-auto" :aria-label="text('providerFilter')" @change="filterChanged">
+          <option value="true">{{ text('hasProvider') }}</option>
+          <option value="false">{{ text('noProvider') }}</option>
+          <option value="">{{ text('allModels') }}</option>
+        </select>
         <select v-model="statusFilter" class="input w-auto" :aria-label="text('statusFilter')" @change="filterChanged">
           <option value="">{{ text('allStatus') }}</option>
           <option value="true">{{ text('enabled') }}</option>
@@ -154,6 +159,7 @@ const loading = ref(false)
 const error = ref('')
 const success = ref('')
 const search = ref('')
+const providerFilter = ref('true')
 const statusFilter = ref('')
 const page = ref(1)
 const pageSize = ref(20)
@@ -163,7 +169,7 @@ const editing = ref<AdminModelPolicy | null>(null)
 const resetting = ref<AdminModelPolicy | null>(null)
 const formError = ref('')
 const resetError = ref('')
-const form = reactive(createModelPriceForm({ model: '', platforms: [], enabled: true, pricing: null, default_pricing: null, source: 'unpriced', channel_override: false }))
+const form = reactive(createModelPriceForm({ model: '', platforms: [], has_provider: false, enabled: true, pricing: null, default_pricing: null, source: 'unpriced', channel_override: false }))
 const billingModes: ModelBillingMode[] = ['token', 'duration', 'audio', 'video', 'image', 'per_request']
 const tokenFields = ['input_price_per_million', 'output_price_per_million', 'cache_write_price_per_million', 'cache_read_price_per_million'] as const
 let requestSequence = 0
@@ -185,7 +191,8 @@ async function loadModels() {
   error.value = ''
   try {
     const data = await adminModelsAPI.list({ page: page.value, page_size: pageSize.value, search: search.value.trim() || undefined,
-      enabled: statusFilter.value === '' ? undefined : statusFilter.value === 'true' }, controller.signal)
+      enabled: statusFilter.value === '' ? undefined : statusFilter.value === 'true',
+      has_provider: providerFilter.value === '' ? undefined : providerFilter.value === 'true' }, controller.signal)
     if (sequence !== requestSequence || !authStore.isAdmin) return
     models.value = data.items
     total.value = data.total

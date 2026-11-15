@@ -28,7 +28,16 @@ func (h *ModelPolicyHandler) List(c *gin.Context) {
 		}
 		enabled = &v
 	}
-	result, err := h.policies.List(c.Request.Context(), c.Query("search"), enabled, page, size)
+	var hasProvider *bool
+	if raw, exists := c.GetQuery("has_provider"); exists {
+		v, err := strconv.ParseBool(raw)
+		if err != nil {
+			response.BadRequest(c, "has_provider must be true or false")
+			return
+		}
+		hasProvider = &v
+	}
+	result, err := h.policies.List(c.Request.Context(), c.Query("search"), enabled, hasProvider, page, size)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

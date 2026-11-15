@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/stretchr/testify/require"
 )
 
@@ -275,14 +276,105 @@ func TestAdminModelListFiltersBeforePaginationAndDoesNotExposeOtherSettings(t *t
 		_, err := svc.Update(ctx, AdminModelPolicyUpdate{Model: model, Enabled: &no})
 		require.NoError(t, err)
 	}
-	list, err := svc.List(ctx, "", &no, 2, 1)
+	list, err := svc.List(ctx, "", &no, nil, 2, 1)
 	require.NoError(t, err)
 	require.Equal(t, 3, list.Total)
 	require.Equal(t, "beta", list.Items[0].Model)
-	list, err = svc.List(ctx, "gamma", nil, 1, 20)
+	list, err = svc.List(ctx, "gamma", nil, nil, 1, 20)
 	require.NoError(t, err)
 	require.Equal(t, 1, list.Total)
 	require.Equal(t, "gamma", list.Items[0].Model)
+}
+
+type adminPolicyAccounts struct {
+	AccountRepository
+	accounts []Account
+}
+
+func (s adminPolicyAccounts) List(_ context.Context, params pagination.PaginationParams) ([]Account, *pagination.PaginationResult, error) {
+	start := params.Offset()
+	end := min(start+params.Limit(), len(s.accounts))
+	return s.accounts[start:end], &pagination.PaginationResult{Total: int64(len(s.accounts))}, nil
+}
+
+func TestAdminModelListFiltersByConfiguredProvidersBeforePagination(t *testing.T) {
+	svc, _ := newAdminPolicyFixture()
+	ctx := context.Background()
+	svc.pricing = &PricingService{pricingData: map[string]*LiteLLMModelPricing{
+		"priced-without-provider": {LiteLLMProvider: PlatformOpenAI},
+	}}
+	svc.accounts = adminPolicyAccounts{accounts: []Account{{Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Credentials: map[string]any{"model_mapping": map[string]any{"alpha": "upstream-a", "beta": "upstream-b", "Gamma": "upstream-g"}},
+	}}}
+	svc.channels = &mockChannelRepository{listAllFn: func(context.Context) ([]Channel, error) {
+		return []Channel{{ModelPricing: []ChannelModelPricing{{Platform: PlatformOpenAI, Models: []string{"channel-only"}}}}}, nil
+	}}
+	no, yes := false, true
+	for _, model := range []string{"beta", "manual-only"} {
+		row, err := svc.Update(ctx, AdminModelPolicyUpdate{Model: model, Enabled: &no})
+		require.NoError(t, err)
+		require.Equal(t, model == "beta", row.HasProvider)
+	}
+
+	all, err := svc.List(ctx, "", nil, nil, 1, 20)
+	require.NoError(t, err)
+	require.Equal(t, 7, all.Total)
+	byID := map[string]AdminModelPolicy{}
+	for _, row := range all.Items {
+		byID[row.Model] = row
+	}
+	require.Contains(t, byID["priced-without-provider"].Platforms, PlatformOpenAI)
+	require.False(t, byID["priced-without-provider"].HasProvider, "pricing metadata does not establish a configured provider")
+	require.True(t, byID["channel-only"].ChannelOverride)
+	require.False(t, byID["channel-only"].HasProvider, "a channel price alone does not provide a model")
+	require.False(t, byID["claude-sonnet-4"].HasProvider, "fallback pricing alone does not provide a model")
+	require.NotContains(t, byID, "upstream-a", "expose public aliases rather than their upstream targets")
+
+	provided, err := svc.List(ctx, "", nil, &yes, 2, 1)
+	require.NoError(t, err)
+	require.Equal(t, 3, provided.Total)
+	require.Len(t, provided.Items, 1)
+	require.Equal(t, "beta", provided.Items[0].Model)
+	require.True(t, provided.Items[0].HasProvider)
+	require.False(t, provided.Items[0].Enabled, "provider presence is independent of model enablement")
+
+	unprovided, err := svc.List(ctx, "", nil, &no, 1, 20)
+	require.NoError(t, err)
+	require.Equal(t, 4, unprovided.Total)
+	for _, row := range unprovided.Items {
+		require.False(t, row.HasProvider)
+	}
+	filtered, err := svc.List(ctx, "OPENAI", &no, &yes, 1, 20)
+	require.NoError(t, err)
+	require.Equal(t, 1, filtered.Total)
+	require.Equal(t, "beta", filtered.Items[0].Model)
+	detail, err := svc.Detail(ctx, "GAMMA")
+	require.NoError(t, err)
+	require.True(t, detail.HasProvider, "provider model IDs use the same case normalization as policies")
+}
+
+func TestAdminModelProviderWildcardsIncludeStoredModels(t *testing.T) {
+	svc, _ := newAdminPolicyFixture()
+	ctx := context.Background()
+	svc.accounts = adminPolicyAccounts{accounts: []Account{{Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Status: StatusDisabled, Schedulable: false,
+		Credentials: map[string]any{"model_mapping": map[string]any{"Custom-*": "upstream"}},
+	}}}
+	svc.pricing = &PricingService{pricingData: map[string]*LiteLLMModelPricing{
+		"custom-catalogue": {LiteLLMProvider: PlatformOpenAI},
+	}}
+	no, yes := false, true
+	stored, err := svc.Update(ctx, AdminModelPolicyUpdate{Model: "Custom-Manual", Enabled: &no})
+	require.NoError(t, err)
+	require.True(t, stored.HasProvider, "configured provider presence does not depend on temporary scheduling status")
+	listed, err := svc.List(ctx, "", nil, &yes, 1, 20)
+	require.NoError(t, err)
+	require.Equal(t, 2, listed.Total)
+	require.Equal(t, []string{"custom-catalogue", "Custom-Manual"}, []string{listed.Items[0].Model, listed.Items[1].Model})
+	for _, row := range listed.Items {
+		require.True(t, row.HasProvider)
+		require.NotContains(t, row.Model, "*", "wildcard patterns are not individual model rows")
+	}
 }
 
 func TestUserModelPricesDoNotAdvertiseDisabledPublicModels(t *testing.T) {

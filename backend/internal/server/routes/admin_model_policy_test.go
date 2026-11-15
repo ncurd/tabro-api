@@ -110,4 +110,66 @@ func TestAdminModelPolicyRoutesRequireAdminAndPersistPriceAndAvailability(t *tes
 	require.Nil(t, duration.Data.Pricing.UnitPrice)
 	rec = call(http.MethodPut, "/api/v1/admin/models", `{"model":"x","enabled":true,"pricing":{"billing_mode":"duration","price_unit":"second"}}`, true)
 	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	for _, tc := range []struct {
+		name   string
+		query  string
+		models []string
+	}{
+		{name: "provider filter omitted", models: []string{"multimedia-model", "paraformer-realtime-v2"}},
+		{name: "without provider", query: "?has_provider=false", models: []string{"multimedia-model", "paraformer-realtime-v2"}},
+		{name: "with provider", query: "?has_provider=true", models: []string{}},
+		{name: "disabled without provider", query: "?has_provider=false&enabled=false&search=paraformer", models: []string{"paraformer-realtime-v2"}},
+		{name: "enabled without provider", query: "?has_provider=false&enabled=true&search=multimedia", models: []string{"multimedia-model"}},
+		{name: "enabled and search both apply", query: "?has_provider=false&enabled=true&search=paraformer", models: []string{}},
+		{name: "provider required with other filters", query: "?has_provider=true&enabled=false&search=paraformer", models: []string{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := call(http.MethodGet, "/api/v1/admin/models"+tc.query, "", true)
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			var listed struct {
+				Data struct {
+					Items []struct {
+						Model       string `json:"model"`
+						HasProvider *bool  `json:"has_provider"`
+					} `json:"items"`
+					Total int `json:"total"`
+				} `json:"data"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listed))
+			require.Equal(t, len(tc.models), listed.Data.Total)
+			models := make([]string, 0, len(listed.Data.Items))
+			for _, item := range listed.Data.Items {
+				models = append(models, item.Model)
+				require.NotNil(t, item.HasProvider, "has_provider must be present for %s", item.Model)
+				require.False(t, *item.HasProvider, "manual model %s has no configured provider", item.Model)
+			}
+			require.ElementsMatch(t, tc.models, models)
+		})
+	}
+
+	for _, value := range []string{"invalid", "yes", "null"} {
+		t.Run("invalid provider filter "+value, func(t *testing.T) {
+			rec := call(http.MethodGet, "/api/v1/admin/models?has_provider="+value, "", true)
+			require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+			var result struct {
+				Message string `json:"message"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+			require.Equal(t, "has_provider must be true or false", result.Message)
+		})
+	}
+
+	t.Run("detail reports provider presence", func(t *testing.T) {
+		rec := call(http.MethodGet, "/api/v1/admin/models/detail?model=multimedia-model", "", true)
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		var detail struct {
+			Data struct {
+				HasProvider *bool `json:"has_provider"`
+			} `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &detail))
+		require.NotNil(t, detail.Data.HasProvider)
+		require.False(t, *detail.Data.HasProvider)
+	})
 }

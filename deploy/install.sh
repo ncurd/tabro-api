@@ -550,7 +550,7 @@ get_current_version() {
     fi
 }
 
-# Download and extract
+# Download and extract into a temporary directory without changing the installation
 download_and_extract() {
     local version_num=${LATEST_VERSION#v}
     local archive_name="sub2api_${version_num}_${OS}_${ARCH}.tar.gz"
@@ -561,7 +561,7 @@ download_and_extract() {
 
     # Create temp directory
     TEMP_DIR=$(mktemp -d)
-    trap "rm -rf $TEMP_DIR" EXIT
+    trap 'rm -rf "$TEMP_DIR"' EXIT
 
     # Download archive
     if ! curl -fsSL "$download_url" -o "$TEMP_DIR/$archive_name"; then
@@ -596,6 +596,14 @@ download_and_extract() {
     print_info "$(msg 'extracting')"
     tar -xzf "$TEMP_DIR/$archive_name" -C "$TEMP_DIR"
 
+    if [ ! -f "$TEMP_DIR/sub2api" ]; then
+        print_error "Release archive does not contain the sub2api binary"
+        exit 1
+    fi
+}
+
+# Install files from the already downloaded and extracted release
+install_binary() {
     # Create install directory
     mkdir -p "$INSTALL_DIR"
 
@@ -809,19 +817,22 @@ upgrade() {
     CURRENT_VERSION=$("$INSTALL_DIR/sub2api" --version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
     print_info "$(msg 'current_version'): $CURRENT_VERSION"
 
+    # Prepare the release while the current service is still running
+    get_latest_version
+    download_and_extract
+
+    # Backup current binary before stopping the service
+    cp "$INSTALL_DIR/sub2api" "$INSTALL_DIR/sub2api.backup"
+    print_info "$(msg 'backup_created'): $INSTALL_DIR/sub2api.backup"
+
     # Stop service
     if systemctl is-active --quiet sub2api; then
         print_info "$(msg 'stopping_service')"
         systemctl stop sub2api
     fi
 
-    # Backup current binary
-    cp "$INSTALL_DIR/sub2api" "$INSTALL_DIR/sub2api.backup"
-    print_info "$(msg 'backup_created'): $INSTALL_DIR/sub2api.backup"
-
-    # Download and install new version
-    get_latest_version
-    download_and_extract
+    # Install the prepared release without any network requests
+    install_binary
 
     # Set permissions
     chown "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR/sub2api"
@@ -861,11 +872,9 @@ install_version() {
         exit 0
     fi
 
-    # Stop service if running
-    if systemctl is-active --quiet sub2api; then
-        print_info "$(msg 'stopping_service')"
-        systemctl stop sub2api
-    fi
+    # Prepare the target release while the current service is still running
+    LATEST_VERSION="$target_version"
+    download_and_extract
 
     # Backup current binary (for potential recovery)
     if [ -f "$INSTALL_DIR/sub2api" ]; then
@@ -879,11 +888,14 @@ install_version() {
         print_info "$(msg 'backup_created'): $INSTALL_DIR/$backup_name"
     fi
 
-    # Set LATEST_VERSION to the target version for download_and_extract
-    LATEST_VERSION="$target_version"
+    # Stop service if running, after the release and backup are ready
+    if systemctl is-active --quiet sub2api; then
+        print_info "$(msg 'stopping_service')"
+        systemctl stop sub2api
+    fi
 
-    # Download and install
-    download_and_extract
+    # Install the prepared release without any network requests
+    install_binary
 
     # Set permissions
     chown "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR/sub2api"
@@ -1053,6 +1065,7 @@ main() {
                     configure_server
                     LATEST_VERSION=$(validate_version "$target_version")
                     download_and_extract
+                    install_binary
                     create_user
                     setup_directories
                     install_service
@@ -1067,6 +1080,7 @@ main() {
                 configure_server
                 get_latest_version
                 download_and_extract
+                install_binary
                 create_user
                 setup_directories
                 install_service
@@ -1147,6 +1161,7 @@ main() {
             configure_server
             LATEST_VERSION=$(validate_version "$target_version")
             download_and_extract
+            install_binary
             create_user
             setup_directories
             install_service
@@ -1161,6 +1176,7 @@ main() {
         configure_server
         get_latest_version
         download_and_extract
+        install_binary
         create_user
         setup_directories
         install_service

@@ -19,6 +19,7 @@ export interface AdminModelPrice {
 export interface AdminModelPolicy {
   model: string
   platforms: string[]
+  has_provider: boolean
   enabled: boolean
   pricing: AdminModelPrice | null
   default_pricing: AdminModelPrice | null
@@ -41,7 +42,7 @@ export interface UpdateAdminModelRequest {
 }
 
 export const adminModelsAPI = {
-  async list(params: { search?: string; page?: number; page_size?: number; enabled?: boolean }, signal?: AbortSignal): Promise<AdminModelList> {
+  async list(params: { search?: string; page?: number; page_size?: number; enabled?: boolean; has_provider?: boolean }, signal?: AbortSignal): Promise<AdminModelList> {
     const { data } = await apiClient.get<AdminModelList>('/admin/models', { params, signal })
     return data
   },

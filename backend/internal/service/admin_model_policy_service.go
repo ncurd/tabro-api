@@ -39,6 +39,7 @@ type AdminModelPrice struct {
 type AdminModelPolicy struct {
 	Model           string           `json:"model"`
 	Platforms       []string         `json:"platforms"`
+	HasProvider     bool             `json:"has_provider"`
 	Enabled         bool             `json:"enabled"`
 	Pricing         *AdminModelPrice `json:"pricing"`
 	DefaultPricing  *AdminModelPrice `json:"default_pricing"`
@@ -277,9 +278,10 @@ func (s *AdminModelPolicyService) ResetPrice(ctx context.Context, model string) 
 	return s.Update(ctx, AdminModelPolicyUpdate{Model: model, Enabled: &enabled, Pricing: nil})
 }
 
-func (s *AdminModelPolicyService) inventory(ctx context.Context) (map[string]map[string]bool, map[string]bool, error) {
+func (s *AdminModelPolicyService) inventory(ctx context.Context) (map[string]map[string]bool, map[string]bool, map[string]bool, error) {
 	models := map[string]map[string]bool{}
 	overrides := map[string]bool{}
+	providers := map[string]bool{}
 	wildcardOverrides := []string{}
 	add := func(model, platform string) {
 		id, err := normalizeAdminModelID(model)
@@ -313,11 +315,14 @@ func (s *AdminModelPolicyService) inventory(ctx context.Context) (map[string]map
 		for page := 1; ; page++ {
 			accounts, result, err := s.accounts.List(ctx, pagination.PaginationParams{Page: page, PageSize: 1000})
 			if err != nil {
-				return nil, nil, err
+				return nil, nil, nil, err
 			}
 			for i := range accounts {
 				for _, id := range gatewayAccountModelIDs(&accounts[i]) {
 					add(id, accounts[i].Platform)
+					// Provider presence comes from configured accounts, never from
+					// a provider name in the pricing catalogue or a channel price.
+					providers[strings.ToLower(strings.TrimSpace(id))] = true
 				}
 			}
 			if len(accounts) < 1000 || result != nil && page*1000 >= int(result.Total) {
@@ -328,7 +333,7 @@ func (s *AdminModelPolicyService) inventory(ctx context.Context) (map[string]map
 	if s.channels != nil {
 		channels, err := s.channels.ListAll(ctx)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		for _, ch := range channels {
 			for _, price := range ch.ModelPricing {
@@ -352,7 +357,21 @@ func (s *AdminModelPolicyService) inventory(ctx context.Context) (map[string]map
 			}
 		}
 	}
-	return models, overrides, nil
+	return models, overrides, providers, nil
+}
+
+func adminModelHasProvider(model string, providers map[string]bool) bool {
+	if providers[model] {
+		return true
+	}
+	// Wildcard mappings can provide concrete catalogue and manually added IDs
+	// without introducing wildcard rows into model management.
+	for pattern := range providers {
+		if strings.HasSuffix(pattern, "*") && matchWildcard(pattern, model) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *AdminModelPolicyService) defaultPrice(model string) *AdminModelPrice {
@@ -377,8 +396,8 @@ func (s *AdminModelPolicyService) defaultPrice(model string) *AdminModelPrice {
 	return &AdminModelPrice{BillingMode: BillingModeToken, PriceUnit: "million_tokens", InputPricePerMillion: value(price.InputPricePerToken), OutputPricePerMillion: value(price.OutputPricePerToken), CacheWritePricePerMillion: value(price.CacheCreationPricePerToken), CacheReadPricePerMillion: value(price.CacheReadPricePerToken)}
 }
 
-func (s *AdminModelPolicyService) row(model string, platforms map[string]bool, override bool, stored *storedAdminModelPolicy) AdminModelPolicy {
-	row := AdminModelPolicy{Model: model, Enabled: true, Platforms: []string{}, DefaultPricing: s.defaultPrice(model), Source: "unpriced", ChannelOverride: override}
+func (s *AdminModelPolicyService) row(model string, platforms map[string]bool, override, hasProvider bool, stored *storedAdminModelPolicy) AdminModelPolicy {
+	row := AdminModelPolicy{Model: model, Enabled: true, Platforms: []string{}, HasProvider: hasProvider, DefaultPricing: s.defaultPrice(model), Source: "unpriced", ChannelOverride: override}
 	for platform := range platforms {
 		row.Platforms = append(row.Platforms, platform)
 	}
@@ -398,8 +417,8 @@ func (s *AdminModelPolicyService) row(model string, platforms map[string]bool, o
 	return row
 }
 
-func (s *AdminModelPolicyService) List(ctx context.Context, search string, enabled *bool, page, pageSize int) (*AdminModelPolicyList, error) {
-	models, overrides, err := s.inventory(ctx)
+func (s *AdminModelPolicyService) List(ctx context.Context, search string, enabled, hasProvider *bool, page, pageSize int) (*AdminModelPolicyList, error) {
+	models, overrides, providers, err := s.inventory(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -450,6 +469,9 @@ func (s *AdminModelPolicyService) List(ctx context.Context, search string, enabl
 		if enabled != nil && active != *enabled {
 			continue
 		}
+		if hasProvider != nil && adminModelHasProvider(id, providers) != *hasProvider {
+			continue
+		}
 		matchingIDs = append(matchingIDs, id)
 	}
 	if page < 1 {
@@ -472,7 +494,7 @@ func (s *AdminModelPolicyService) List(ctx context.Context, search string, enabl
 			end = len(matchingIDs)
 		}
 		for _, id := range matchingIDs[start:end] {
-			result.Items = append(result.Items, s.row(id, models[id], overrides[id], stored[id]))
+			result.Items = append(result.Items, s.row(id, models[id], overrides[id], adminModelHasProvider(id, providers), stored[id]))
 		}
 	}
 	return result, nil
@@ -487,10 +509,10 @@ func (s *AdminModelPolicyService) Detail(ctx context.Context, model string) (*Ad
 	if err != nil {
 		return nil, err
 	}
-	models, overrides, err := s.inventory(ctx)
+	models, overrides, providers, err := s.inventory(ctx)
 	if err != nil {
 		return nil, err
 	}
-	row := s.row(id, models[id], overrides[id], stored)
+	row := s.row(id, models[id], overrides[id], adminModelHasProvider(id, providers), stored)
 	return &row, nil
 }
