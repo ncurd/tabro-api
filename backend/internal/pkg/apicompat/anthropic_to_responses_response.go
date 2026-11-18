@@ -101,10 +101,11 @@ func AnthropicToResponsesResponse(resp *AnthropicResponse) *ResponsesResponse {
 		OutputTokens: resp.Usage.OutputTokens,
 		TotalTokens:  totalInputTokens + resp.Usage.OutputTokens,
 	}
-	if resp.Usage.CacheReadInputTokens > 0 || resp.Usage.CacheCreationInputTokens > 0 {
+	if resp.Usage.CacheReadInputTokens > 0 || resp.Usage.CacheCreationInputTokens > 0 || resp.Usage.CacheCreation30mTokens != 0 || resp.Usage.CacheCreation12hTokens != 0 {
 		out.Usage.InputTokensDetails = &ResponsesInputTokensDetails{
-			CachedTokens:     resp.Usage.CacheReadInputTokens,
-			CacheWriteTokens: resp.Usage.CacheCreationInputTokens,
+			CachedTokens:            resp.Usage.CacheReadInputTokens,
+			CacheWriteTokens:        cacheWriteTokensTotal(resp.Usage.CacheCreationInputTokens, anthropicCacheWriteDetails(resp.Usage)),
+			CacheWriteTokensDetails: anthropicCacheWriteDetails(resp.Usage),
 		}
 	}
 
@@ -114,7 +115,7 @@ func AnthropicToResponsesResponse(resp *AnthropicResponse) *ResponsesResponse {
 // anthropicTotalInputTokens converts Anthropic's mutually exclusive uncached,
 // cache-read, and cache-write counts into OpenAI's total input token count.
 func anthropicTotalInputTokens(usage AnthropicUsage) int {
-	return usage.InputTokens + usage.CacheReadInputTokens + usage.CacheCreationInputTokens
+	return usage.InputTokens + usage.CacheReadInputTokens + cacheWriteTokensTotal(usage.CacheCreationInputTokens, anthropicCacheWriteDetails(usage))
 }
 
 // anthropicStopReasonToResponsesStatus maps Anthropic stop_reason to Responses status.
@@ -163,6 +164,8 @@ type AnthropicEventToResponsesState struct {
 	InputTokens              int
 	OutputTokens             int
 	CacheCreationInputTokens int
+	CacheCreation30mTokens   int
+	CacheCreation12hTokens   int
 	CacheReadInputTokens     int
 }
 
@@ -237,6 +240,12 @@ func anthToResHandleMessageStart(evt *AnthropicStreamEvent, state *AnthropicEven
 		}
 		if evt.Message.Usage.CacheCreationInputTokens > 0 {
 			state.CacheCreationInputTokens = evt.Message.Usage.CacheCreationInputTokens
+		}
+		if evt.Message.Usage.CacheCreation30mTokens != 0 {
+			state.CacheCreation30mTokens = evt.Message.Usage.CacheCreation30mTokens
+		}
+		if evt.Message.Usage.CacheCreation12hTokens != 0 {
+			state.CacheCreation12hTokens = evt.Message.Usage.CacheCreation12hTokens
 		}
 		if evt.Message.Usage.CacheReadInputTokens > 0 {
 			state.CacheReadInputTokens = evt.Message.Usage.CacheReadInputTokens
@@ -408,6 +417,12 @@ func anthToResHandleMessageDelta(evt *AnthropicStreamEvent, state *AnthropicEven
 	// Update usage
 	if evt.Usage != nil {
 		state.OutputTokens = evt.Usage.OutputTokens
+		if evt.Usage.CacheCreation30mTokens != 0 {
+			state.CacheCreation30mTokens = evt.Usage.CacheCreation30mTokens
+		}
+		if evt.Usage.CacheCreation12hTokens != 0 {
+			state.CacheCreation12hTokens = evt.Usage.CacheCreation12hTokens
+		}
 		if evt.Usage.CacheReadInputTokens > 0 {
 			state.CacheReadInputTokens = evt.Usage.CacheReadInputTokens
 		}
@@ -494,6 +509,8 @@ func makeResponsesCompletedEvent(
 	totalInputTokens := anthropicTotalInputTokens(AnthropicUsage{
 		InputTokens:              state.InputTokens,
 		CacheCreationInputTokens: state.CacheCreationInputTokens,
+		CacheCreation30mTokens:   state.CacheCreation30mTokens,
+		CacheCreation12hTokens:   state.CacheCreation12hTokens,
 		CacheReadInputTokens:     state.CacheReadInputTokens,
 	})
 	usage := &ResponsesUsage{
@@ -501,10 +518,11 @@ func makeResponsesCompletedEvent(
 		OutputTokens: state.OutputTokens,
 		TotalTokens:  totalInputTokens + state.OutputTokens,
 	}
-	if state.CacheReadInputTokens > 0 || state.CacheCreationInputTokens > 0 {
+	if state.CacheReadInputTokens > 0 || state.CacheCreationInputTokens > 0 || state.CacheCreation30mTokens != 0 || state.CacheCreation12hTokens != 0 {
 		usage.InputTokensDetails = &ResponsesInputTokensDetails{
-			CachedTokens:     state.CacheReadInputTokens,
-			CacheWriteTokens: state.CacheCreationInputTokens,
+			CachedTokens:            state.CacheReadInputTokens,
+			CacheWriteTokens:        cacheWriteTokensTotal(state.CacheCreationInputTokens, &CacheWriteTokensDetails{TTL30mTokens: state.CacheCreation30mTokens, TTL12hTokens: state.CacheCreation12hTokens}),
+			CacheWriteTokensDetails: anthropicCacheWriteDetails(AnthropicUsage{CacheCreation30mTokens: state.CacheCreation30mTokens, CacheCreation12hTokens: state.CacheCreation12hTokens}),
 		}
 	}
 

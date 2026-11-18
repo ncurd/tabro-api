@@ -36,6 +36,8 @@ func TestFallbackPricingFile_ContainsLatestOpenAIAndAnthropicModels(t *testing.T
 	require.NoError(t, err)
 
 	for _, model := range []string{
+		"gpt-6.2-astra",
+		"gpt-6.2-sol",
 		"gpt-6-astra",
 		"gpt-6.1-sol",
 		"gpt-6-sol",
@@ -82,6 +84,8 @@ func TestFallbackPricingFile_NewModelsUseOfficialPricing(t *testing.T) {
 		cacheRead    float64
 		cacheWrite1h float64
 	}{
+		{model: "gpt-6.2-astra", input: 8e-6, output: 40e-6, cacheWrite: 10e-6, cacheRead: 0.4e-6},
+		{model: "gpt-6.2-sol", input: 2e-6, output: 10e-6, cacheWrite: 2.5e-6, cacheRead: 0.1e-6},
 		{model: "gpt-6-astra", input: 10e-6, output: 50e-6, cacheWrite: 12.5e-6, cacheRead: 1e-6},
 		{model: "gpt-6.1-sol", input: 2e-6, output: 10e-6, cacheWrite: 2.5e-6, cacheRead: 0.1e-6},
 		{model: "gpt-6-sol", input: 2e-6, output: 10e-6, cacheWrite: 2.5e-6, cacheRead: 0.2e-6},
@@ -102,6 +106,10 @@ func TestFallbackPricingFile_NewModelsUseOfficialPricing(t *testing.T) {
 			require.InDelta(t, tt.input, pricing.InputCostPerToken, 1e-12)
 			require.InDelta(t, tt.output, pricing.OutputCostPerToken, 1e-12)
 			require.InDelta(t, tt.cacheWrite, pricing.CacheCreationInputTokenCost, 1e-12)
+			if strings.HasPrefix(tt.model, "gpt-6.2-") {
+				require.InDelta(t, 2*tt.cacheWrite, pricing.CacheCreationInputTokenCost12h, 1e-12)
+				require.InDelta(t, 4*tt.cacheWrite, pricing.CacheCreationInputTokenCost12hPriority, 1e-12)
+			}
 			require.InDelta(t, tt.cacheRead, pricing.CacheReadInputTokenCost, 1e-12)
 			require.InDelta(t, tt.cacheWrite1h, pricing.CacheCreationInputTokenCostAbove1hr, 1e-12)
 		})
@@ -733,6 +741,8 @@ func TestGetModelPricing_GPT6NamedModelsKeepIndependentPricing(t *testing.T) {
 		model   string
 		pricing *LiteLLMModelPricing
 	}{
+		{"gpt-6.2-astra", openAIGPT62AstraFallbackPricing},
+		{"gpt-6.2-sol", openAIGPT62SolFallbackPricing},
 		{"gpt-6.1-sol", openAIGPT61SolFallbackPricing},
 		{"gpt-6-sol", openAIGPT6SolFallbackPricing},
 		{"gpt-6-luna", openAIGPT6LunaFallbackPricing},

@@ -426,6 +426,7 @@ func parseOpenAIWSResponseUsageFromCompletedEvent(message []byte, usage *OpenAIU
 	usage.OutputTokens = int(values[1].Int())
 	usage.CacheReadInputTokens = int(values[2].Int())
 	usage.CacheCreationInputTokens = int(values[3].Int())
+	applyOpenAICacheWriteJSON(usage, gjson.GetBytes(message, "response.usage.input_tokens_details"))
 	usage.ResponseServiceTier = values[4].String()
 }
 
@@ -3953,6 +3954,7 @@ func populateOpenAIUsageFromResponseJSON(body []byte, usage *OpenAIUsage) {
 	usage.OutputTokens = int(values[1].Int())
 	usage.CacheReadInputTokens = int(values[2].Int())
 	usage.CacheCreationInputTokens = int(values[3].Int())
+	applyOpenAICacheWriteJSON(usage, gjson.GetBytes(body, "usage.input_tokens_details"))
 }
 
 func getOpenAIGroupIDFromContext(c *gin.Context) int64 {

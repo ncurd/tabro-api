@@ -207,6 +207,8 @@ type OpenAIUsage struct {
 	InputTokens              int `json:"input_tokens"`
 	OutputTokens             int `json:"output_tokens"`
 	CacheCreationInputTokens int `json:"cache_creation_input_tokens,omitempty"`
+	CacheCreation30mTokens   int `json:"cache_creation_30m_tokens,omitempty"`
+	CacheCreation12hTokens   int `json:"cache_creation_12h_tokens,omitempty"`
 	CacheReadInputTokens     int `json:"cache_read_input_tokens,omitempty"`
 	ImageOutputTokens        int `json:"image_output_tokens,omitempty"`
 	// ImageInputTokens includes cached image input; billing removes its cached
@@ -4013,6 +4015,7 @@ func (s *OpenAIGatewayService) parseSSEUsageBytes(data []byte, usage *OpenAIUsag
 	usage.OutputTokens = int(gjson.GetBytes(data, "response.usage.output_tokens").Int())
 	usage.CacheReadInputTokens = int(gjson.GetBytes(data, "response.usage.input_tokens_details.cached_tokens").Int())
 	usage.CacheCreationInputTokens = int(gjson.GetBytes(data, "response.usage.input_tokens_details.cache_write_tokens").Int())
+	applyOpenAICacheWriteJSON(usage, gjson.GetBytes(data, "response.usage.input_tokens_details"))
 	usage.ImageOutputTokens = int(gjson.GetBytes(data, "response.usage.output_tokens_details.image_tokens").Int())
 	usage.ResponseServiceTier = gjson.GetBytes(data, "response.service_tier").String()
 }
@@ -4038,6 +4041,7 @@ func extractOpenAIUsageFromJSONBytes(body []byte) (OpenAIUsage, bool) {
 		ImageOutputTokens:        int(values[4].Int()),
 		ResponseServiceTier:      values[5].String(),
 	}
+	applyOpenAICacheWriteJSON(&usage, gjson.GetBytes(body, "usage.input_tokens_details"))
 	applyOpenAIImageUsageDetails(body, &usage)
 	return usage, true
 }
@@ -4055,6 +4059,7 @@ func openAIUsageFromResponsesResponse(response *apicompat.ResponsesResponse) Ope
 	if usage.InputTokensDetails != nil {
 		result.CacheReadInputTokens = usage.InputTokensDetails.CachedTokens
 		result.CacheCreationInputTokens = usage.InputTokensDetails.CacheWriteTokens
+		applyOpenAICacheWriteDetails(&result, usage.InputTokensDetails.CacheWriteTokensDetails)
 	}
 	return result
 }
@@ -5122,13 +5127,15 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 
 	// Calculate cost
 	tokens := UsageTokens{
-		InputTokens:          actualInputTokens,
-		OutputTokens:         result.Usage.OutputTokens,
-		CacheCreationTokens:  result.Usage.CacheCreationInputTokens,
-		CacheReadTokens:      result.Usage.CacheReadInputTokens,
-		ImageOutputTokens:    result.Usage.ImageOutputTokens,
-		ImageInputTokens:     max(result.Usage.ImageInputTokens-result.Usage.CacheReadImageTokens, 0),
-		CacheReadImageTokens: result.Usage.CacheReadImageTokens,
+		InputTokens:            actualInputTokens,
+		OutputTokens:           result.Usage.OutputTokens,
+		CacheCreationTokens:    result.Usage.CacheCreationInputTokens,
+		CacheCreation30mTokens: result.Usage.CacheCreation30mTokens,
+		CacheCreation12hTokens: result.Usage.CacheCreation12hTokens,
+		CacheReadTokens:        result.Usage.CacheReadInputTokens,
+		ImageOutputTokens:      result.Usage.ImageOutputTokens,
+		ImageInputTokens:       max(result.Usage.ImageInputTokens-result.Usage.CacheReadImageTokens, 0),
+		CacheReadImageTokens:   result.Usage.CacheReadImageTokens,
 	}
 
 	// Get rate multiplier
@@ -5164,6 +5171,8 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		frozen := &ForwardResult{Usage: ClaudeUsage{InputTokens: actualInputTokens,
 			OutputTokens: result.Usage.OutputTokens, CacheReadInputTokens: result.Usage.CacheReadInputTokens,
 			CacheCreationInputTokens: result.Usage.CacheCreationInputTokens,
+			CacheCreation30mTokens:   result.Usage.CacheCreation30mTokens,
+			CacheCreation12hTokens:   result.Usage.CacheCreation12hTokens,
 			ImageOutputTokens:        result.Usage.ImageOutputTokens, Speed: serviceTier}, ImageCount: result.ImageCount, ImageSize: result.ImageSize}
 		cost, billingModel, multiplier, err = (&GatewayService{billingService: s.billingService, resolver: s.resolver}).frozenGatewayCreditCost(ctx, e, frozen, &recordUsageOpts{})
 	} else if result.ImageCount > 0 && (isGPTImage26Model(billingModel) || isGPTImage26Model(result.UpstreamModel)) {

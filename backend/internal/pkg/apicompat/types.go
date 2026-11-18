@@ -99,6 +99,8 @@ type AnthropicUsage struct {
 	InputTokens              int    `json:"input_tokens"`
 	OutputTokens             int    `json:"output_tokens"`
 	CacheCreationInputTokens int    `json:"cache_creation_input_tokens"`
+	CacheCreation30mTokens   int    `json:"cache_creation_30m_tokens,omitempty"`
+	CacheCreation12hTokens   int    `json:"cache_creation_12h_tokens,omitempty"`
 	CacheReadInputTokens     int    `json:"cache_read_input_tokens"`
 	Speed                    string `json:"speed,omitempty"`
 }
@@ -285,8 +287,29 @@ type ResponsesUsage struct {
 
 // ResponsesInputTokensDetails breaks down input token usage.
 type ResponsesInputTokensDetails struct {
-	CachedTokens     int `json:"cached_tokens,omitempty"`
-	CacheWriteTokens int `json:"cache_write_tokens,omitempty"`
+	CachedTokens            int                      `json:"cached_tokens,omitempty"`
+	CacheWriteTokens        int                      `json:"cache_write_tokens,omitempty"`
+	CacheWriteTokensDetails *CacheWriteTokensDetails `json:"cache_write_tokens_details,omitempty"`
+}
+
+// CacheWriteTokensDetails contains disjoint write counts for the two cache lifetimes.
+type CacheWriteTokensDetails struct {
+	TTL30mTokens int `json:"ttl_30m_tokens"`
+	TTL12hTokens int `json:"ttl_12h_tokens"`
+}
+
+func cacheWriteTokensTotal(total int, details *CacheWriteTokensDetails) int {
+	if total == 0 && details != nil && details.TTL30mTokens+details.TTL12hTokens > 0 {
+		return details.TTL30mTokens + details.TTL12hTokens
+	}
+	return total
+}
+
+func anthropicCacheWriteDetails(usage AnthropicUsage) *CacheWriteTokensDetails {
+	if usage.CacheCreation30mTokens == 0 && usage.CacheCreation12hTokens == 0 {
+		return nil
+	}
+	return &CacheWriteTokensDetails{TTL30mTokens: usage.CacheCreation30mTokens, TTL12hTokens: usage.CacheCreation12hTokens}
 }
 
 // ResponsesOutputTokensDetails breaks down output token usage.
@@ -448,8 +471,9 @@ type ChatUsage struct {
 
 // ChatTokenDetails provides a breakdown of token usage.
 type ChatTokenDetails struct {
-	CachedTokens     int `json:"cached_tokens,omitempty"`
-	CacheWriteTokens int `json:"cache_write_tokens,omitempty"`
+	CachedTokens            int                      `json:"cached_tokens,omitempty"`
+	CacheWriteTokens        int                      `json:"cache_write_tokens,omitempty"`
+	CacheWriteTokensDetails *CacheWriteTokensDetails `json:"cache_write_tokens_details,omitempty"`
 }
 
 // ChatCompletionsChunk is a single streaming chunk from POST /v1/chat/completions.

@@ -526,6 +526,8 @@ type ClaudeUsage struct {
 	InputTokens              int    `json:"input_tokens"`
 	OutputTokens             int    `json:"output_tokens"`
 	CacheCreationInputTokens int    `json:"cache_creation_input_tokens"`
+	CacheCreation30mTokens   int    `json:"cache_creation_30m_tokens,omitempty"`
+	CacheCreation12hTokens   int    `json:"cache_creation_12h_tokens,omitempty"`
 	CacheReadInputTokens     int    `json:"cache_read_input_tokens"`
 	Speed                    string `json:"speed,omitempty"`
 	CacheCreation5mTokens    int    // 5分钟缓存创建token（来自嵌套 cache_creation 对象）
@@ -8029,11 +8031,13 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 			// Anthropic's input_tokens excludes cache_read and cache_creation (billed separately);
 			// OpenAI gateway uses actualInputTokens which also excludes cache_read for the same reason.
 			UsageTokens{
-				InputTokens:         result.Usage.InputTokens,
-				OutputTokens:        result.Usage.OutputTokens,
-				CacheCreationTokens: result.Usage.CacheCreationInputTokens,
-				CacheReadTokens:     result.Usage.CacheReadInputTokens,
-				ImageOutputTokens:   result.Usage.ImageOutputTokens,
+				InputTokens:            result.Usage.InputTokens,
+				OutputTokens:           result.Usage.OutputTokens,
+				CacheCreationTokens:    result.Usage.CacheCreationInputTokens,
+				CacheCreation30mTokens: result.Usage.CacheCreation30mTokens,
+				CacheCreation12hTokens: result.Usage.CacheCreation12hTokens,
+				CacheReadTokens:        result.Usage.CacheReadInputTokens,
+				ImageOutputTokens:      result.Usage.ImageOutputTokens,
 			},
 			cost.TotalCost,
 		)
@@ -8157,13 +8161,15 @@ func (s *GatewayService) calculateTokenCost(
 	opts *recordUsageOpts,
 ) *CostBreakdown {
 	tokens := UsageTokens{
-		InputTokens:           result.Usage.InputTokens,
-		OutputTokens:          result.Usage.OutputTokens,
-		CacheCreationTokens:   result.Usage.CacheCreationInputTokens,
-		CacheReadTokens:       result.Usage.CacheReadInputTokens,
-		CacheCreation5mTokens: result.Usage.CacheCreation5mTokens,
-		CacheCreation1hTokens: result.Usage.CacheCreation1hTokens,
-		ImageOutputTokens:     result.Usage.ImageOutputTokens,
+		InputTokens:            result.Usage.InputTokens,
+		OutputTokens:           result.Usage.OutputTokens,
+		CacheCreationTokens:    result.Usage.CacheCreationInputTokens,
+		CacheCreation30mTokens: result.Usage.CacheCreation30mTokens,
+		CacheCreation12hTokens: result.Usage.CacheCreation12hTokens,
+		CacheReadTokens:        result.Usage.CacheReadInputTokens,
+		CacheCreation5mTokens:  result.Usage.CacheCreation5mTokens,
+		CacheCreation1hTokens:  result.Usage.CacheCreation1hTokens,
+		ImageOutputTokens:      result.Usage.ImageOutputTokens,
 	}
 
 	var cost *CostBreakdown

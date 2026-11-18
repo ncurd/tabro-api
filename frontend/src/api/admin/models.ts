@@ -14,6 +14,7 @@ export interface AdminModelPrice {
   output_audio_price_per_second?: number
   output_video_price_per_second?: number
   unit_price?: number
+  resolution_prices?: { resolution: string; unit_price: number }[]
 }
 
 export interface AdminModelPolicy {

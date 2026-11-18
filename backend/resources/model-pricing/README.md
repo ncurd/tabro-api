@@ -57,4 +57,14 @@ GPT Image 2.6 Sunburst and Flare use the published Standard token rates: text in
 
 Local token billing requires an upstream modality breakdown. Group and channel image prices remain explicit overrides; central billing continues to use its frozen admission price rather than estimating an unbounded image-token reservation.
 
-Last updated: 2026-11-08
+GPT-6.2 Astra and GPT-6.2 Sol use Standard prices of $8/$0.40/$40 and $2/$0.10/$10 per million input/cached-input/output tokens. Default 30-minute cache writes cost $10 and $2.50 per million tokens; 12-hour writes cost $20 and $5. The upstream cache-write TTL breakdown selects the corresponding price; unclassified writes retain the default 30-minute rate. Fast/Priority is 2x Standard. Above 272K total input tokens, input/cache rates double and output rates increase by 1.5x for the full request. Batch prices are 50% of Standard; no unsupported Flex price or unannounced dated model is supplied.
+
+Ultrafast is 3x Standard until March 1, 2027 at 00:00 Pacific, then 6x. The billing policy preserves the selected multiplier in frozen credit quotes. Both models allow 922,000 input and 128,000 output tokens (1,050,000 context), and support the low/medium/high/xhigh/max reasoning variants. `none` and `minimal` are not advertised or normalized into another model. Sources:
+
+- https://developers.openai.com/api/docs/models/gpt-6.2-astra
+- https://developers.openai.com/api/docs/models/gpt-6.2-sol
+- https://developers.openai.com/api/docs/pricing
+- https://developers.openai.com/api/docs/guides/latest-model
+- https://developers.openai.com/api/docs/guides/prompt-caching
+
+Last updated: 2026-11-18

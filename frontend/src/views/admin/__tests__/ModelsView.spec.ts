@@ -254,4 +254,68 @@ describe('administrator model management', () => {
     expect(row(wrapper).text()).toContain('音频输出 / 秒: 0 USD')
     expect(row(wrapper).text()).not.toContain('0.03 USD')
   })
+
+  it('saves video prices by resolution with no default, retaining zero and omitting blank tiers after reload', async () => {
+    const wrapper = render()
+    await flushPromises()
+    await row(wrapper).get('button[aria-label="调整 gpt-test 的价格"]').trigger('click')
+    await wrapper.get('[data-field="billing_mode"]').setValue('video')
+    expect(wrapper.get('[data-field="price_unit"]').findAll('option').map(option => option.attributes('value'))).toEqual(['second'])
+    expect(wrapper.get('[data-field="unit_price"]').attributes('required')).toBeUndefined()
+    expect(wrapper.find('[data-field="input_price_per_million"]').exists()).toBe(false)
+    expect(wrapper.get('[role="dialog"]').text()).toContain('没有默认价则不支持该分辨率')
+    await wrapper.get('form').trigger('submit')
+    expect(update).not.toHaveBeenCalled()
+    expect(wrapper.get('[role="alert"]').text()).toContain('请至少填写默认单价或一个分辨率单价')
+    await wrapper.get('[data-field="resolution_price_480P"]').setValue('0')
+    await wrapper.get('[data-field="resolution_price_1080P"]').setValue('0.3')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(update).toHaveBeenCalledWith({ model: 'gpt-test', enabled: true, pricing: {
+      billing_mode: 'video', price_unit: 'second', resolution_prices: [
+        { resolution: '480P', unit_price: 0 }, { resolution: '1080P', unit_price: 0.3 }
+      ]
+    } })
+    expect(row(wrapper).text()).toContain('480P: 0 USD / 秒')
+    expect(row(wrapper).text()).toContain('1080P: 0.3 USD / 秒')
+    expect(row(wrapper).text()).not.toContain('720P:')
+    await row(wrapper).get('button[aria-label="调整 gpt-test 的价格"]').trigger('click')
+    expect((wrapper.get('[data-field="unit_price"]').element as HTMLInputElement).value).toBe('')
+    expect((wrapper.get('[data-field="resolution_price_480P"]').element as HTMLInputElement).value).toBe('0')
+    expect((wrapper.get('[data-field="resolution_price_720P"]').element as HTMLInputElement).value).toBe('')
+    expect((wrapper.get('[data-field="resolution_price_1080P"]').element as HTMLInputElement).value).toBe('0.3')
+  })
+
+  it('keeps the existing video default price and saves a resolution override alongside it', async () => {
+    serverModels[0].pricing = { billing_mode: 'video', price_unit: 'second', unit_price: 0.1 }
+    serverModels[0].source = 'manual'
+    const wrapper = render()
+    await flushPromises()
+    expect(row(wrapper).text()).toContain('默认: 0.1 USD / 秒')
+    await row(wrapper).get('button[aria-label="调整 gpt-test 的价格"]').trigger('click')
+    expect((wrapper.get('[data-field="unit_price"]').element as HTMLInputElement).value).toBe('0.1')
+    await wrapper.get('[data-field="resolution_price_720P"]').setValue('0.25')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(update).toHaveBeenCalledWith({ model: 'gpt-test', enabled: true, pricing: {
+      billing_mode: 'video', price_unit: 'second', unit_price: 0.1, resolution_prices: [{ resolution: '720P', unit_price: 0.25 }]
+    } })
+    expect(row(wrapper).text()).toContain('默认: 0.1 USD / 秒')
+    expect(row(wrapper).text()).toContain('720P: 0.25 USD / 秒')
+  })
+
+  it('never submits hidden video resolution prices when changing billing modes', async () => {
+    serverModels[0].pricing = { billing_mode: 'video', price_unit: 'second', resolution_prices: [{ resolution: '480P', unit_price: 0 }] }
+    serverModels[0].source = 'manual'
+    const wrapper = render()
+    await flushPromises()
+    await row(wrapper).get('button[aria-label="调整 gpt-test 的价格"]').trigger('click')
+    await wrapper.get('[data-field="billing_mode"]').setValue('audio')
+    expect(wrapper.find('[data-field="resolution_price_480P"]').exists()).toBe(false)
+    await wrapper.get('[data-field="unit_price"]').setValue('0.002')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(update).toHaveBeenCalledWith({ model: 'gpt-test', enabled: true,
+      pricing: { billing_mode: 'audio', price_unit: 'second', unit_price: 0.002 } })
+  })
 })

@@ -69,6 +69,14 @@ describe('UseKeyModal', () => {
     const codeBlock = wrapper.find('pre code')
     expect(codeBlock.exists()).toBe(true)
     const config = JSON.parse(codeBlock.text())
+    for (const [model, name] of [['gpt-6.2-astra', 'GPT-6.2 Astra'], ['gpt-6.2-sol', 'GPT-6.2 Sol']]) {
+      expect(config.provider.openai.models[model]).toEqual({
+        name,
+        limit: { context: 1050000, output: 128000 },
+        options: { store: false },
+        variants: { low: {}, medium: {}, high: {}, xhigh: {}, max: {} }
+      })
+    }
     expect(config.provider.openai.models['gpt-6.1-sol']).toEqual({
       name: 'GPT-6.1 Sol',
       limit: {

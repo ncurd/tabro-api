@@ -204,6 +204,15 @@ func mergeAnthropicUsage(dst *ClaudeUsage, src apicompat.AnthropicUsage) {
 	if src.CacheCreationInputTokens > 0 {
 		dst.CacheCreationInputTokens = src.CacheCreationInputTokens
 	}
+	if src.CacheCreation30mTokens != 0 {
+		dst.CacheCreation30mTokens = src.CacheCreation30mTokens
+	}
+	if src.CacheCreation12hTokens != 0 {
+		dst.CacheCreation12hTokens = src.CacheCreation12hTokens
+	}
+	if total := dst.CacheCreation30mTokens + dst.CacheCreation12hTokens; dst.CacheCreationInputTokens == 0 && total > 0 {
+		dst.CacheCreationInputTokens = total
+	}
 	if speed := strings.TrimSpace(src.Speed); speed != "" {
 		dst.Speed = speed
 	}
@@ -317,6 +326,8 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 			InputTokens:              usage.InputTokens,
 			OutputTokens:             usage.OutputTokens,
 			CacheCreationInputTokens: usage.CacheCreationInputTokens,
+			CacheCreation30mTokens:   usage.CacheCreation30mTokens,
+			CacheCreation12hTokens:   usage.CacheCreation12hTokens,
 			CacheReadInputTokens:     usage.CacheReadInputTokens,
 			Speed:                    usage.Speed,
 		}

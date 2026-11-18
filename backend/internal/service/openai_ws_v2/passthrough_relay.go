@@ -39,6 +39,8 @@ type Usage struct {
 	InputTokens              int
 	OutputTokens             int
 	CacheCreationInputTokens int
+	CacheCreation30mTokens   int
+	CacheCreation12hTokens   int
 	CacheReadInputTokens     int
 	ServiceTier              string
 }
@@ -1206,13 +1208,17 @@ func parseUsageAndAccumulate(
 	outputResult := gjson.GetBytes(message, "response.usage.output_tokens")
 	cachedResult := gjson.GetBytes(message, "response.usage.input_tokens_details.cached_tokens")
 	cacheWriteResult := gjson.GetBytes(message, "response.usage.input_tokens_details.cache_write_tokens")
+	cacheWriteDetails := usageResult.Get("input_tokens_details.cache_write_tokens_details")
 	serviceTier := strings.TrimSpace(gjson.GetBytes(message, "response.service_tier").String())
 
 	inputTokens, inputOK := parseUsageIntField(inputResult, true)
 	outputTokens, outputOK := parseUsageIntField(outputResult, true)
 	cachedTokens, cachedOK := parseUsageIntField(cachedResult, false)
 	cacheWriteTokens, cacheWriteOK := parseUsageIntField(cacheWriteResult, false)
-	if !inputOK || !outputOK || !cachedOK || !cacheWriteOK {
+	cache30mTokens, cache30mOK := parseUsageIntField(cacheWriteDetails.Get("ttl_30m_tokens"), false)
+	cache12hTokens, cache12hOK := parseUsageIntField(cacheWriteDetails.Get("ttl_12h_tokens"), false)
+	validCacheDetails := cache30mTokens >= 0 && cache12hTokens >= 0 && cache30mTokens <= int(^uint(0)>>1)-cache12hTokens
+	if !inputOK || !outputOK || !cachedOK || !cacheWriteOK || !cache30mOK || !cache12hOK || !validCacheDetails {
 		recordUsageParseFailure()
 		if onParseFailure != nil {
 			onParseFailure(eventType, usageRaw)
@@ -1220,11 +1226,18 @@ func parseUsageAndAccumulate(
 		// 解析失败时不做部分字段累加，避免计费 usage 出现“半有效”状态。
 		return Usage{}
 	}
+	// Some compatible providers omit the aggregate while reporting TTL details.
+	// Keep the total so input accounting and existing usage logs stay disjoint.
+	if cacheWriteTokens == 0 {
+		cacheWriteTokens = cache30mTokens + cache12hTokens
+	}
 	parsedUsage := Usage{
 		InputTokens:              inputTokens,
 		OutputTokens:             outputTokens,
 		CacheReadInputTokens:     cachedTokens,
 		CacheCreationInputTokens: cacheWriteTokens,
+		CacheCreation30mTokens:   cache30mTokens,
+		CacheCreation12hTokens:   cache12hTokens,
 		ServiceTier:              serviceTier,
 	}
 
@@ -1234,6 +1247,8 @@ func parseUsageAndAccumulate(
 	state.usage.OutputTokens += parsedUsage.OutputTokens
 	state.usage.CacheReadInputTokens += parsedUsage.CacheReadInputTokens
 	state.usage.CacheCreationInputTokens += parsedUsage.CacheCreationInputTokens
+	state.usage.CacheCreation30mTokens += parsedUsage.CacheCreation30mTokens
+	state.usage.CacheCreation12hTokens += parsedUsage.CacheCreation12hTokens
 	if parsedUsage.ServiceTier != "" {
 		state.usage.ServiceTier = parsedUsage.ServiceTier
 	}

@@ -119,7 +119,7 @@ func (s *PricingService) GetTextModelCapabilities(model string) (TextModelCapabi
 	model = strings.ToLower(strings.TrimSpace(model))
 	// Reasoning aliases are accepted only when the compatibility adapter has an
 	// explicit mapping to this exact model. Unknown suffixes remain unbounded.
-	if normalized, _, ok := splitOpenAICompatReasoningModel(model); ok && normalized == "gpt-6.1-sol" {
+	if normalized, _, ok := splitOpenAICompatReasoningModel(model); ok && (normalized == "gpt-6.1-sol" || isOpenAIGPT62Model(normalized)) {
 		model = normalized
 	}
 	var pricing *LiteLLMModelPricing
@@ -134,6 +134,10 @@ func (s *PricingService) GetTextModelCapabilities(model string) (TextModelCapabi
 	// Keep newly released models usable if the remote catalog has not caught up.
 	var fallback *LiteLLMModelPricing
 	switch model {
+	case "gpt-6.2-astra":
+		fallback = openAIGPT62AstraFallbackPricing
+	case "gpt-6.2-sol":
+		fallback = openAIGPT62SolFallbackPricing
 	case "gpt-6-astra":
 		fallback = openAIGPT6AstraFallbackPricing
 	case "gpt-6.1-sol":

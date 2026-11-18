@@ -89,10 +89,11 @@ func ResponsesToChatCompletions(resp *ResponsesResponse, model string) *ChatComp
 			TotalTokens:      resp.Usage.InputTokens + resp.Usage.OutputTokens,
 		}
 		if resp.Usage.InputTokensDetails != nil &&
-			(resp.Usage.InputTokensDetails.CachedTokens > 0 || resp.Usage.InputTokensDetails.CacheWriteTokens > 0) {
+			(resp.Usage.InputTokensDetails.CachedTokens > 0 || resp.Usage.InputTokensDetails.CacheWriteTokens > 0 || resp.Usage.InputTokensDetails.CacheWriteTokensDetails != nil) {
 			usage.PromptTokensDetails = &ChatTokenDetails{
-				CachedTokens:     resp.Usage.InputTokensDetails.CachedTokens,
-				CacheWriteTokens: resp.Usage.InputTokensDetails.CacheWriteTokens,
+				CachedTokens:            resp.Usage.InputTokensDetails.CachedTokens,
+				CacheWriteTokens:        cacheWriteTokensTotal(resp.Usage.InputTokensDetails.CacheWriteTokens, resp.Usage.InputTokensDetails.CacheWriteTokensDetails),
+				CacheWriteTokensDetails: resp.Usage.InputTokensDetails.CacheWriteTokensDetails,
 			}
 		}
 		out.Usage = usage
@@ -303,10 +304,11 @@ func resToChatHandleCompleted(evt *ResponsesStreamEvent, state *ResponsesEventTo
 				TotalTokens:      u.InputTokens + u.OutputTokens,
 			}
 			if u.InputTokensDetails != nil &&
-				(u.InputTokensDetails.CachedTokens > 0 || u.InputTokensDetails.CacheWriteTokens > 0) {
+				(u.InputTokensDetails.CachedTokens > 0 || u.InputTokensDetails.CacheWriteTokens > 0 || u.InputTokensDetails.CacheWriteTokensDetails != nil) {
 				usage.PromptTokensDetails = &ChatTokenDetails{
-					CachedTokens:     u.InputTokensDetails.CachedTokens,
-					CacheWriteTokens: u.InputTokensDetails.CacheWriteTokens,
+					CachedTokens:            u.InputTokensDetails.CachedTokens,
+					CacheWriteTokens:        cacheWriteTokensTotal(u.InputTokensDetails.CacheWriteTokens, u.InputTokensDetails.CacheWriteTokensDetails),
+					CacheWriteTokensDetails: u.InputTokensDetails.CacheWriteTokensDetails,
 				}
 			}
 			state.Usage = usage

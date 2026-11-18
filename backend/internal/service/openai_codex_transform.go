@@ -9,6 +9,18 @@ import (
 )
 
 var codexModelMap = map[string]string{
+	"gpt-6.2-astra":              "gpt-6.2-astra",
+	"gpt-6.2-astra-low":          "gpt-6.2-astra",
+	"gpt-6.2-astra-medium":       "gpt-6.2-astra",
+	"gpt-6.2-astra-high":         "gpt-6.2-astra",
+	"gpt-6.2-astra-xhigh":        "gpt-6.2-astra",
+	"gpt-6.2-astra-max":          "gpt-6.2-astra",
+	"gpt-6.2-sol":                "gpt-6.2-sol",
+	"gpt-6.2-sol-low":            "gpt-6.2-sol",
+	"gpt-6.2-sol-medium":         "gpt-6.2-sol",
+	"gpt-6.2-sol-high":           "gpt-6.2-sol",
+	"gpt-6.2-sol-xhigh":          "gpt-6.2-sol",
+	"gpt-6.2-sol-max":            "gpt-6.2-sol",
 	"gpt-6.1-sol":                "gpt-6.1-sol",
 	"gpt-6.1-sol-low":            "gpt-6.1-sol",
 	"gpt-6.1-sol-medium":         "gpt-6.1-sol",
@@ -303,6 +315,21 @@ func normalizeCodexModel(model string) string {
 	}
 
 	normalized := strings.ToLower(modelID)
+	for _, family := range []string{"gpt-6.2-astra", "gpt-6.2-sol"} {
+		spaced := strings.ReplaceAll(family, "-", " ")
+		if normalized == spaced {
+			return family
+		}
+		for _, effort := range []string{"low", "medium", "high", "xhigh", "max"} {
+			if normalized == spaced+" "+effort {
+				return family
+			}
+		}
+		// Unknown and unsupported suffixes must not silently select another model.
+		if strings.HasPrefix(normalized, family+"-") || strings.HasPrefix(normalized, spaced+" ") {
+			return modelID
+		}
+	}
 	if normalized == "gpt 6.1 sol" {
 		return "gpt-6.1-sol"
 	}

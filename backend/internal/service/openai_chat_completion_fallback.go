@@ -241,8 +241,9 @@ func chatCompletionsResponseToResponsesResponse(chatResp *apicompat.ChatCompleti
 		}
 		if chatResp.Usage.PromptTokensDetails != nil {
 			resp.Usage.InputTokensDetails = &apicompat.ResponsesInputTokensDetails{
-				CachedTokens:     chatResp.Usage.PromptTokensDetails.CachedTokens,
-				CacheWriteTokens: chatResp.Usage.PromptTokensDetails.CacheWriteTokens,
+				CachedTokens:            chatResp.Usage.PromptTokensDetails.CachedTokens,
+				CacheWriteTokens:        openAIUsageFromChatCompletionsResponse(chatResp).CacheCreationInputTokens,
+				CacheWriteTokensDetails: chatResp.Usage.PromptTokensDetails.CacheWriteTokensDetails,
 			}
 		}
 	}
@@ -349,6 +350,7 @@ func openAIUsageFromChatCompletionsResponse(chatResp *apicompat.ChatCompletionsR
 	if chatResp.Usage.PromptTokensDetails != nil {
 		usage.CacheReadInputTokens = chatResp.Usage.PromptTokensDetails.CachedTokens
 		usage.CacheCreationInputTokens = chatResp.Usage.PromptTokensDetails.CacheWriteTokens
+		applyOpenAICacheWriteDetails(&usage, chatResp.Usage.PromptTokensDetails.CacheWriteTokensDetails)
 	}
 	return usage
 }

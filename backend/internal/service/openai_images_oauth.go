@@ -260,6 +260,8 @@ func addOpenAIImagesOAuthUsage(total *OpenAIUsage, usage OpenAIUsage) {
 	total.InputTokens += usage.InputTokens
 	total.OutputTokens += usage.OutputTokens
 	total.CacheCreationInputTokens += usage.CacheCreationInputTokens
+	total.CacheCreation30mTokens += usage.CacheCreation30mTokens
+	total.CacheCreation12hTokens += usage.CacheCreation12hTokens
 	total.CacheReadInputTokens += usage.CacheReadInputTokens
 	total.ImageOutputTokens += usage.ImageOutputTokens
 	total.ImageInputTokens += usage.ImageInputTokens

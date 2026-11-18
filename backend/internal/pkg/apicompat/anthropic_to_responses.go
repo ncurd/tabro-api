@@ -46,17 +46,17 @@ func AnthropicToResponses(req *AnthropicRequest) (*ResponsesRequest, error) {
 	}
 
 	// Determine reasoning effort: only output_config.effort controls the
-	// level; thinking.type is ignored. GPT-6.1 Sol defaults to medium; other
+	// level; thinking.type is ignored. GPT-6.1 Sol and GPT-6.2 default to medium; other
 	// models retain the compatibility default of high.
 	effort := "high"
-	if isGPT61SolModel(req.Model) {
+	if requiresOpenAIReasoning(req.Model) {
 		effort = "medium"
 	}
 	if req.OutputConfig != nil && req.OutputConfig.Effort != "" {
 		effort = req.OutputConfig.Effort
 	}
-	if isGPT61SolModel(req.Model) && (strings.EqualFold(effort, "none") || strings.EqualFold(effort, "minimal")) {
-		return nil, fmt.Errorf("reasoning effort %q is not supported by gpt-6.1-sol", effort)
+	if requiresOpenAIReasoning(req.Model) && (strings.EqualFold(effort, "none") || strings.EqualFold(effort, "minimal")) {
+		return nil, fmt.Errorf("reasoning effort %q is not supported by %s", effort, req.Model)
 	}
 	out.Reasoning = &ResponsesReasoning{
 		Effort:  mapAnthropicEffortToResponsesForModel(effort, req.Model),
@@ -410,13 +410,14 @@ func mapAnthropicEffortToResponsesForModel(effort, model string) string {
 
 func supportsIndependentOpenAIXHighAndMax(model string) bool {
 	model = strings.ToLower(strings.TrimSpace(model))
-	return strings.Contains(model, "gpt-6.1-sol") || strings.Contains(model, "gpt-6-astra") || strings.Contains(model, "gpt-6-sol") ||
+	return strings.Contains(model, "gpt-6.2-astra") || strings.Contains(model, "gpt-6.2-sol") || strings.Contains(model, "gpt-6.1-sol") || strings.Contains(model, "gpt-6-astra") || strings.Contains(model, "gpt-6-sol") ||
 		strings.Contains(model, "gpt-6-luna") || strings.Contains(model, "gpt-5.6")
 }
 
-func isGPT61SolModel(model string) bool {
+func requiresOpenAIReasoning(model string) bool {
 	model = strings.ToLower(strings.TrimSpace(model))
-	return model == "gpt-6.1-sol" || model == "openai/gpt-6.1-sol"
+	model = strings.TrimPrefix(model, "openai/")
+	return model == "gpt-6.1-sol" || model == "gpt-6.2-astra" || model == "gpt-6.2-sol"
 }
 
 // convertAnthropicToolsToResponses maps Anthropic tool definitions to

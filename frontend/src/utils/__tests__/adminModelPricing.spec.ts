@@ -91,4 +91,69 @@ describe('administrator model price form', () => {
         expect(buildModelPrice(form).error).toBe('invalidPrice')
       }
     })
+
+  it('prefills video resolution prices case-insensitively, preserving zero and other configured resolutions', () => {
+    const form = createModelPriceForm({ ...model, pricing: { billing_mode: 'video', price_unit: 'second', resolution_prices: [
+      { resolution: '480p', unit_price: 0 }, { resolution: '1080P', unit_price: 0.3 }, { resolution: '4k', unit_price: 0.8 }
+    ] } })
+    expect(form.unit_price).toBe('')
+    expect(form.resolution_prices).toEqual([
+      { resolution: '480P', unit_price: '0' }, { resolution: '720P', unit_price: '' },
+      { resolution: '1080P', unit_price: '0.3' }, { resolution: '4K', unit_price: '0.8' }
+    ])
+    expect(buildModelPrice(form)).toEqual({ price: { billing_mode: 'video', price_unit: 'second', resolution_prices: [
+      { resolution: '480P', unit_price: 0 }, { resolution: '1080P', unit_price: 0.3 }, { resolution: '4K', unit_price: 0.8 }
+    ] } })
+  })
+
+  it('requires an explicit video default or resolution price and never invents a default', () => {
+    const form = createModelPriceForm({ ...model, default_pricing: null })
+    form.billing_mode = 'video'; form.price_unit = 'second'
+    expect(form.unit_price).toBe('')
+    expect(form.resolution_prices.every(tier => tier.unit_price === '')).toBe(true)
+    expect(buildModelPrice(form).error).toBe('requiredVideoPrice')
+    form.resolution_prices[0].unit_price = 0
+    expect(buildModelPrice(form)).toEqual({ price: { billing_mode: 'video', price_unit: 'second',
+      resolution_prices: [{ resolution: '480P', unit_price: 0 }] } })
+  })
+
+  it('opens known unpriced video models in video mode without overriding an existing billing mode', () => {
+    for (const name of ['wan3.0-video', 'wan3.0-video-prime', 'happyhorse-1.0-r2v', 'doubao-seedance-2-0-260128', 'doubao-seedance-2-5-260628']) {
+      const form = createModelPriceForm({ ...model, model: name, default_pricing: null })
+      expect(form.billing_mode).toBe('video')
+      expect(form.price_unit).toBe('second')
+      expect(form.unit_price).toBe('')
+      expect(buildModelPrice(form).error).toBe('requiredVideoPrice')
+    }
+    expect(createModelPriceForm({ ...model, model: 'wan3.0-video', pricing: {
+      billing_mode: 'per_request', price_unit: 'request', unit_price: 0.5
+    } }).billing_mode).toBe('per_request')
+  })
+
+  it('keeps legacy video default prices and optionally combines them with resolution overrides', () => {
+    const form = createModelPriceForm({ ...model, pricing: { billing_mode: 'video', price_unit: 'second', unit_price: 0 } })
+    expect(buildModelPrice(form)).toEqual({ price: { billing_mode: 'video', price_unit: 'second', unit_price: 0 } })
+    form.unit_price = '0.1'
+    form.resolution_prices[1].unit_price = '0.25'
+    expect(buildModelPrice(form)).toEqual({ price: { billing_mode: 'video', price_unit: 'second', unit_price: 0.1,
+      resolution_prices: [{ resolution: '720P', unit_price: 0.25 }] } })
+  })
+
+  it.each(['-0.01', 'NaN', 'Infinity', '-Infinity', 'invalid', Number.NaN, Number.POSITIVE_INFINITY])(
+    'rejects an invalid video resolution price %j even with a valid default', value => {
+      const form = createModelPriceForm({ ...model, pricing: { billing_mode: 'video', price_unit: 'second', unit_price: 0.1 } })
+      form.resolution_prices[0].unit_price = value
+      expect(buildModelPrice(form).error).toBe('invalidPrice')
+      form.resolution_prices[0].unit_price = '0.2'
+      form.unit_price = value
+      expect(buildModelPrice(form).error).toBe('invalidPrice')
+    })
+
+  it('omits hidden video resolution prices when switching to another billing mode', () => {
+    const form = createModelPriceForm({ ...model, pricing: { billing_mode: 'video', price_unit: 'second', resolution_prices: [
+      { resolution: '720P', unit_price: 0.2 }
+    ] } })
+    form.billing_mode = 'per_request'; form.price_unit = 'request'; form.unit_price = 0.5
+    expect(buildModelPrice(form)).toEqual({ price: { billing_mode: 'per_request', price_unit: 'request', unit_price: 0.5 } })
+  })
 })

@@ -468,13 +468,20 @@ func maximumGatewayTokenCost(billing *BillingService, resolved *ResolvedPricing,
 					CacheReadTokens: cacheRead, CacheCreationTokens: cacheWrite,
 					CacheCreation5mTokens: cache5m, CacheCreation1hTokens: cache1h,
 					ImageOutputTokens: imageCount}
-				for _, tier := range []string{serviceTier, "default", "priority", "flex", "anthropic_fast"} {
-					cost := billing.computeTokenBreakdown(candidate, tokens, multiplier, tier, longContext)
-					if cost == nil || !finiteNonnegativeCredit(cost.ActualCost) {
-						return 0, bc.ErrState
+				// Bound either retention against the aggregate write-token cap;
+				// no separate central meter is needed for OpenAI TTL details.
+				for _, writes12h := range []int{0, cacheWrite} {
+					if candidate.CacheCreation12hPricePerToken > 0 {
+						tokens.CacheCreation12hTokens = writes12h
 					}
-					if cost.ActualCost > maximum {
-						maximum = cost.ActualCost
+					for _, tier := range []string{serviceTier, "default", "priority", "ultrafast", "flex", "anthropic_fast"} {
+						cost := billing.computeTokenBreakdown(candidate, tokens, multiplier, tier, longContext)
+						if cost == nil || !finiteNonnegativeCredit(cost.ActualCost) {
+							return 0, bc.ErrState
+						}
+						if cost.ActualCost > maximum {
+							maximum = cost.ActualCost
+						}
 					}
 				}
 			}
@@ -494,9 +501,10 @@ func validGatewayTokenPrice(price *ModelPricing) bool {
 		price.InputPricePerTokenPriority, price.OutputPricePerTokenPriority,
 		price.CacheReadPricePerToken, price.CacheReadPricePerTokenPriority,
 		price.CacheCreationPricePerToken, price.CacheCreationPricePerTokenPriority,
+		price.CacheCreation12hPricePerToken, price.CacheCreation12hPricePerTokenPriority,
 		price.CacheCreation5mPrice, price.CacheCreation1hPrice,
 		price.ImageOutputPricePerToken, price.LongContextInputMultiplier,
-		price.LongContextOutputMultiplier} {
+		price.LongContextOutputMultiplier, price.UltrafastMultiplier} {
 		if !finiteNonnegativeCredit(rate) {
 			return false
 		}
@@ -553,6 +561,7 @@ func (s *GatewayService) frozenGatewayCreditCost(ctx context.Context, e *bc.Exec
 	tokens := UsageTokens{InputTokens: result.Usage.InputTokens, OutputTokens: result.Usage.OutputTokens,
 		CacheCreationTokens: result.Usage.CacheCreationInputTokens, CacheReadTokens: result.Usage.CacheReadInputTokens,
 		CacheCreation5mTokens: result.Usage.CacheCreation5mTokens, CacheCreation1hTokens: result.Usage.CacheCreation1hTokens,
+		CacheCreation30mTokens: result.Usage.CacheCreation30mTokens, CacheCreation12hTokens: result.Usage.CacheCreation12hTokens,
 		ImageOutputTokens: result.Usage.ImageOutputTokens}
 	actualTier := snap.ServiceTier
 	if speed := strings.TrimSpace(result.Usage.Speed); speed != "" {

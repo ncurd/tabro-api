@@ -24,16 +24,22 @@ var ErrAdminModelPolicyInvalid = infraerrors.BadRequest("MODEL_POLICY_INVALID", 
 // AdminModelPrice uses display units at the HTTP boundary. Runtime conversion
 // produces the same per-token and per-unit values as channel pricing.
 type AdminModelPrice struct {
-	BillingMode               BillingMode `json:"billing_mode"`
-	PriceUnit                 string      `json:"price_unit"`
-	InputPricePerMillion      *float64    `json:"input_price_per_million,omitempty"`
-	OutputPricePerMillion     *float64    `json:"output_price_per_million,omitempty"`
-	CacheWritePricePerMillion *float64    `json:"cache_write_price_per_million,omitempty"`
-	CacheReadPricePerMillion  *float64    `json:"cache_read_price_per_million,omitempty"`
-	UnitPrice                 *float64    `json:"unit_price,omitempty"`
-	InputAudioPricePerSecond  *float64    `json:"input_audio_price_per_second,omitempty"`
-	OutputAudioPricePerSecond *float64    `json:"output_audio_price_per_second,omitempty"`
-	OutputVideoPricePerSecond *float64    `json:"output_video_price_per_second,omitempty"`
+	BillingMode               BillingMode                 `json:"billing_mode"`
+	PriceUnit                 string                      `json:"price_unit"`
+	InputPricePerMillion      *float64                    `json:"input_price_per_million,omitempty"`
+	OutputPricePerMillion     *float64                    `json:"output_price_per_million,omitempty"`
+	CacheWritePricePerMillion *float64                    `json:"cache_write_price_per_million,omitempty"`
+	CacheReadPricePerMillion  *float64                    `json:"cache_read_price_per_million,omitempty"`
+	UnitPrice                 *float64                    `json:"unit_price,omitempty"`
+	InputAudioPricePerSecond  *float64                    `json:"input_audio_price_per_second,omitempty"`
+	OutputAudioPricePerSecond *float64                    `json:"output_audio_price_per_second,omitempty"`
+	OutputVideoPricePerSecond *float64                    `json:"output_video_price_per_second,omitempty"`
+	ResolutionPrices          []AdminModelResolutionPrice `json:"resolution_prices,omitempty"`
+}
+
+type AdminModelResolutionPrice struct {
+	Resolution string   `json:"resolution"`
+	UnitPrice  *float64 `json:"unit_price"`
 }
 
 type AdminModelPolicy struct {
@@ -169,6 +175,23 @@ func validateAdminModelPrice(model string, p *AdminModelPrice) error {
 			return fmt.Errorf("%w: prices must be finite and nonnegative", ErrAdminModelPolicyInvalid)
 		}
 	}
+	if len(p.ResolutionPrices) > 0 && p.BillingMode != BillingModeVideo {
+		return fmt.Errorf("%w: resolution prices require video billing mode", ErrAdminModelPolicyInvalid)
+	}
+	resolutions := make(map[string]bool, len(p.ResolutionPrices))
+	for _, tier := range p.ResolutionPrices {
+		resolution := normalizeMediaBillingTier(tier.Resolution)
+		if resolution == "" || len(resolution) > 64 || strings.IndexFunc(resolution, func(r rune) bool { return unicode.IsControl(r) || unicode.IsSpace(r) }) >= 0 {
+			return fmt.Errorf("%w: resolution prices require a nonempty resolution label", ErrAdminModelPolicyInvalid)
+		}
+		if resolutions[resolution] {
+			return fmt.Errorf("%w: duplicate resolution price %s", ErrAdminModelPolicyInvalid, resolution)
+		}
+		resolutions[resolution] = true
+		if tier.UnitPrice == nil || !validMediaPrice(*tier.UnitPrice) {
+			return fmt.Errorf("%w: resolution prices must be explicit finite nonnegative numbers", ErrAdminModelPolicyInvalid)
+		}
+	}
 	hasDurationPrices := p.InputAudioPricePerSecond != nil || p.OutputAudioPricePerSecond != nil || p.OutputVideoPricePerSecond != nil
 	if p.BillingMode == BillingModeDuration {
 		if p.PriceUnit != "second" || !hasDurationPrices || p.UnitPrice != nil || p.InputPricePerMillion != nil || p.OutputPricePerMillion != nil || p.CacheWritePricePerMillion != nil || p.CacheReadPricePerMillion != nil {
@@ -200,7 +223,7 @@ func validateAdminModelPrice(model string, p *AdminModelPrice) error {
 		}
 		return nil
 	}
-	if p.InputPricePerMillion != nil || p.OutputPricePerMillion != nil || p.CacheWritePricePerMillion != nil || p.CacheReadPricePerMillion != nil || p.UnitPrice == nil {
+	if p.InputPricePerMillion != nil || p.OutputPricePerMillion != nil || p.CacheWritePricePerMillion != nil || p.CacheReadPricePerMillion != nil || (p.UnitPrice == nil && len(p.ResolutionPrices) == 0) {
 		return fmt.Errorf("%w: unit pricing requires an explicit unit price", ErrAdminModelPolicyInvalid)
 	}
 	valid := p.BillingMode == BillingModePerRequest && p.PriceUnit == "request" || p.BillingMode == BillingModeImage && p.PriceUnit == "image" || p.BillingMode == BillingModeVideo && p.PriceUnit == "second" || p.BillingMode == BillingModeAudio && (p.PriceUnit == "second" || p.PriceUnit == "character")
@@ -227,6 +250,9 @@ func (s *AdminModelPolicyService) GetPricing(ctx context.Context, model string) 
 	p := policy.Pricing
 	result := &ChannelModelPricing{Models: []string{model}, BillingMode: p.BillingMode, PriceUnit: p.PriceUnit, PerRequestPrice: p.UnitPrice,
 		InputAudioPricePerSecond: p.InputAudioPricePerSecond, OutputAudioPricePerSecond: p.OutputAudioPricePerSecond, OutputVideoPricePerSecond: p.OutputVideoPricePerSecond}
+	for _, tier := range p.ResolutionPrices {
+		result.Intervals = append(result.Intervals, PricingInterval{TierLabel: normalizeMediaBillingTier(tier.Resolution), PerRequestPrice: tier.UnitPrice})
+	}
 	convert := func(value *float64) *float64 {
 		if value == nil {
 			return nil

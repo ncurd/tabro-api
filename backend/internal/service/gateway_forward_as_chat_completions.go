@@ -295,6 +295,8 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 			InputTokens:              usage.InputTokens,
 			OutputTokens:             usage.OutputTokens,
 			CacheCreationInputTokens: usage.CacheCreationInputTokens,
+			CacheCreation30mTokens:   usage.CacheCreation30mTokens,
+			CacheCreation12hTokens:   usage.CacheCreation12hTokens,
 			CacheReadInputTokens:     usage.CacheReadInputTokens,
 			Speed:                    usage.Speed,
 		}

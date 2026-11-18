@@ -11,9 +11,11 @@ export interface ModelPriceForm {
   output_audio_price_per_second: string | number
   output_video_price_per_second: string | number
   unit_price: string | number
+  resolution_prices: { resolution: string; unit_price: string | number }[]
 }
 
 export const durationPriceFields = ['input_audio_price_per_second', 'output_audio_price_per_second', 'output_video_price_per_second'] as const
+export const videoResolutions = ['480P', '720P', '1080P'] as const
 
 export function unitsForMode(mode: ModelBillingMode): ModelPriceUnit[] {
   switch (mode) {
@@ -28,9 +30,12 @@ export function unitsForMode(mode: ModelBillingMode): ModelPriceUnit[] {
 
 export function createModelPriceForm(model: AdminModelPolicy): ModelPriceForm {
   const price = model.pricing ?? model.default_pricing
-  const mode = price?.billing_mode ?? (/tts|cosyvoice/i.test(model.model) ? 'audio'
+  const mode = price?.billing_mode ?? (/^(wan3\.0-video(-prime)?$|happyhorse-|doubao-seedance-)/i.test(model.model.trim()) ? 'video'
+    : /tts|cosyvoice/i.test(model.model) ? 'audio'
     : /asr|paraformer/i.test(model.model) ? 'audio' : 'token')
   const unit = price?.price_unit ?? (mode === 'audio' && /tts|cosyvoice/i.test(model.model) ? 'character' : unitsForMode(mode)[0])
+  const resolutions = new Map<string, number | undefined>(videoResolutions.map(resolution => [resolution, undefined]))
+  for (const tier of price?.resolution_prices ?? []) resolutions.set(tier.resolution.trim().toUpperCase(), tier.unit_price)
   return {
     billing_mode: mode, price_unit: unit,
     input_price_per_million: numberText(price?.input_price_per_million),
@@ -40,13 +45,14 @@ export function createModelPriceForm(model: AdminModelPolicy): ModelPriceForm {
     input_audio_price_per_second: numberText(price?.input_audio_price_per_second),
     output_audio_price_per_second: numberText(price?.output_audio_price_per_second),
     output_video_price_per_second: numberText(price?.output_video_price_per_second),
-    unit_price: numberText(price?.unit_price)
+    unit_price: numberText(price?.unit_price),
+    resolution_prices: Array.from(resolutions, ([resolution, amount]) => ({ resolution, unit_price: numberText(amount) }))
   }
 }
 
 function numberText(value: number | undefined): string { return value == null ? '' : String(value) }
 
-export type PriceValidationError = 'requiredPrice' | 'requiredDurationPrice' | 'invalidPrice' | 'invalidUnit'
+export type PriceValidationError = 'requiredPrice' | 'requiredDurationPrice' | 'requiredVideoPrice' | 'invalidPrice' | 'invalidUnit'
 
 export function buildModelPrice(form: ModelPriceForm): { price: AdminModelPrice; error?: never } | { error: PriceValidationError; price?: never } {
   if (!unitsForMode(form.billing_mode).includes(form.price_unit)) return { error: 'invalidUnit' }
@@ -57,7 +63,7 @@ export function buildModelPrice(form: ModelPriceForm): { price: AdminModelPrice;
     : ['unit_price'] as const
   for (const field of fields) {
     const text = String(form[field] ?? '').trim()
-    const optional = form.billing_mode === 'duration' || field === 'cache_write_price_per_million' || field === 'cache_read_price_per_million'
+    const optional = form.billing_mode === 'duration' || form.billing_mode === 'video' || field === 'cache_write_price_per_million' || field === 'cache_read_price_per_million'
     if (!text) {
       if (optional) continue
       return { error: 'requiredPrice' }
@@ -68,6 +74,18 @@ export function buildModelPrice(form: ModelPriceForm): { price: AdminModelPrice;
     price[field] = amount
   }
   if (form.billing_mode === 'duration' && !durationPriceFields.some(field => price[field] != null)) return { error: 'requiredDurationPrice' }
+  if (form.billing_mode === 'video') {
+    const tiers: NonNullable<AdminModelPrice['resolution_prices']> = []
+    for (const tier of form.resolution_prices) {
+      const text = String(tier.unit_price ?? '').trim()
+      if (!text) continue
+      const amount = Number(text)
+      if (!Number.isFinite(amount) || amount < 0) return { error: 'invalidPrice' }
+      tiers.push({ resolution: tier.resolution, unit_price: amount })
+    }
+    if (price.unit_price == null && !tiers.length) return { error: 'requiredVideoPrice' }
+    if (tiers.length) price.resolution_prices = tiers
+  }
   return { price }
 }
 

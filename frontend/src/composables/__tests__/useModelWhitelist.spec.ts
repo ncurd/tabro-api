@@ -43,6 +43,7 @@ describe('useModelWhitelist', () => {
       expect(apiKeyModels).toContain(model)
     }
     expect(oauthModels).toEqual(expect.arrayContaining([
+      'gpt-6.2-astra', 'gpt-6.2-sol',
       'gpt-6.1-sol', 'gpt-6-sol', 'gpt-6-luna', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-image-2.5-flare'
     ]))
     expect(buildModelMappingObject('whitelist', ['gpt-5.4'], [])).toEqual({
@@ -98,6 +99,7 @@ describe('useModelWhitelist', () => {
 
   it('直连模型列表包含 GPT-6 系列、Claude Fable 5.1 和 Claude Opus 5/5.5', () => {
     expect(getModelsByPlatform('openai')).toEqual(expect.arrayContaining([
+      'gpt-6.2-astra', 'gpt-6.2-sol',
       'gpt-6.1-sol', 'gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna'
     ]))
     expect(getModelsByPlatform('anthropic')).toContain('claude-fable-5-1')
@@ -117,6 +119,8 @@ describe('useModelWhitelist', () => {
       to: 'gpt-6-astra'
     }))
     expect(getPresetMappingsByPlatform('openai')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: 'GPT-6.2 Astra', from: 'gpt-6.2-astra', to: 'gpt-6.2-astra' }),
+      expect.objectContaining({ label: 'GPT-6.2 Sol', from: 'gpt-6.2-sol', to: 'gpt-6.2-sol' }),
       expect.objectContaining({ label: 'GPT-6.1 Sol', from: 'gpt-6.1-sol', to: 'gpt-6.1-sol' }),
       expect.objectContaining({ label: 'GPT-6 Sol', from: 'gpt-6-sol', to: 'gpt-6-sol' }),
       expect.objectContaining({ label: 'GPT-6 Luna', from: 'gpt-6-luna', to: 'gpt-6-luna' })

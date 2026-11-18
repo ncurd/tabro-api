@@ -89,7 +89,7 @@
     <BaseDialog :show="!!editing && authStore.isAdmin" :title="text('editPrice')" width="normal" :close-on-escape="!pendingModel" @close="closeEditor">
       <form v-if="editing" id="model-price-form" class="space-y-4" @submit.prevent="savePrice">
         <p class="break-all font-medium">{{ editing.model }}</p>
-        <p class="text-sm text-gray-500">{{ text(form.billing_mode === 'duration' ? 'durationPriceHint' : 'manualPriceHint') }}</p>
+        <p class="text-sm text-gray-500">{{ text(form.billing_mode === 'duration' ? 'durationPriceHint' : form.billing_mode === 'video' ? 'videoPriceHint' : 'manualPriceHint') }}</p>
         <p v-if="editing.channel_override" class="text-sm text-amber-700 dark:text-amber-400">{{ text('channelOverrideHint') }}</p>
         <p v-if="formError" class="text-sm text-red-700 dark:text-red-300" role="alert">{{ formError }}</p>
         <label class="block"><span class="input-label">{{ text('billingMode') }}</span>
@@ -110,6 +110,14 @@
         <template v-else-if="form.billing_mode === 'duration'">
           <label v-for="field in durationPriceFields" :key="field" class="block"><span class="input-label">{{ text(field) }}</span>
             <input v-model="form[field]" class="input" type="number" min="0" step="any" :data-field="field" :disabled="!!pendingModel" />
+          </label>
+        </template>
+        <template v-else-if="form.billing_mode === 'video'">
+          <label class="block"><span class="input-label">{{ text('videoDefaultPrice') }}</span>
+            <input v-model="form.unit_price" class="input" type="number" min="0" step="any" data-field="unit_price" :disabled="!!pendingModel" />
+          </label>
+          <label v-for="tier in form.resolution_prices" :key="tier.resolution" class="block"><span class="input-label">{{ text('videoResolutionPrice', { resolution: tier.resolution }) }}</span>
+            <input v-model="tier.unit_price" class="input" type="number" min="0" step="any" :data-field="`resolution_price_${tier.resolution}`" :disabled="!!pendingModel" />
           </label>
         </template>
         <label v-else class="block"><span class="input-label">{{ text('unitPrice') }}</span>
@@ -259,6 +267,11 @@ function priceLines(price: AdminModelPrice | null): string[] {
   if (!price) return []
   const amount = (value: number) => value.toLocaleString(undefined, { maximumSignificantDigits: 12 })
   if (price.billing_mode === 'duration') return durationPriceFields.map(field => `${text(field)}: ${price[field] == null ? text('unpriced') : `${amount(price[field]!)} USD`}`)
+  if (price.billing_mode === 'video') {
+    const lines = price.unit_price == null ? [] : [`${text('videoDefault')}: ${amount(price.unit_price)} USD / ${text('units.second')}`]
+    for (const tier of price.resolution_prices ?? []) lines.push(`${tier.resolution}: ${amount(tier.unit_price)} USD / ${text('units.second')}`)
+    return lines.length ? lines : [text('unpriced')]
+  }
   if (price.billing_mode !== 'token') return price.unit_price == null ? [text('unpriced')]
     : [`${amount(price.unit_price)} USD / ${text(`units.${price.price_unit}`)}`]
   return tokenFields.filter(field => price[field] != null).map(field => `${text(field)}: ${amount(price[field]!)} USD`)
