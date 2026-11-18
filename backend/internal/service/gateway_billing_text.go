@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	bc "github.com/Wei-Shaw/sub2api/internal/billingcenter"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/aliyun"
 )
 
 func textBillingQuoteRequest(path, operationID string, body []byte, prices ...*PricingService) (bc.QuoteRequest, error) {
@@ -17,15 +18,15 @@ func textBillingQuoteRequest(path, operationID string, body []byte, prices ...*P
 	switch path {
 	case "/v1/messages", "/v1/responses", "/responses", "/v1/chat/completions", "/chat/completions", "/ws/responses":
 	default:
-		return q, fmt.Errorf("central billing does not yet support this endpoint")
+		return q, NewBillingRequestError(BillingRequestUnsupported, "central billing does not yet support this endpoint")
 	}
 	var payload map[string]json.RawMessage
 	if json.Unmarshal(body, &payload) != nil {
-		return q, errors.New("invalid model request")
+		return q, NewBillingRequestError(BillingRequestInvalid, "invalid model request")
 	}
 	var model string
 	if json.Unmarshal(payload["model"], &model) != nil || strings.TrimSpace(model) == "" {
-		return q, errors.New("model is required")
+		return q, NewBillingRequestError(BillingRequestInvalid, "model is required")
 	}
 	// Non-text inputs and server-hosted tools need their own bounded meters.
 	var raw any
@@ -58,7 +59,7 @@ func textBillingQuoteRequest(path, operationID string, body []byte, prices ...*P
 		return true
 	}
 	if !textOnly(raw) || (len(payload["previous_response_id"]) > 0 && path != "/ws/responses") {
-		return q, errors.New("central billing requires a fully bounded text request")
+		return q, NewBillingRequestError(BillingRequestUnsupported, "central billing requires a fully bounded text request")
 	}
 	var pricing *PricingService
 	if len(prices) > 0 {
@@ -68,19 +69,19 @@ func textBillingQuoteRequest(path, operationID string, body []byte, prices ...*P
 	if err != nil {
 		return q, err
 	}
-	if background, ok := payload["background"]; ok && string(background) != "false" {
-		return q, errors.New("central billing requires synchronous execution")
+	if background, ok := payload["background"]; ok && strings.TrimSpace(string(background)) != "null" && strings.TrimSpace(string(background)) != "false" {
+		return q, NewBillingRequestError(BillingRequestUnsupported, "central billing requires synchronous execution")
 	}
-	if v, ok := payload["n"]; ok {
+	if v, ok := payload["n"]; ok && strings.TrimSpace(string(v)) != "null" {
 		var n int
 		if json.Unmarshal(v, &n) != nil || n != 1 {
-			return q, errors.New("central billing requires one completion")
+			return q, NewBillingRequestError(BillingRequestUnsupported, "central billing requires one completion")
 		}
 	}
 	if v, ok := payload["service_tier"]; ok {
 		var tier string
 		if json.Unmarshal(v, &tier) != nil {
-			return q, errors.New("invalid service tier")
+			return q, NewBillingRequestError(BillingRequestInvalid, "invalid service tier")
 		}
 		if tier != "" && tier != "auto" {
 			q.ServiceTier = tier
@@ -98,7 +99,7 @@ func textBillingQuoteRequest(path, operationID string, body []byte, prices ...*P
 	// The model's full input cap also bounds vision, references and WS history.
 	capability, _ := pricing.GetTextModelCapabilities(model)
 	if capability.MaxInputTokens <= 0 {
-		return q, errors.New("central billing requires a catalogued input limit")
+		return q, NewBillingRequestError(BillingModelCapabilitiesUnavailable, "central billing requires a catalogued input limit")
 	}
 	input := bc.Decimal(strconv.FormatInt(capability.MaxInputTokens, 10))
 	output := bc.Decimal(strconv.FormatInt(maxOutput, 10))
@@ -112,11 +113,15 @@ func textBillingQuoteRequest(path, operationID string, body []byte, prices ...*P
 type TextModelCapabilities struct {
 	MaxInputTokens   int64
 	MaxOutputTokens  int64
+	ContextWindow    int64
 	MayUseCodexOAuth bool
 }
 
 func (s *PricingService) GetTextModelCapabilities(model string) (TextModelCapabilities, bool) {
 	model = strings.ToLower(strings.TrimSpace(model))
+	if entry, known := aliyun.LookupTextModel(model); known {
+		return TextModelCapabilities{MaxInputTokens: entry.MaxInputTokens, MaxOutputTokens: entry.MaxOutputTokens, ContextWindow: entry.ContextWindow}, entry.MaxInputTokens > 0 && entry.MaxOutputTokens > 0
+	}
 	// Reasoning aliases are accepted only when the compatibility adapter has an
 	// explicit mapping to this exact model. Unknown suffixes remain unbounded.
 	if normalized, _, ok := splitOpenAICompatReasoningModel(model); ok && (normalized == "gpt-6.1-sol" || isOpenAIGPT62Model(normalized)) {
@@ -128,6 +133,17 @@ func (s *PricingService) GetTextModelCapabilities(model string) (TextModelCapabi
 		if entry := s.pricingData[model]; entry != nil {
 			copy := *entry
 			pricing = &copy
+		}
+		// Provider-qualified catalog entries are explicit aliases, not fuzzy
+		// price-family matches. Only the exact requested ID is considered.
+		if pricing == nil {
+			for _, candidate := range providerModelLookupCandidates(model) {
+				if entry := s.pricingData[candidate]; entry != nil && entry.MaxInputTokens > 0 && entry.MaxOutputTokens > 0 {
+					copy := *entry
+					pricing = &copy
+					break
+				}
+			}
 		}
 		s.mu.RUnlock()
 	}
@@ -200,11 +216,11 @@ func boundTextRequest(path string, body []byte, pricing *PricingService) ([]byte
 	path = billingCanonicalTextPath(path)
 	var payload map[string]json.RawMessage
 	if json.Unmarshal(body, &payload) != nil || payload == nil {
-		return nil, 0, errors.New("invalid model request")
+		return nil, 0, NewBillingRequestError(BillingRequestInvalid, "invalid model request")
 	}
 	var model string
 	if json.Unmarshal(payload["model"], &model) != nil || model == "" {
-		return nil, 0, errors.New("model is required")
+		return nil, 0, NewBillingRequestError(BillingRequestInvalid, "model is required")
 	}
 	efforts := []string{""}
 	for _, name := range []string{"reasoning_effort", "reasoning", "output_config"} {
@@ -230,19 +246,29 @@ func boundTextRequest(path string, body []byte, pricing *PricingService) ([]byte
 	}
 	capability, known := pricing.GetTextModelCapabilities(model)
 	if !known {
-		return nil, 0, errors.New("central billing requires a catalogued model output limit")
+		return nil, 0, NewBillingRequestError(BillingModelCapabilitiesUnavailable, "central billing requires a catalogued model output limit")
+	}
+	if entry, ok := aliyun.LookupTextModel(model); ok {
+		var thinking bool
+		if raw, exists := payload["enable_thinking"]; exists && strings.TrimSpace(string(raw)) != "null" && json.Unmarshal(raw, &thinking) == nil {
+			if !thinking && entry.NonThinkingMaxOutputTokens > 0 {
+				capability.MaxOutputTokens = entry.NonThinkingMaxOutputTokens
+			} else if thinking && entry.ThinkingMaxOutputTokens > 0 {
+				capability.MaxOutputTokens = entry.ThinkingMaxOutputTokens
+			}
+		}
 	}
 	maxOutput := int64(0)
 	for _, name := range []string{"max_output_tokens", "max_completion_tokens", "max_tokens"} {
-		if raw, found := payload[name]; found {
+		if raw, found := payload[name]; found && strings.TrimSpace(string(raw)) != "null" {
 			var n int64
 			if json.Unmarshal(raw, &n) != nil || n <= 0 || n > capability.MaxOutputTokens {
-				return nil, 0, errors.New("output token bound exceeds model capability")
+				return nil, 0, NewBillingRequestError(BillingRequestInvalid, "output token bound exceeds model capability")
 			}
 			// Conflicting aliases must not allow a later transform to select a
 			// larger limit than the one the caller expected.
 			if maxOutput != 0 && maxOutput != n {
-				return nil, 0, errors.New("conflicting output token bounds")
+				return nil, 0, NewBillingRequestError(BillingRequestInvalid, "conflicting output token bounds")
 			}
 			maxOutput = n
 		}

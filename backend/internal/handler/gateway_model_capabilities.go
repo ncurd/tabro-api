@@ -7,12 +7,12 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 )
 
-// Input and output limits are independent catalog bounds. The catalog does not
-// supply a combined context capacity, so context_window is deliberately absent;
-// adding these bounds would incorrectly promise that both can be used together.
+// Independent input/output bounds must never be added to infer context capacity.
+// A context window is included only when the catalog explicitly documents it.
 type gatewayModelTokenLimits struct {
 	MaxInputTokens  int64 `json:"max_input_tokens,omitempty"`
 	MaxOutputTokens int64 `json:"max_output_tokens,omitempty"`
+	ContextWindow   int64 `json:"context_window,omitempty"`
 }
 
 type gatewayOpenAIModel struct {
@@ -28,16 +28,15 @@ type gatewayClaudeModel struct {
 }
 
 func (h *GatewayHandler) modelTokenLimits(model string) gatewayModelTokenLimits {
-	capabilities, known := h.gatewayService.GetTextModelCapabilities(model)
+	capabilities, _ := h.gatewayService.GetTextModelCapabilities(model)
 	limits := gatewayModelTokenLimits{}
-	if known {
-		if capabilities.MaxInputTokens > 0 {
-			limits.MaxInputTokens = capabilities.MaxInputTokens
-		}
-		if capabilities.MaxOutputTokens > 0 {
-			limits.MaxOutputTokens = capabilities.MaxOutputTokens
-		}
+	if capabilities.MaxInputTokens > 0 {
+		limits.MaxInputTokens = capabilities.MaxInputTokens
 	}
+	if capabilities.MaxOutputTokens > 0 {
+		limits.MaxOutputTokens = capabilities.MaxOutputTokens
+	}
+	limits.ContextWindow = capabilities.ContextWindow
 	return limits
 }
 

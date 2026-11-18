@@ -90,7 +90,7 @@ func (p *gatewayCreditPriceCalculator) maximumCredit(ctx context.Context, key *A
 	// A failed channel lookup must not be mistaken for an absent channel.
 	mapping := s.channelService.ResolveChannelMapping(ctx, key.Group.ID, requestedModel)
 	if mapping.BillingModelSource == BillingModelSourceUpstream {
-		return "", nil, fmt.Errorf("%w: upstream-selected model has no frozen credit price", bc.ErrState)
+		return "", nil, NewBillingRequestError(BillingRequestUnsupported, "upstream-selected model has no frozen credit price", bc.ErrState)
 	}
 	billingModel := requestedModel
 	if mapping.BillingModelSource == BillingModelSourceChannelMapped && mapping.MappedModel != "" {
@@ -129,7 +129,10 @@ func (p *gatewayCreditPriceCalculator) maximumCredit(ctx context.Context, key *A
 		return "", nil, fmt.Errorf("%w: model pricing policy is unavailable: %w", bc.ErrState, resolved.Error)
 	}
 	if resolved == nil || resolved.Source != PricingSourceChannel && resolved.Source != PricingSourceManual && resolved.BasePricing == nil {
-		return "", nil, fmt.Errorf("%w: model price is unavailable", bc.ErrState)
+		return "", nil, NewBillingRequestError(BillingModelPricingNotConfigured, "model price is unavailable; configure channel pricing or a manual model price", bc.ErrState)
+	}
+	if resolved.Mode != BillingModeToken && resolved.Mode != BillingModePerRequest {
+		return "", nil, NewBillingRequestError(BillingRequestUnsupported, "the configured model billing mode is not supported on this text endpoint", bc.ErrState)
 	}
 	boundRate := rate
 	if !isBillingTextPath(path) {
@@ -138,7 +141,7 @@ func (p *gatewayCreditPriceCalculator) maximumCredit(ctx context.Context, key *A
 	}
 	amount, err := maximumGatewayTokenCost(s.billingService, resolved, billingModel, quote.MaximumUsage, quote.ServiceTier, boundRate)
 	if err != nil {
-		return "", nil, err
+		return "", nil, NewBillingRequestError(BillingModelPricingNotConfigured, "model price is missing or invalid; check the configured model price", err)
 	}
 	maximum, err := gatewayCreditDecimal(amount, true)
 	if err != nil {

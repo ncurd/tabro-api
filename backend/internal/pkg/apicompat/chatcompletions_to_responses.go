@@ -50,9 +50,6 @@ func ChatCompletionsToResponses(req *ChatCompletionsRequest) (*ResponsesRequest,
 	}
 	if maxTokens > 0 {
 		v := maxTokens
-		if v < minMaxOutputTokens {
-			v = minMaxOutputTokens
-		}
 		out.MaxOutputTokens = &v
 	}
 

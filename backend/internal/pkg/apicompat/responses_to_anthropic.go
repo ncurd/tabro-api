@@ -116,6 +116,8 @@ func responsesUsageToAnthropicUsage(usage *ResponsesUsage) AnthropicUsage {
 		converted.CacheReadInputTokens = usage.InputTokensDetails.CachedTokens
 		converted.CacheCreationInputTokens = cacheWriteTokensTotal(usage.InputTokensDetails.CacheWriteTokens, usage.InputTokensDetails.CacheWriteTokensDetails)
 		if details := usage.InputTokensDetails.CacheWriteTokensDetails; details != nil {
+			converted.CacheCreation5mTokens = details.TTL5mTokens
+			converted.CacheCreation1hTokens = details.TTL1hTokens
 			converted.CacheCreation30mTokens = details.TTL30mTokens
 			converted.CacheCreation12hTokens = details.TTL12hTokens
 		}
@@ -149,6 +151,8 @@ type ResponsesEventToAnthropicState struct {
 	InputTokens              int
 	OutputTokens             int
 	CacheCreationInputTokens int
+	CacheCreation5mTokens    int
+	CacheCreation1hTokens    int
 	CacheCreation30mTokens   int
 	CacheCreation12hTokens   int
 	CacheReadInputTokens     int
@@ -218,6 +222,8 @@ func FinalizeResponsesAnthropicStream(state *ResponsesEventToAnthropicState) []A
 				InputTokens:              state.InputTokens,
 				OutputTokens:             state.OutputTokens,
 				CacheCreationInputTokens: state.CacheCreationInputTokens,
+				CacheCreation5mTokens:    state.CacheCreation5mTokens,
+				CacheCreation1hTokens:    state.CacheCreation1hTokens,
 				CacheCreation30mTokens:   state.CacheCreation30mTokens,
 				CacheCreation12hTokens:   state.CacheCreation12hTokens,
 				CacheReadInputTokens:     state.CacheReadInputTokens,
@@ -493,6 +499,8 @@ func resToAnthHandleCompleted(evt *ResponsesStreamEvent, state *ResponsesEventTo
 			state.OutputTokens = usage.OutputTokens
 			state.CacheReadInputTokens = usage.CacheReadInputTokens
 			state.CacheCreationInputTokens = usage.CacheCreationInputTokens
+			state.CacheCreation5mTokens = usage.CacheCreation5mTokens
+			state.CacheCreation1hTokens = usage.CacheCreation1hTokens
 			state.CacheCreation30mTokens = usage.CacheCreation30mTokens
 			state.CacheCreation12hTokens = usage.CacheCreation12hTokens
 		}
@@ -518,6 +526,8 @@ func resToAnthHandleCompleted(evt *ResponsesStreamEvent, state *ResponsesEventTo
 				InputTokens:              state.InputTokens,
 				OutputTokens:             state.OutputTokens,
 				CacheCreationInputTokens: state.CacheCreationInputTokens,
+				CacheCreation5mTokens:    state.CacheCreation5mTokens,
+				CacheCreation1hTokens:    state.CacheCreation1hTokens,
 				CacheCreation30mTokens:   state.CacheCreation30mTokens,
 				CacheCreation12hTokens:   state.CacheCreation12hTokens,
 				CacheReadInputTokens:     state.CacheReadInputTokens,

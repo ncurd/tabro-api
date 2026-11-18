@@ -3,6 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import BulkEditAccountModal from '../BulkEditAccountModal.vue'
 import ModelWhitelistSelector from '../ModelWhitelistSelector.vue'
 import { adminAPI } from '@/api/admin'
+import aliyunTextModels from '@/data/aliyunTextModels.json'
 
 vi.mock('@/stores/app', () => ({
   useAppStore: () => ({
@@ -116,6 +117,22 @@ describe('BulkEditAccountModal', () => {
     expect(presetLabels).toContain('+ GPT-6.1 Sol')
     expect(presetLabels).toContain('+ GPT-6 Sol')
     expect(presetLabels).toContain('+ GPT-6 Luna')
+  })
+
+  it('uses the bulk base URL for Aliyun suggestions only when that field is enabled', async () => {
+    const wrapper = mountModal({ selectedPlatforms: ['openai'], selectedTypes: ['apikey'] })
+    const selector = wrapper.findComponent(ModelWhitelistSelector)
+    expect(selector.props('baseUrl')).toBeUndefined()
+    await wrapper.get('#bulk-edit-base-url-enabled').setValue(true)
+    await wrapper.get('#bulk-edit-base-url').setValue('https://coding.dashscope.aliyuncs.com/v1')
+    expect(selector.props('baseUrl')).toBe('https://coding.dashscope.aliyuncs.com/v1')
+    await selector.get('div.cursor-pointer').trigger('click')
+    expect(selector.findAll('button').map(button => button.text())).toContain(aliyunTextModels[0])
+    expect(selector.findAll('button').map(button => button.text())).not.toContain('gpt-6.2-astra')
+    await wrapper.get('#bulk-edit-base-url-enabled').setValue(false)
+    expect(selector.props('baseUrl')).toBeUndefined()
+    expect(selector.findAll('button').map(button => button.text())).toContain('gpt-6.2-astra')
+    wrapper.unmount()
   })
 
   it('antigravity 白名单包含 Gemini 图片模型且过滤掉普通 GPT 模型', async () => {

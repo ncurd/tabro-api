@@ -207,6 +207,8 @@ type OpenAIUsage struct {
 	InputTokens              int `json:"input_tokens"`
 	OutputTokens             int `json:"output_tokens"`
 	CacheCreationInputTokens int `json:"cache_creation_input_tokens,omitempty"`
+	CacheCreation5mTokens    int `json:"cache_creation_5m_tokens,omitempty"`
+	CacheCreation1hTokens    int `json:"cache_creation_1h_tokens,omitempty"`
 	CacheCreation30mTokens   int `json:"cache_creation_30m_tokens,omitempty"`
 	CacheCreation12hTokens   int `json:"cache_creation_12h_tokens,omitempty"`
 	CacheReadInputTokens     int `json:"cache_read_input_tokens,omitempty"`
@@ -5130,6 +5132,8 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		InputTokens:            actualInputTokens,
 		OutputTokens:           result.Usage.OutputTokens,
 		CacheCreationTokens:    result.Usage.CacheCreationInputTokens,
+		CacheCreation5mTokens:  result.Usage.CacheCreation5mTokens,
+		CacheCreation1hTokens:  result.Usage.CacheCreation1hTokens,
 		CacheCreation30mTokens: result.Usage.CacheCreation30mTokens,
 		CacheCreation12hTokens: result.Usage.CacheCreation12hTokens,
 		CacheReadTokens:        result.Usage.CacheReadInputTokens,
@@ -5171,6 +5175,8 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		frozen := &ForwardResult{Usage: ClaudeUsage{InputTokens: actualInputTokens,
 			OutputTokens: result.Usage.OutputTokens, CacheReadInputTokens: result.Usage.CacheReadInputTokens,
 			CacheCreationInputTokens: result.Usage.CacheCreationInputTokens,
+			CacheCreation5mTokens:    result.Usage.CacheCreation5mTokens,
+			CacheCreation1hTokens:    result.Usage.CacheCreation1hTokens,
 			CacheCreation30mTokens:   result.Usage.CacheCreation30mTokens,
 			CacheCreation12hTokens:   result.Usage.CacheCreation12hTokens,
 			ImageOutputTokens:        result.Usage.ImageOutputTokens, Speed: serviceTier}, ImageCount: result.ImageCount, ImageSize: result.ImageSize}
@@ -5239,24 +5245,26 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	}
 
 	usageLog := &UsageLog{
-		UserID:              user.ID,
-		APIKeyID:            apiKey.ID,
-		AccountID:           account.ID,
-		RequestID:           requestID,
-		Model:               result.Model,
-		RequestedModel:      requestedModel,
-		UpstreamModel:       optionalNonEqualStringPtr(result.UpstreamModel, result.Model),
-		ServiceTier:         result.ServiceTier,
-		ReasoningEffort:     result.ReasoningEffort,
-		InboundEndpoint:     optionalTrimmedStringPtr(input.InboundEndpoint),
-		UpstreamEndpoint:    optionalTrimmedStringPtr(input.UpstreamEndpoint),
-		InputTokens:         actualInputTokens,
-		OutputTokens:        tokens.OutputTokens,
-		CacheCreationTokens: tokens.CacheCreationTokens,
-		CacheReadTokens:     tokens.CacheReadTokens,
-		ImageOutputTokens:   tokens.ImageOutputTokens,
-		ImageCount:          result.ImageCount,
-		ImageSize:           optionalTrimmedStringPtr(result.ImageSize),
+		UserID:                user.ID,
+		APIKeyID:              apiKey.ID,
+		AccountID:             account.ID,
+		RequestID:             requestID,
+		Model:                 result.Model,
+		RequestedModel:        requestedModel,
+		UpstreamModel:         optionalNonEqualStringPtr(result.UpstreamModel, result.Model),
+		ServiceTier:           result.ServiceTier,
+		ReasoningEffort:       result.ReasoningEffort,
+		InboundEndpoint:       optionalTrimmedStringPtr(input.InboundEndpoint),
+		UpstreamEndpoint:      optionalTrimmedStringPtr(input.UpstreamEndpoint),
+		InputTokens:           actualInputTokens,
+		OutputTokens:          tokens.OutputTokens,
+		CacheCreationTokens:   tokens.CacheCreationTokens,
+		CacheCreation5mTokens: tokens.CacheCreation5mTokens,
+		CacheCreation1hTokens: tokens.CacheCreation1hTokens,
+		CacheReadTokens:       tokens.CacheReadTokens,
+		ImageOutputTokens:     tokens.ImageOutputTokens,
+		ImageCount:            result.ImageCount,
+		ImageSize:             optionalTrimmedStringPtr(result.ImageSize),
 	}
 	usageLog.ApplyGatewayUsageContext(ctx)
 	if cost != nil {

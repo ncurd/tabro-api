@@ -135,6 +135,7 @@ const props = defineProps<{
   platform?: string
   platforms?: string[]
   accountType?: AccountType
+  baseUrl?: string
 }>()
 
 const emit = defineEmits<{
@@ -171,7 +172,7 @@ const availableOptions = computed(() => {
 
   const allowedModels = new Set<string>()
   for (const platform of normalizedPlatforms.value) {
-    for (const model of getModelsByPlatform(platform, props.accountType)) {
+    for (const model of getModelsByPlatform(platform, props.accountType, props.baseUrl)) {
       allowedModels.add(model)
     }
   }
@@ -222,7 +223,7 @@ const handleEnter = () => {
 const fillRelated = () => {
   const newModels = [...props.modelValue]
   for (const platform of normalizedPlatforms.value) {
-    for (const model of getModelsByPlatform(platform, props.accountType)) {
+    for (const model of getModelsByPlatform(platform, props.accountType, props.baseUrl)) {
       if (!newModels.includes(model)) {
         newModels.push(model)
       }

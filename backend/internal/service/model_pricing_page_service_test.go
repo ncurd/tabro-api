@@ -211,7 +211,9 @@ func TestModelPricingPageServiceListAvailablePricingFallsBackToAliyunDefaults(t 
 	require.NoError(t, err)
 	require.Len(t, result.Groups, 1)
 	require.NotEmpty(t, result.Groups[0].Models)
-	require.Equal(t, "qwen-turbo", result.Groups[0].Models[0].ID)
+	require.Equal(t, "qwen4-max", result.Groups[0].Models[0].ID)
+	require.Contains(t, availableModelIDs(result.Groups[0].Models), "glm-5.3")
+	require.Contains(t, availableModelIDs(result.Groups[0].Models), "deepseek-v4.1-flash")
 }
 
 func TestModelPricingPageServiceListAvailablePricingUsesAliyunDefaultsForDashScopeCompatibleBaseURL(t *testing.T) {
@@ -247,7 +249,7 @@ func TestModelPricingPageServiceListAvailablePricingUsesAliyunDefaultsForDashSco
 	require.NoError(t, err)
 	require.Len(t, result.Groups, 1)
 	require.NotEmpty(t, result.Groups[0].Models)
-	require.Equal(t, "qwen-turbo", result.Groups[0].Models[0].ID)
+	require.Equal(t, "qwen4-max", result.Groups[0].Models[0].ID)
 	require.Contains(t, availableModelIDs(result.Groups[0].Models), "qwen-plus")
 	require.Contains(t, availableModelIDs(result.Groups[0].Models), "qwen3.6-plus")
 

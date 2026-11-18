@@ -4,6 +4,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/aliyun"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 )
 
@@ -43,6 +44,12 @@ func (a *Account) IsRetiredModel(model string) bool {
 // AvailableOpenAIModels lists the account's usable defaults or configured aliases.
 func (a *Account) AvailableOpenAIModels() []openai.Model {
 	defaults := openai.ModelsForAccount(a.IsOAuth())
+	if a.Type == AccountTypeAPIKey && aliyun.IsCompatibleBaseURL(a.GetCredential("base_url")) {
+		defaults = make([]openai.Model, 0)
+		for _, id := range aliyun.DefaultTextModelIDs() {
+			defaults = append(defaults, openai.Model{ID: id, Object: "model", OwnedBy: "aliyun", Type: "model", DisplayName: id})
+		}
+	}
 	mapping := a.GetModelMapping()
 	if a.IsOpenAIPassthroughEnabled() || len(mapping) == 0 {
 		return defaults

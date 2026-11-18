@@ -229,6 +229,7 @@
                 v-model="allowedModels"
                 :platforms="selectedPlatforms"
                 :account-type="modelAccountType"
+                :base-url="enableBaseUrl ? baseUrl : undefined"
               />
 
               <p class="text-xs text-gray-500 dark:text-gray-400">
@@ -987,7 +988,7 @@ const filteredPresets = computed(() => {
 
   const dedupedPresets = new Map<string, ReturnType<typeof getPresetMappingsByPlatform>[number]>()
   for (const platform of props.selectedPlatforms) {
-    for (const preset of getPresetMappingsByPlatform(platform, modelAccountType.value)) {
+    for (const preset of getPresetMappingsByPlatform(platform, modelAccountType.value, enableBaseUrl.value ? baseUrl.value : undefined)) {
       const key = `${preset.from}=>${preset.to}`
       if (!dedupedPresets.has(key)) {
         dedupedPresets.set(key, preset)

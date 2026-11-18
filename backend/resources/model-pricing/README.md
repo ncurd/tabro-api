@@ -67,4 +67,15 @@ Ultrafast is 3x Standard until March 1, 2027 at 00:00 Pacific, then 6x. The bill
 - https://developers.openai.com/api/docs/guides/latest-model
 - https://developers.openai.com/api/docs/guides/prompt-caching
 
+Qwen4-Max (`qwen4-max`, also looked up as `dashscope/qwen4-max` or `aliyun/qwen4-max`) has an explicit default USD price even when the remote mirror lacks the model. The default is the official Singapore/International standard rate per million tokens: input $1.50, output $4.50, 5-minute cache creation $1.875, 1-hour cache creation $3.00, and cache reads $0.075. Thinking and non-thinking use the same prices, including reasoning tokens in output. There is one input range, `0 < tokens <= 1,000,000`, with no long-context surcharge or automatic reasoning surcharge.
+
+These model-only defaults cannot detect the supplier's endpoint or account billing region. The international USD price table separately lists Beijing and Global (Hong Kong, Frankfurt, Virginia, Tokyo) rates of $1.413 input, $4.24 output, $1.767 for 5-minute cache creation, $2.827 for 1-hour cache creation, and $0.071 for cache reads, per million tokens. Set administrator or channel prices in USD when those region-specific rates are required. Chinese-site CNY prices are not used as USD prices, and subscription Credits or preview discounts are not converted into token rates. `qwen4-max-preview` and its `qwen4.0-max-preview` alias are Token Plan only and receive no inferred pay-as-you-go fallback.
+
+The international Qwen4-Max model detail documents a 1,000,000-token context. Its independent input limits are 991,808 without thinking and 983,616 with thinking; output limits are 131,072 without thinking and 262,144 combined thinking/answer tokens with thinking. The bundled pricing entry retains these largest independent input/output bounds; the separate Aliyun capability catalog supplies protocol admission limits. Limits published for another deployment or preview are not substituted for these international limits. Sources:
+
+- https://www.alibabacloud.com/help/en/model-studio/model-pricing
+- https://www.alibabacloud.com/help/en/model-studio/qwen4-max
+- https://www.alibabacloud.com/help/zh/model-studio/explicit-cache-qwen4
+- https://help.aliyun.com/en/model-studio/qwen4-max-preview
+
 Last updated: 2026-11-18

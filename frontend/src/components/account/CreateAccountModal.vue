@@ -976,7 +976,7 @@
 
             <!-- Whitelist Mode -->
             <div v-if="modelRestrictionMode === 'whitelist'">
-              <ModelWhitelistSelector v-model="allowedModels" :platform="form.platform" :account-type="form.type" />
+              <ModelWhitelistSelector v-model="allowedModels" :platform="form.platform" :account-type="form.type" :base-url="apiKeyBaseUrl" />
               <p class="text-xs text-gray-500 dark:text-gray-400">
                 {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
                 <span v-if="allowedModels.length === 0">{{
@@ -1641,7 +1641,7 @@
 
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
-            <ModelWhitelistSelector v-model="allowedModels" :platform="form.platform" :account-type="form.type" />
+            <ModelWhitelistSelector v-model="allowedModels" :platform="form.platform" :account-type="form.type" :base-url="apiKeyBaseUrl" />
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
               <span v-if="allowedModels.length === 0">{{
@@ -3248,7 +3248,7 @@ const geminiHelpLinks = {
 }
 
 // Computed: current preset mappings based on platform
-const presetMappings = computed(() => getPresetMappingsByPlatform(form.platform, form.type))
+const presetMappings = computed(() => getPresetMappingsByPlatform(form.platform, form.type, apiKeyBaseUrl.value))
 const tempUnschedPresets = computed(() => [
   {
     label: t('admin.accounts.tempUnschedulable.presets.overloadLabel'),
@@ -3343,7 +3343,7 @@ watch(
         .then(profiles => { tlsFingerprintProfiles.value = profiles.map(p => ({ id: p.id, name: p.name })) })
         .catch(() => { tlsFingerprintProfiles.value = [] })
       // Modal opened - fill related models
-      allowedModels.value = [...getModelsByPlatform(form.platform, form.type)]
+      allowedModels.value = [...getModelsByPlatform(form.platform, form.type, apiKeyBaseUrl.value)]
       // Antigravity: 默认使用映射模式并填充默认映射
       if (form.platform === 'antigravity') {
         antigravityModelRestrictionMode.value = 'mapping'
@@ -3487,10 +3487,20 @@ watch(
   [modelRestrictionMode, () => form.platform, () => form.type],
   ([newMode]) => {
     if (newMode === 'whitelist') {
-      allowedModels.value = [...getModelsByPlatform(form.platform, form.type)]
+      allowedModels.value = [...getModelsByPlatform(form.platform, form.type, apiKeyBaseUrl.value)]
     }
   }
 )
+
+// Follow a changed provider only while the selection is still the untouched
+// default list. Existing custom selections must survive edits to the base URL.
+watch(apiKeyBaseUrl, (baseUrl, previousBaseUrl) => {
+  if (form.type !== 'apikey' || modelRestrictionMode.value !== 'whitelist') return
+  const previousModels = getModelsByPlatform(form.platform, form.type, previousBaseUrl)
+  if (allowedModels.value.length === previousModels.length && allowedModels.value.every((model, index) => model === previousModels[index])) {
+    allowedModels.value = [...getModelsByPlatform(form.platform, form.type, baseUrl)]
+  }
+})
 
 watch(
   [antigravityModelRestrictionMode, () => form.platform],

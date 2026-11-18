@@ -20,8 +20,23 @@ import (
 )
 
 var (
-	openAIModelDatePattern          = regexp.MustCompile(`-\d{8}$`)
-	openAIModelBasePattern          = regexp.MustCompile(`^(gpt-\d+(?:\.\d+)?)(?:-|$)`)
+	openAIModelDatePattern = regexp.MustCompile(`-\d{8}$`)
+	openAIModelBasePattern = regexp.MustCompile(`^(gpt-\d+(?:\.\d+)?)(?:-|$)`)
+	// Qwen4-Max defaults to the published Singapore/International USD rates.
+	// Model-only lookups cannot infer a supplier endpoint's billing region.
+	// https://www.alibabacloud.com/help/en/model-studio/model-pricing
+	aliyunQwen4MaxFallbackPricing = &LiteLLMModelPricing{
+		MaxInputTokens:                      991808,
+		MaxOutputTokens:                     262144,
+		InputCostPerToken:                   1.5e-6,
+		OutputCostPerToken:                  4.5e-6,
+		CacheCreationInputTokenCost:         1.875e-6,
+		CacheCreationInputTokenCostAbove1hr: 3e-6,
+		CacheReadInputTokenCost:             0.075e-6,
+		LiteLLMProvider:                     "dashscope",
+		Mode:                                "chat",
+		SupportsPromptCaching:               true,
+	}
 	openAIGPT62AstraFallbackPricing = &LiteLLMModelPricing{
 		CacheCreationInputTokenCost12h:         20e-6,
 		CacheCreationInputTokenCost12hPriority: 40e-6,
@@ -1047,6 +1062,16 @@ func (s *PricingService) GetModelPricing(modelName string) *LiteLLMModelPricing 
 			return nil
 		}
 	}
+	if isAliyunQwen4MaxModel(modelLower) {
+		return aliyunQwen4MaxFallbackPricing
+	}
+	// Preview has no pay-as-you-go token rate. Do not infer its price, or an
+	// unpublished Qwen4 snapshot's price, from the production model.
+	for _, candidate := range lookupCandidates {
+		if strings.HasPrefix(candidate, "qwen4-max") || strings.HasPrefix(candidate, "qwen4.0-max") {
+			return nil
+		}
+	}
 
 	// 2. 处理常见的模型名称变体
 	// claude-opus-4-5-20251101 -> claude-opus-4.5-20251101
@@ -1102,6 +1127,16 @@ func (s *PricingService) GetModelPricing(modelName string) *LiteLLMModelPricing 
 	}
 
 	return nil
+}
+
+func isAliyunQwen4MaxModel(model string) bool {
+	model = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(model)), "models/")
+	switch model {
+	case "qwen4-max", "aliyun/qwen4-max", "dashscope/qwen4-max":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *PricingService) buildModelLookupCandidates(modelLower string) []string {

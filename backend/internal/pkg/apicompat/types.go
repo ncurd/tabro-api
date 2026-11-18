@@ -96,13 +96,55 @@ type AnthropicResponse struct {
 
 // AnthropicUsage holds token counts in Anthropic format.
 type AnthropicUsage struct {
-	InputTokens              int    `json:"input_tokens"`
-	OutputTokens             int    `json:"output_tokens"`
-	CacheCreationInputTokens int    `json:"cache_creation_input_tokens"`
-	CacheCreation30mTokens   int    `json:"cache_creation_30m_tokens,omitempty"`
-	CacheCreation12hTokens   int    `json:"cache_creation_12h_tokens,omitempty"`
-	CacheReadInputTokens     int    `json:"cache_read_input_tokens"`
-	Speed                    string `json:"speed,omitempty"`
+	InputTokens              int                     `json:"input_tokens"`
+	OutputTokens             int                     `json:"output_tokens"`
+	CacheCreationInputTokens int                     `json:"cache_creation_input_tokens"`
+	CacheCreation5mTokens    int                     `json:"-"`
+	CacheCreation1hTokens    int                     `json:"-"`
+	CacheCreation            *AnthropicCacheCreation `json:"cache_creation,omitempty"`
+	CacheCreation30mTokens   int                     `json:"cache_creation_30m_tokens,omitempty"`
+	CacheCreation12hTokens   int                     `json:"cache_creation_12h_tokens,omitempty"`
+	CacheReadInputTokens     int                     `json:"cache_read_input_tokens"`
+	Speed                    string                  `json:"speed,omitempty"`
+}
+
+// AnthropicCacheCreation is also used by Qwen Chat's cache_creation breakdown.
+// Its two fields are aliases of the corresponding OpenAI write TTL details,
+// not additional token quantities.
+type AnthropicCacheCreation struct {
+	Ephemeral5mInputTokens int `json:"ephemeral_5m_input_tokens"`
+	Ephemeral1hInputTokens int `json:"ephemeral_1h_input_tokens"`
+}
+
+func (u *AnthropicUsage) UnmarshalJSON(data []byte) error {
+	type wireUsage AnthropicUsage
+	var decoded wireUsage
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*u = AnthropicUsage(decoded)
+	if u.CacheCreation != nil {
+		u.CacheCreation5mTokens = u.CacheCreation.Ephemeral5mInputTokens
+		u.CacheCreation1hTokens = u.CacheCreation.Ephemeral1hInputTokens
+	}
+	u.CacheCreationInputTokens = cacheWriteTokensTotal(u.CacheCreationInputTokens, anthropicCacheWriteDetails(*u))
+	return nil
+}
+
+func (u AnthropicUsage) MarshalJSON() ([]byte, error) {
+	type wireUsage AnthropicUsage
+	encoded := wireUsage(u)
+	details := anthropicCacheWriteDetails(u)
+	if details != nil {
+		if details.TTL5mTokens != 0 || details.TTL1hTokens != 0 {
+			encoded.CacheCreation = &AnthropicCacheCreation{
+				Ephemeral5mInputTokens: details.TTL5mTokens,
+				Ephemeral1hInputTokens: details.TTL1hTokens,
+			}
+		}
+		encoded.CacheCreationInputTokens = cacheWriteTokensTotal(u.CacheCreationInputTokens, details)
+	}
+	return json.Marshal(encoded)
 }
 
 // ---------------------------------------------------------------------------
@@ -292,24 +334,39 @@ type ResponsesInputTokensDetails struct {
 	CacheWriteTokensDetails *CacheWriteTokensDetails `json:"cache_write_tokens_details,omitempty"`
 }
 
-// CacheWriteTokensDetails contains disjoint write counts for the two cache lifetimes.
+// CacheWriteTokensDetails contains disjoint write counts for supported lifetimes.
+// Qwen's 5m/1h fields remain separate from OpenAI's 30m/12h fields.
 type CacheWriteTokensDetails struct {
+	TTL5mTokens  int `json:"ttl_5m_tokens,omitempty"`
+	TTL1hTokens  int `json:"ttl_1h_tokens,omitempty"`
 	TTL30mTokens int `json:"ttl_30m_tokens"`
 	TTL12hTokens int `json:"ttl_12h_tokens"`
 }
 
 func cacheWriteTokensTotal(total int, details *CacheWriteTokensDetails) int {
-	if total == 0 && details != nil && details.TTL30mTokens+details.TTL12hTokens > 0 {
-		return details.TTL30mTokens + details.TTL12hTokens
+	if total == 0 && details != nil {
+		sum := details.TTL5mTokens + details.TTL1hTokens + details.TTL30mTokens + details.TTL12hTokens
+		if sum > 0 {
+			return sum
+		}
 	}
 	return total
 }
 
 func anthropicCacheWriteDetails(usage AnthropicUsage) *CacheWriteTokensDetails {
-	if usage.CacheCreation30mTokens == 0 && usage.CacheCreation12hTokens == 0 {
+	fiveMinutes, oneHour := usage.CacheCreation5mTokens, usage.CacheCreation1hTokens
+	if usage.CacheCreation != nil {
+		if fiveMinutes == 0 {
+			fiveMinutes = usage.CacheCreation.Ephemeral5mInputTokens
+		}
+		if oneHour == 0 {
+			oneHour = usage.CacheCreation.Ephemeral1hInputTokens
+		}
+	}
+	if fiveMinutes == 0 && oneHour == 0 && usage.CacheCreation30mTokens == 0 && usage.CacheCreation12hTokens == 0 {
 		return nil
 	}
-	return &CacheWriteTokensDetails{TTL30mTokens: usage.CacheCreation30mTokens, TTL12hTokens: usage.CacheCreation12hTokens}
+	return &CacheWriteTokensDetails{TTL5mTokens: fiveMinutes, TTL1hTokens: oneHour, TTL30mTokens: usage.CacheCreation30mTokens, TTL12hTokens: usage.CacheCreation12hTokens}
 }
 
 // ResponsesOutputTokensDetails breaks down output token usage.
@@ -471,9 +528,36 @@ type ChatUsage struct {
 
 // ChatTokenDetails provides a breakdown of token usage.
 type ChatTokenDetails struct {
-	CachedTokens            int                      `json:"cached_tokens,omitempty"`
-	CacheWriteTokens        int                      `json:"cache_write_tokens,omitempty"`
-	CacheWriteTokensDetails *CacheWriteTokensDetails `json:"cache_write_tokens_details,omitempty"`
+	CachedTokens             int                      `json:"cached_tokens,omitempty"`
+	CacheWriteTokens         int                      `json:"cache_write_tokens,omitempty"`
+	CacheWriteTokensDetails  *CacheWriteTokensDetails `json:"cache_write_tokens_details,omitempty"`
+	CacheCreationInputTokens int                      `json:"cache_creation_input_tokens,omitempty"`
+	CacheCreation            *AnthropicCacheCreation  `json:"cache_creation,omitempty"`
+}
+
+func (d *ChatTokenDetails) UnmarshalJSON(data []byte) error {
+	type wireDetails ChatTokenDetails
+	var decoded wireDetails
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*d = ChatTokenDetails(decoded)
+	if d.CacheCreation != nil {
+		if d.CacheWriteTokensDetails == nil {
+			d.CacheWriteTokensDetails = &CacheWriteTokensDetails{}
+		}
+		if d.CacheWriteTokensDetails.TTL5mTokens == 0 {
+			d.CacheWriteTokensDetails.TTL5mTokens = d.CacheCreation.Ephemeral5mInputTokens
+		}
+		if d.CacheWriteTokensDetails.TTL1hTokens == 0 {
+			d.CacheWriteTokensDetails.TTL1hTokens = d.CacheCreation.Ephemeral1hInputTokens
+		}
+	}
+	if d.CacheWriteTokens == 0 {
+		d.CacheWriteTokens = d.CacheCreationInputTokens
+	}
+	d.CacheWriteTokens = cacheWriteTokensTotal(d.CacheWriteTokens, d.CacheWriteTokensDetails)
+	return nil
 }
 
 // ChatCompletionsChunk is a single streaming chunk from POST /v1/chat/completions.
@@ -502,11 +586,3 @@ type ChatDelta struct {
 	ReasoningContent *string        `json:"reasoning_content,omitempty"`
 	ToolCalls        []ChatToolCall `json:"tool_calls,omitempty"`
 }
-
-// ---------------------------------------------------------------------------
-// Shared constants
-// ---------------------------------------------------------------------------
-
-// minMaxOutputTokens is the floor for max_output_tokens in a Responses request.
-// Very small values may cause upstream API errors, so we enforce a minimum.
-const minMaxOutputTokens = 128

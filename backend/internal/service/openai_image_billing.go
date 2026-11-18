@@ -15,6 +15,7 @@ func openAIUsageBillingTokens(usage OpenAIUsage) UsageTokens {
 		InputTokens:  max(usage.InputTokens-usage.CacheReadInputTokens-usage.CacheCreationInputTokens, 0),
 		OutputTokens: usage.OutputTokens, CacheReadTokens: usage.CacheReadInputTokens,
 		CacheCreationTokens: usage.CacheCreationInputTokens, ImageOutputTokens: usage.ImageOutputTokens,
+		CacheCreation5mTokens: usage.CacheCreation5mTokens, CacheCreation1hTokens: usage.CacheCreation1hTokens,
 		CacheCreation30mTokens: usage.CacheCreation30mTokens, CacheCreation12hTokens: usage.CacheCreation12hTokens,
 		ImageInputTokens: max(usage.ImageInputTokens-usage.CacheReadImageTokens, 0), CacheReadImageTokens: usage.CacheReadImageTokens,
 	}
@@ -25,6 +26,8 @@ func addOpenAIImageBilledUsage(total *OpenAIUsage, usage OpenAIUsage) {
 	total.OutputTokens += usage.OutputTokens
 	total.CacheReadInputTokens += usage.CacheReadInputTokens
 	total.CacheCreationInputTokens += usage.CacheCreationInputTokens
+	total.CacheCreation5mTokens += usage.CacheCreation5mTokens
+	total.CacheCreation1hTokens += usage.CacheCreation1hTokens
 	total.CacheCreation30mTokens += usage.CacheCreation30mTokens
 	total.CacheCreation12hTokens += usage.CacheCreation12hTokens
 	total.ImageInputTokens += usage.ImageInputTokens

@@ -163,6 +163,18 @@ func NewBillingService(cfg *config.Config, pricingService *PricingService) *Bill
 // initFallbackPricing 初始化硬编码回退价格（当动态价格不可用时使用）
 // 价格单位：USD per token（与LiteLLM格式一致）
 func (s *BillingService) initFallbackPricing() {
+	// Singapore/International standard USD rates, identical in both thinking
+	// modes across the documented 0 < input <= 1M range. Other billing regions
+	// can override these model-only defaults through administrator/channel prices.
+	s.fallbackPrices["qwen4-max"] = &ModelPricing{
+		InputPricePerToken:         1.5e-6,
+		OutputPricePerToken:        4.5e-6,
+		CacheCreationPricePerToken: 1.875e-6,
+		CacheReadPricePerToken:     0.075e-6,
+		CacheCreation5mPrice:       1.875e-6,
+		CacheCreation1hPrice:       3e-6,
+		SupportsCacheBreakdown:     true,
+	}
 	// Claude Opus 5.5: cache reads are 5% of the input rate.
 	s.fallbackPrices["claude-opus-5-5"] = &ModelPricing{
 		InputPricePerToken:         4e-6,
@@ -496,6 +508,9 @@ func (s *BillingService) initFallbackPricing() {
 // getFallbackPricing 根据模型系列获取回退价格
 func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	modelLower := strings.ToLower(model)
+	if isAliyunQwen4MaxModel(modelLower) {
+		return s.fallbackPrices["qwen4-max"]
+	}
 	if isGPTImage26Model(modelLower) {
 		return s.fallbackPrices[lastSegment(strings.TrimSpace(modelLower))]
 	}
@@ -871,12 +886,14 @@ func (s *BillingService) computeCacheCreationCost(pricing *ModelPricing, tokens 
 		return float64(total-writes12h)*cacheCreationPrice + float64(writes12h)*cacheCreation12hPrice
 	}
 	if pricing.SupportsCacheBreakdown && (pricing.CacheCreation5mPrice > 0 || pricing.CacheCreation1hPrice > 0) {
-		if tokens.CacheCreation5mTokens == 0 && tokens.CacheCreation1hTokens == 0 && tokens.CacheCreationTokens > 0 {
-			// API 未返回 ephemeral 明细，回退到全部按 5m 单价计费
-			return float64(tokens.CacheCreationTokens) * pricing.CacheCreation5mPrice
+		total := max(tokens.CacheCreationTokens, 0)
+		if total == 0 {
+			total = max(tokens.CacheCreation5mTokens, 0) + max(tokens.CacheCreation1hTokens, 0)
 		}
-		return float64(tokens.CacheCreation5mTokens)*pricing.CacheCreation5mPrice +
-			float64(tokens.CacheCreation1hTokens)*pricing.CacheCreation1hPrice
+		// The aggregate is authoritative. Missing TTL details use the short
+		// cache rate; malformed details cannot expand the aggregate or refund it.
+		writes1h := min(max(tokens.CacheCreation1hTokens, 0), total)
+		return float64(total-writes1h)*pricing.CacheCreation5mPrice + float64(writes1h)*pricing.CacheCreation1hPrice
 	}
 	return float64(tokens.CacheCreationTokens) * cacheCreationPrice
 }

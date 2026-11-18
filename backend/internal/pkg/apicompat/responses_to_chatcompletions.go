@@ -90,16 +90,28 @@ func ResponsesToChatCompletions(resp *ResponsesResponse, model string) *ChatComp
 		}
 		if resp.Usage.InputTokensDetails != nil &&
 			(resp.Usage.InputTokensDetails.CachedTokens > 0 || resp.Usage.InputTokensDetails.CacheWriteTokens > 0 || resp.Usage.InputTokensDetails.CacheWriteTokensDetails != nil) {
-			usage.PromptTokensDetails = &ChatTokenDetails{
-				CachedTokens:            resp.Usage.InputTokensDetails.CachedTokens,
-				CacheWriteTokens:        cacheWriteTokensTotal(resp.Usage.InputTokensDetails.CacheWriteTokens, resp.Usage.InputTokensDetails.CacheWriteTokensDetails),
-				CacheWriteTokensDetails: resp.Usage.InputTokensDetails.CacheWriteTokensDetails,
-			}
+			usage.PromptTokensDetails = responsesInputDetailsToChat(resp.Usage.InputTokensDetails)
 		}
 		out.Usage = usage
 	}
 
 	return out
+}
+
+func responsesInputDetailsToChat(details *ResponsesInputTokensDetails) *ChatTokenDetails {
+	converted := &ChatTokenDetails{
+		CachedTokens:            details.CachedTokens,
+		CacheWriteTokens:        cacheWriteTokensTotal(details.CacheWriteTokens, details.CacheWriteTokensDetails),
+		CacheWriteTokensDetails: details.CacheWriteTokensDetails,
+	}
+	if lifetimes := details.CacheWriteTokensDetails; lifetimes != nil && (lifetimes.TTL5mTokens != 0 || lifetimes.TTL1hTokens != 0) {
+		converted.CacheCreationInputTokens = converted.CacheWriteTokens
+		converted.CacheCreation = &AnthropicCacheCreation{
+			Ephemeral5mInputTokens: lifetimes.TTL5mTokens,
+			Ephemeral1hInputTokens: lifetimes.TTL1hTokens,
+		}
+	}
+	return converted
 }
 
 func responsesStatusToChatFinishReason(status string, details *ResponsesIncompleteDetails, toolCalls []ChatToolCall) string {
@@ -305,11 +317,7 @@ func resToChatHandleCompleted(evt *ResponsesStreamEvent, state *ResponsesEventTo
 			}
 			if u.InputTokensDetails != nil &&
 				(u.InputTokensDetails.CachedTokens > 0 || u.InputTokensDetails.CacheWriteTokens > 0 || u.InputTokensDetails.CacheWriteTokensDetails != nil) {
-				usage.PromptTokensDetails = &ChatTokenDetails{
-					CachedTokens:            u.InputTokensDetails.CachedTokens,
-					CacheWriteTokens:        cacheWriteTokensTotal(u.InputTokensDetails.CacheWriteTokens, u.InputTokensDetails.CacheWriteTokensDetails),
-					CacheWriteTokensDetails: u.InputTokensDetails.CacheWriteTokensDetails,
-				}
+				usage.PromptTokensDetails = responsesInputDetailsToChat(u.InputTokensDetails)
 			}
 			state.Usage = usage
 		}

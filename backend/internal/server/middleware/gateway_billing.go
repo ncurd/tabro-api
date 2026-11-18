@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -18,6 +19,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/tidwall/gjson"
+	"go.uber.org/zap"
 )
 
 // The coordinator is attached once during dependency construction, before any
@@ -31,6 +34,10 @@ func ProvideGatewayAuthMiddleware(keys *service.APIKeyService, subscriptions *se
 func gatewayBillingError(err error) (int, string, string) {
 	if message, tooLarge := gatewayRequestBodyLimitError(err); tooLarge {
 		return http.StatusRequestEntityTooLarge, "REQUEST_BODY_TOO_LARGE", message
+	}
+	var local *service.BillingRequestError
+	if errors.As(err, &local) {
+		return local.HTTPStatus(), string(local.Code), local.Message
 	}
 	if errors.Is(err, service.ErrUnsupportedGPT61SolReasoning) {
 		return 400, "INVALID_MODEL_REASONING", "GPT-6.1 Sol does not support this reasoning effort"
@@ -53,11 +60,53 @@ func gatewayBillingError(err error) (int, string, string) {
 	if errors.Is(err, bc.ErrConflict) {
 		return 409, "BILLING_CONFLICT", "Billing identity or operation conflicts with its frozen state"
 	}
-	return 503, "BILLING_CENTER_UNAVAILABLE", "Billing authorization is unavailable or this request is not supported"
+	return 503, "BILLING_CENTER_UNAVAILABLE", "Billing authorization is unavailable"
 }
 
-func prepareGatewayBilling(c *gin.Context, keys *service.APIKeyService, key *service.APIKey, principal *service.GatewayOIDCPrincipal, credential string) (func(), error) {
+// Only identifier-shaped model names belong in admission logs. Never log the
+// request body, credentials, proof, or arbitrary error strings here.
+func gatewayBillingLogModel(body []byte) string {
+	value := gjson.GetBytes(body, "model")
+	if value.Type != gjson.String || len(value.Str) == 0 || len(value.Str) > 200 {
+		return ""
+	}
+	for _, r := range value.Str {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("-._/:@", r) {
+			continue
+		}
+		return ""
+	}
+	return value.Str
+}
+
+func logGatewayBillingFailure(c *gin.Context, stage, model string, err error) {
+	status, code, _ := gatewayBillingError(err)
+	fields := []zap.Field{
+		zap.String("stage", stage), zap.String("method", c.Request.Method),
+		zap.String("path", c.Request.URL.Path), zap.String("model", model),
+		zap.String("error_code", code), zap.Int("http_status", status),
+		zap.String("error_type", fmt.Sprintf("%T", err)),
+	}
+	var local *service.BillingRequestError
+	if errors.As(err, &local) {
+		fields = append(fields, zap.String("reason", local.Message))
+	}
+	var remote *bc.RemoteError
+	if errors.As(err, &remote) {
+		fields = append(fields, zap.Int("authority_status", remote.Status),
+			zap.Bool("retryable", remote.Retryable), zap.Bool("unknown_outcome", remote.UnknownOutcome))
+	}
+	logger.FromContext(c.Request.Context()).Warn("gateway.billing.prepare_failed", fields...)
+}
+
+func prepareGatewayBilling(c *gin.Context, keys *service.APIKeyService, key *service.APIKey, principal *service.GatewayOIDCPrincipal, credential string) (finish func(), err error) {
 	noop := func() {}
+	stage, model := "connector", ""
+	defer func() {
+		if err != nil {
+			logGatewayBillingFailure(c, stage, model, err)
+		}
+	}()
 	if principal != nil && principal.SubjectProof != "" {
 		credential = principal.SubjectProof
 	}
@@ -69,6 +118,7 @@ func prepareGatewayBilling(c *gin.Context, keys *service.APIKeyService, key *ser
 	}
 	var binding *service.GatewayBillingCredential
 	if principal == nil {
+		stage = "credential_lookup"
 		var err error
 		binding, err = keys.GatewayBilling.Credential(c.Request.Context(), key.ID, key.UserID)
 		if err != nil {
@@ -79,6 +129,7 @@ func prepareGatewayBilling(c *gin.Context, keys *service.APIKeyService, key *ser
 			credential = ""
 		}
 	}
+	stage = "route_lookup"
 	route, err := keys.GatewayBilling.RouteForPrincipal(c.Request.Context(), key.UserID, principal)
 	if err != nil {
 		return noop, err
@@ -107,18 +158,23 @@ func prepareGatewayBilling(c *gin.Context, keys *service.APIKeyService, key *ser
 		}
 		return noop, nil
 	}
+	stage = "request_validation"
 	if c.Request.Method != "POST" || c.Request.Body == nil {
-		return noop, bc.ErrState
+		return noop, service.NewBillingRequestError(service.BillingRequestUnsupported, "Central billing requires a supported POST request with a body")
 	}
+	stage = "request_body"
 	body, err := readGatewayRequestBody(c)
 	if err != nil {
 		return noop, err
 	}
+	model = gatewayBillingLogModel(body)
 	if route.Mode == "central" {
+		stage = "gemini_bounds"
 		body, err = keys.GatewayBilling.BoundGeminiRequest(c.Request.URL.Path, body)
 		if err != nil {
 			return noop, err
 		}
+		stage = "text_bounds"
 		body, err = keys.GatewayBilling.BoundRequest(c.Request.URL.Path, body)
 		if err != nil {
 			return noop, err
@@ -136,6 +192,7 @@ func prepareGatewayBilling(c *gin.Context, keys *service.APIKeyService, key *ser
 		operationID = uuid.NewString()
 	}
 	var execution *bc.Execution
+	stage = "admission"
 	if service.IsBillingImagesPath(c.Request.URL.Path) {
 		execution, err = keys.GatewayBilling.PrepareImagesForKey(c.Request.Context(), *route, principal, credential, c.Request.URL.Path, operationID, body, c.GetHeader("Content-Type"), key, binding)
 	} else {
@@ -144,7 +201,7 @@ func prepareGatewayBilling(c *gin.Context, keys *service.APIKeyService, key *ser
 	if err != nil {
 		if route.Mode == "shadow" {
 			if auditErr := keys.GatewayBilling.ShadowFailure(c.Request.Context(), *route, operationID, service.HashUsageRequestPayload(body), "quote_failed"); auditErr != nil {
-				logger.LegacyPrintf("billing_center", "shadow failure audit unavailable: %v", auditErr)
+				logGatewayBillingFailure(c, "shadow_audit", model, auditErr)
 			}
 			return noop, nil
 		}
@@ -157,7 +214,7 @@ func prepareGatewayBilling(c *gin.Context, keys *service.APIKeyService, key *ser
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		if err := keys.GatewayBilling.Finish(ctx, execution); err != nil {
-			logger.LegacyPrintf("billing_center", "request reconciliation failed: %v", err)
+			logGatewayBillingFailure(c, "reconciliation", model, err)
 		}
 	}, nil
 }

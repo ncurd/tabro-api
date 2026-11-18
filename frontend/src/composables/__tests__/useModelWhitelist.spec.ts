@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import aliyunTextModels from '@/data/aliyunTextModels.json'
 
 vi.mock('@/api/admin/accounts', () => ({
   getAntigravityDefaultModelMapping: vi.fn()
@@ -11,6 +12,52 @@ import {
 } from '../useModelWhitelist'
 
 describe('useModelWhitelist', () => {
+  it.each([
+    'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+    'https://dashscope-us.aliyuncs.com/compatible-mode/v1',
+    'https://coding.dashscope.aliyuncs.com/v1',
+    'https://coding-intl.dashscope.aliyuncs.com/v1',
+    'https://dashscope.aliyuncs.cn/compatible-mode/v1',
+    'https://workspace-123.cn-beijing.maas.aliyuncs.com/compatible-mode/v1',
+    'https://workspace-123.cn-beijing.maas.aliyuncs.cn/compatible-mode/v1'
+  ])('offers the shared Aliyun text catalog for API keys at %s', baseUrl => {
+    expect(getModelsByPlatform('openai', 'apikey', baseUrl)).toEqual(aliyunTextModels)
+    expect(getModelsByPlatform('openai', 'apikey', baseUrl)).not.toContain('gpt-6.2-astra')
+    expect(getPresetMappingsByPlatform('openai', 'apikey', baseUrl).map(preset => preset.to)).toEqual(aliyunTextModels)
+  })
+
+  it('offers Qwen, GLM and DeepSeek for explicit Aliyun or Qwen catalogs', () => {
+    for (const platform of ['qwen', 'aliyun']) {
+      const models = getModelsByPlatform(platform)
+      expect(models).toEqual(aliyunTextModels)
+      for (const prefix of ['qwen', 'glm-', 'deepseek-']) expect(models.some(model => model.startsWith(prefix))).toBe(true)
+    }
+  })
+
+  it.each([
+    undefined, '', 'not-a-url', '/compatible-mode/v1',
+    'https://api.openai.com', 'https://compatible.example.com/v1',
+    'https://evil.example/dashscope.aliyuncs.com/compatible-mode/v1',
+    'https://dashscope.aliyuncs.com.evil.example/v1',
+    'https://dashscope.aliyuncs.com@evil.example/v1',
+    'https://fake-dashscope.aliyuncs.com/v1', 'ftp://dashscope.aliyuncs.com/v1',
+    'https://workspace-123.cn-beijing.maas.aliyuncs.com.evil.example/compatible-mode/v1',
+    'https://evil.example/workspace-123.cn-beijing.maas.aliyuncs.com/compatible-mode/v1',
+    'https://workspace-123.cn-beijing.fake-maas.aliyuncs.com/compatible-mode/v1'
+  ])('keeps the GPT catalog for ordinary or invalid compatible base URL %s', baseUrl => {
+    expect(getModelsByPlatform('openai', 'apikey', baseUrl)).toEqual(getModelsByPlatform('openai', 'apikey'))
+    expect(getPresetMappingsByPlatform('openai', 'apikey', baseUrl)).toEqual(getPresetMappingsByPlatform('openai', 'apikey'))
+  })
+
+  it('never changes OAuth or other platforms based on an Aliyun-looking base URL', () => {
+    const baseUrl = 'https://coding.dashscope.aliyuncs.com/v1'
+    expect(getModelsByPlatform('openai', 'oauth', baseUrl)).toEqual(getModelsByPlatform('openai', 'oauth'))
+    expect(getModelsByPlatform('anthropic', 'apikey', baseUrl)).toEqual(getModelsByPlatform('anthropic', 'apikey'))
+    expect(getModelsByPlatform('dashscope', 'apikey', baseUrl)).toEqual(getModelsByPlatform('dashscope', 'apikey'))
+    expect(getPresetMappingsByPlatform('openai', 'oauth', baseUrl)).toEqual(getPresetMappingsByPlatform('openai', 'oauth'))
+  })
+
   it('does not suggest retired OpenAI API models', () => {
     const models = getModelsByPlatform('openai', 'apikey')
     const presetTargets = getPresetMappingsByPlatform('openai', 'apikey').map(({ to }) => to)
@@ -56,12 +103,16 @@ describe('useModelWhitelist', () => {
       expect(getModelsByPlatform('mistral')).not.toContain(retired)
     }
     const qwenModels = getModelsByPlatform('qwen')
-    expect(qwenModels).toEqual(expect.arrayContaining(['qwen-turbo', 'qwen-max', 'qwen3-235b-a22b']))
+    expect(qwenModels).toEqual(expect.arrayContaining(['qwen4-max', 'qwen3.8-max', 'qwen3-coder-flash', 'qwen3-coder-next']))
     for (const retired of ['qwen-max-longcontext', 'qwen2-72b-instruct', 'qwen2.5-72b-instruct', 'qwen2.5-coder-32b-instruct', 'qwq-32b', 'qwq-32b-preview']) {
       expect(qwenModels).not.toContain(retired)
     }
-    expect(buildModelMappingObject('whitelist', ['qwen2.5-72b-instruct'], [])).toEqual({
-      'qwen2.5-72b-instruct': 'qwen2.5-72b-instruct'
+    expect(qwenModels).not.toContain('qwen3-235b-a22b')
+    expect(qwenModels).not.toContain('qwen3-coder-plus')
+    expect(buildModelMappingObject('whitelist', ['qwen2.5-72b-instruct', 'qwen3-235b-a22b', 'qwen3-coder-plus'], [])).toEqual({
+      'qwen2.5-72b-instruct': 'qwen2.5-72b-instruct',
+      'qwen3-235b-a22b': 'qwen3-235b-a22b',
+      'qwen3-coder-plus': 'qwen3-coder-plus'
     })
   })
 

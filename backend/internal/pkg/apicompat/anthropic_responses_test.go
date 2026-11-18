@@ -138,16 +138,36 @@ func TestAnthropicToResponses_ThinkingIgnored(t *testing.T) {
 	assert.Equal(t, "Hi!", parts[0].Text)
 }
 
-func TestAnthropicToResponses_MaxTokensFloor(t *testing.T) {
-	req := &AnthropicRequest{
-		Model:     "gpt-5.2",
-		MaxTokens: 10, // below minMaxOutputTokens (128)
-		Messages:  []AnthropicMessage{{Role: "user", Content: json.RawMessage(`"Hi"`)}},
+func TestAnthropicToResponses_MaxTokens(t *testing.T) {
+	tests := []struct {
+		name      string
+		maxTokens int
+	}{
+		{name: "one", maxTokens: 1},
+		{name: "small", maxTokens: 16},
+		{name: "below_old_floor", maxTokens: 127},
+		{name: "at_old_floor", maxTokens: 128},
+		{name: "above_old_floor", maxTokens: 1024},
+		{name: "omitted_or_zero"},
+		{name: "negative", maxTokens: -1},
 	}
-
-	resp, err := AnthropicToResponses(req)
-	require.NoError(t, err)
-	assert.Equal(t, 128, *resp.MaxOutputTokens)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := &AnthropicRequest{
+				Model:     "gpt-5.2",
+				MaxTokens: tt.maxTokens,
+				Messages:  []AnthropicMessage{{Role: "user", Content: json.RawMessage(`"Hi"`)}},
+			}
+			resp, err := AnthropicToResponses(req)
+			require.NoError(t, err)
+			if tt.maxTokens <= 0 {
+				assert.Nil(t, resp.MaxOutputTokens)
+				return
+			}
+			require.NotNil(t, resp.MaxOutputTokens)
+			assert.Equal(t, tt.maxTokens, *resp.MaxOutputTokens, "conversion must preserve the caller's output budget")
+		})
+	}
 }
 
 func TestResponsesToAnthropicRequest_ReasoningEffortCompatibility(t *testing.T) {

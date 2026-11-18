@@ -134,7 +134,7 @@
 
             <!-- Whitelist Mode -->
             <div v-if="modelRestrictionMode === 'whitelist'">
-              <ModelWhitelistSelector v-model="allowedModels" :platform="account?.platform || 'anthropic'" :account-type="account.type" />
+              <ModelWhitelistSelector v-model="allowedModels" :platform="account?.platform || 'anthropic'" :account-type="account.type" :base-url="editBaseUrl" />
               <p class="text-xs text-gray-500 dark:text-gray-400">
                 {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
                 <span v-if="allowedModels.length === 0">{{
@@ -449,7 +449,7 @@
 
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
-            <ModelWhitelistSelector v-model="allowedModels" :platform="account?.platform || 'anthropic'" :account-type="account.type" />
+            <ModelWhitelistSelector v-model="allowedModels" :platform="account?.platform || 'anthropic'" :account-type="account.type" :base-url="editBaseUrl" />
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
               <span v-if="allowedModels.length === 0">{{
@@ -2048,7 +2048,7 @@ const isOpenAIModelRestrictionDisabled = computed(() =>
 )
 
 // Computed: current preset mappings based on platform
-const presetMappings = computed(() => getPresetMappingsByPlatform(props.account?.platform || 'anthropic', props.account?.type))
+const presetMappings = computed(() => getPresetMappingsByPlatform(props.account?.platform || 'anthropic', props.account?.type, editBaseUrl.value))
 const tempUnschedPresets = computed(() => [
   {
     label: t('admin.accounts.tempUnschedulable.presets.overloadLabel'),

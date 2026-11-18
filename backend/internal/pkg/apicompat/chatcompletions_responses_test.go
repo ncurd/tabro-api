@@ -114,34 +114,40 @@ func TestChatCompletionsToResponses_ToolCalls(t *testing.T) {
 }
 
 func TestChatCompletionsToResponses_MaxTokens(t *testing.T) {
-	t.Run("max_tokens", func(t *testing.T) {
-		maxTokens := 100
-		req := &ChatCompletionsRequest{
-			Model:     "gpt-4o",
-			MaxTokens: &maxTokens,
-			Messages:  []ChatMessage{{Role: "user", Content: json.RawMessage(`"Hi"`)}},
-		}
-		resp, err := ChatCompletionsToResponses(req)
-		require.NoError(t, err)
-		require.NotNil(t, resp.MaxOutputTokens)
-		// Below minMaxOutputTokens (128), should be clamped
-		assert.Equal(t, minMaxOutputTokens, *resp.MaxOutputTokens)
-	})
-
-	t.Run("max_completion_tokens_preferred", func(t *testing.T) {
-		maxTokens := 100
-		maxCompletion := 500
-		req := &ChatCompletionsRequest{
-			Model:               "gpt-4o",
-			MaxTokens:           &maxTokens,
-			MaxCompletionTokens: &maxCompletion,
-			Messages:            []ChatMessage{{Role: "user", Content: json.RawMessage(`"Hi"`)}},
-		}
-		resp, err := ChatCompletionsToResponses(req)
-		require.NoError(t, err)
-		require.NotNil(t, resp.MaxOutputTokens)
-		assert.Equal(t, 500, *resp.MaxOutputTokens)
-	})
+	tests := []struct {
+		name    string
+		request string
+		want    int
+	}{
+		{name: "max_tokens_one", request: `{"max_tokens":1}`, want: 1},
+		{name: "max_tokens_small", request: `{"max_tokens":64}`, want: 64},
+		{name: "max_tokens_below_old_floor", request: `{"max_tokens":127}`, want: 127},
+		{name: "max_tokens_at_old_floor", request: `{"max_tokens":128}`, want: 128},
+		{name: "max_completion_tokens_small", request: `{"max_completion_tokens":16}`, want: 16},
+		{name: "max_completion_tokens_preferred", request: `{"max_tokens":100,"max_completion_tokens":500}`, want: 500},
+		{name: "smaller_max_completion_tokens_preferred", request: `{"max_tokens":500,"max_completion_tokens":64}`, want: 64},
+		{name: "omitted", request: `{}`},
+		{name: "null", request: `{"max_tokens":null,"max_completion_tokens":null}`},
+		{name: "zero", request: `{"max_tokens":0}`},
+		{name: "negative", request: `{"max_completion_tokens":-1}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := &ChatCompletionsRequest{
+				Model:    "gpt-4o",
+				Messages: []ChatMessage{{Role: "user", Content: json.RawMessage(`"Hi"`)}},
+			}
+			require.NoError(t, json.Unmarshal([]byte(tt.request), req))
+			resp, err := ChatCompletionsToResponses(req)
+			require.NoError(t, err)
+			if tt.want == 0 {
+				assert.Nil(t, resp.MaxOutputTokens)
+				return
+			}
+			require.NotNil(t, resp.MaxOutputTokens)
+			assert.Equal(t, tt.want, *resp.MaxOutputTokens, "conversion must preserve the caller's output budget")
+		})
+	}
 }
 
 func TestChatCompletionsToResponses_ReasoningEffort(t *testing.T) {

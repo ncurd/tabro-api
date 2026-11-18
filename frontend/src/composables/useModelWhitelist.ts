@@ -1,4 +1,5 @@
 import type { AccountType } from '@/types'
+import aliyunTextModels from '@/data/aliyunTextModels.json'
 
 // =====================
 // 模型列表（硬编码，与 new-api 一致）
@@ -124,10 +125,7 @@ const zhipuModels = [
 ]
 
 // 阿里 通义千问
-const qwenModels = [
-  'qwen-turbo', 'qwen-plus', 'qwen-max', 'qwen-long',
-  'qwen3-235b-a22b',
-]
+const qwenModels = aliyunTextModels
 
 // DeepSeek
 const deepseekModels = [
@@ -254,7 +252,7 @@ const allModelsList: string[] = [
 ]
 
 // 转换为下拉选项格式
-export const allModels = allModelsList.map(m => ({ value: m, label: m }))
+export const allModels = [...new Set(allModelsList)].map(m => ({ value: m, label: m }))
 
 // =====================
 // 预设映射
@@ -410,7 +408,18 @@ const retiredOpenAIOAuthModels = new Set([
 ])
 
 // 按平台和账号类型获取可选模型，不改写账号已有配置。
-export function getModelsByPlatform(platform: string, accountType?: AccountType): string[] {
+function isAliyunBaseUrl(baseUrl?: string): boolean {
+  if (!baseUrl) return false
+  try {
+    const url = new URL(baseUrl)
+    return ['https:', 'http:'].includes(url.protocol)
+      && (/^(?:coding(?:-intl)?\.)?dashscope(?:-intl|-us)?\.aliyuncs\.(?:com|cn)$/.test(url.hostname)
+        || /^(?:[a-z0-9-]+\.)*maas\.aliyuncs\.(?:com|cn)$/.test(url.hostname))
+  } catch { return false }
+}
+
+export function getModelsByPlatform(platform: string, accountType?: AccountType, baseUrl?: string): string[] {
+  if (platform === 'openai' && accountType === 'apikey' && isAliyunBaseUrl(baseUrl)) return aliyunTextModels
   switch (platform) {
     case 'openai': return accountType === 'oauth'
       ? openaiModels.filter(model => !retiredOpenAIOAuthModels.has(model))
@@ -424,7 +433,8 @@ export function getModelsByPlatform(platform: string, accountType?: AccountType)
     case 'gemini': return geminiModels
     case 'antigravity': return antigravityModels
     case 'zhipu': return zhipuModels
-    case 'qwen': return qwenModels
+    case 'qwen':
+    case 'aliyun': return qwenModels
     case 'deepseek': return deepseekModels
     case 'mistral': return mistralModels
     case 'meta': return metaModels
@@ -443,7 +453,11 @@ export function getModelsByPlatform(platform: string, accountType?: AccountType)
 }
 
 // 按平台获取预设映射
-export function getPresetMappingsByPlatform(platform: string, accountType?: AccountType) {
+export function getPresetMappingsByPlatform(platform: string, accountType?: AccountType, baseUrl?: string) {
+  if (platform === 'qwen' || platform === 'aliyun' || platform === 'openai' && accountType === 'apikey' && isAliyunBaseUrl(baseUrl)) {
+    return aliyunTextModels.map(model => ({ label: model, from: model, to: model,
+      color: 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-400' }))
+  }
   if (['dashscope', 'volcengine_ark', 'azure_speech'].includes(platform)) return []
   if (platform === 'bedrock' || accountType === 'bedrock') return bedrockPresetMappings
   if (platform === 'openai') return accountType === 'oauth'

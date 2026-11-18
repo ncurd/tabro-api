@@ -65,6 +65,7 @@ const ModelWhitelistSelectorStub = defineComponent({
   name: 'ModelWhitelistSelector',
   props: {
     accountType: String,
+    baseUrl: String,
     modelValue: {
       type: Array,
       default: () => []
@@ -135,6 +136,17 @@ function mountModal(account = buildAccount()) {
 }
 
 describe('EditAccountModal', () => {
+  it('passes the editable Aliyun base URL to model suggestions while retaining the saved whitelist', async () => {
+    const account = buildAccount()
+    account.credentials.base_url = 'https://coding.dashscope.aliyuncs.com/v1'
+    account.credentials.model_mapping = { 'my-qwen-alias': 'my-qwen-alias' }
+    const wrapper = mountModal(account)
+    await wrapper.setProps({ show: true })
+    expect(wrapper.findComponent(ModelWhitelistSelectorStub).props('baseUrl')).toBe(account.credentials.base_url)
+    expect(wrapper.get('[data-testid="model-whitelist-value"]').text()).toBe('my-qwen-alias')
+    wrapper.unmount()
+  })
+
   it('reopening the same account rehydrates the OpenAI whitelist from props', async () => {
     const account = buildAccount()
     updateAccountMock.mockReset()

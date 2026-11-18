@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/aliyun"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/gemini"
@@ -300,13 +301,7 @@ func pricingDefaultPlatformForGroup(groupPlatform string, accounts []Account) st
 
 func hasAliyunCompatibleBaseURL(accounts []Account) bool {
 	for i := range accounts {
-		baseURL := strings.ToLower(strings.TrimSpace(accounts[i].GetCredential("base_url")))
-		if baseURL == "" {
-			continue
-		}
-		if strings.Contains(baseURL, "dashscope") ||
-			strings.Contains(baseURL, "aliyuncs.com") ||
-			strings.Contains(baseURL, "alibabacloud.com") {
+		if accounts[i].Type != AccountTypeOAuth && aliyun.IsCompatibleBaseURL(accounts[i].GetCredential("base_url")) {
 			return true
 		}
 	}
@@ -327,51 +322,7 @@ func defaultModelIDsForPricingPlatform(platform string) []string {
 	case PlatformDashScope, PlatformVolcengineArk, PlatformAzureSpeech:
 		return DefaultMediaModels(strings.ToLower(strings.TrimSpace(platform)))
 	case "aliyun", "qwen":
-		return []string{
-			"qwen-turbo",
-			"qwen-plus",
-			"qwen-max",
-			"qwen-coder",
-			"qwq-plus",
-			"qwen3-coder-flash",
-			"qwen3-coder-plus",
-			"qwen3-max",
-			"qwen3-next-80b-a3b-instruct",
-			"qwen3-next-80b-a3b-thinking",
-			"qwen3-vl-plus",
-			"qwen3-vl-235b-a22b-instruct",
-			"qwen3-vl-32b-instruct",
-			"qwen3.5-plus",
-			"qwen3.6-plus",
-			"deepseek-chat",
-			"deepseek-reasoner",
-			"deepseek-v3",
-			"deepseek-v3.2",
-			"deepseek-r1",
-			"minimax-m2.5",
-			"minimax-m2.5-lightning",
-			"minimax-m2.1",
-			"minimax-m2.1-lightning",
-			"minimax-m2",
-			"llama-3.3-70b-instruct",
-			"llama-3.1-405b-instruct",
-			"llama-3.1-70b-instruct",
-			"llama-3.1-8b-instruct",
-			"llama-3-70b-instruct",
-			"llama-3-8b-instruct",
-			"kimi-latest",
-			"kimi-latest-128k",
-			"kimi-latest-32k",
-			"kimi-latest-8k",
-			"kimi-k2.5",
-			"kimi-k2-thinking",
-			"glm-4.5",
-			"glm-4.5-air",
-			"glm-4.5-flash",
-			"glm-4.6",
-			"glm-4.7",
-			"glm-5",
-		}
+		return aliyun.DefaultTextModelIDs()
 	case "meta", "llama":
 		return []string{
 			"llama-3.3-70b-instruct",
